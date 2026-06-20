@@ -1684,10 +1684,407 @@ func (tc *ToolCoordinator) findFrequentPartners(tool Tool) []PartnerInfo {
 │  └─────────────────────────────────────────────────────────┘    │
 │                          ↓                                      │
 │  ┌─────────────────────────────────────────────────────────┐    │
+│  │  复杂适应系统 CAS（霍兰德）—— 系统怎么学                  │    │
+│  │  - 积木块：成功策略可复用、可重组                         │    │
+│  │  - 内部模型：Agent 的认知模型持续更新                     │    │
+│  │  - 多样性：工具/策略多样性保障韧性                        │    │
+│  │  - 混沌边缘：秩序与随机之间的最佳探索区间                 │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
 │  │  Zhulong（工程实现）                                      │    │
 │  │  - 环境感知 + 反馈控制 + 信息优化 + 停滞突破 + 目标支配   │    │
 │  │  - 备选路径 + 稳定性保障 + 噪声对抗 + 探索触发 + 工具协同 │    │
 │  │  - 信息密度驱动的上下文管理 + 进展监控 + 序参量识别       │    │
+│  │  - 策略复用 + 认知模型更新 + 工具多样性 + 自适应学习      │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 2.10 复杂适应系统（CAS）基础
+
+> 霍兰德《隐秩序》(1995) 的核心思想应用于 Agent 系统设计
+> 与之前理论的核心区别：CAS 的主体是"活的"——能学习、记忆、主动调整策略
+
+### 2.10.1 核心洞察：Agent 是自适应主体
+
+**CAS 核心命题**：适应性造就复杂性。系统底层大量独立主体，通过持续学习、调整行为规则，不断演化出新结构。
+
+**Agent 映射**：
+
+| CAS 概念 | Agent 对应 | 实际意义 |
+|---------|-----------|---------|
+| 自适应主体 | Agent 本身 | 能学习、记忆、调整策略 |
+| 积木块 | 成功策略模板 | 可复用、可重组 |
+| 内部模型 | Agent 的认知 | 对世界/任务的理解 |
+| 混沌边缘 | 探索/利用平衡 | 不能太保守，也不能太随机 |
+
+### 2.10.2 积木块（Building Blocks）= 成功策略复用
+
+**霍兰德原话**：主体把过往有效行为拆解为可复用的基础规则单元（积木），通过重组积木产生全新行为模式。
+
+**Agent 映射**：当一个策略成功时，保存为"积木块"，未来遇到类似任务时直接复用或重组。
+
+```go
+// internal/learning/building_block.go
+
+package learning
+
+// BuildingBlock 积木块：可复用的策略单元
+type BuildingBlock struct {
+    ID          string
+    Name        string
+    Description string
+    Pattern     StrategyPattern  // 策略模式
+    Context     TaskContext      // 适用上下文
+    SuccessRate float64          // 历史成功率
+    UsageCount  int              // 使用次数
+    CreatedAt   time.Time
+    LastUsedAt  time.Time
+}
+
+// StrategyPattern 策略模式：描述策略的结构
+type StrategyPattern struct {
+    Steps       []StepTemplate   // 步骤模板
+    ToolsUsed   []string         // 使用的工具
+    KeyInsight  string           // 关键洞察
+    Conditions  []string         // 适用条件
+}
+
+// BuildingBlockStore 积木块存储
+type BuildingBlockStore struct {
+    blocks map[string]*BuildingBlock
+}
+
+// SaveBlock 保存成功的策略为积木块
+func (store *BuildingBlockStore) SaveBlock(strategy Strategy, result Result) error {
+    if !result.Success {
+        return nil // 失败的策略不保存
+    }
+
+    block := &BuildingBlock{
+        ID:          generateID(),
+        Name:        strategy.Name,
+        Description: strategy.Description,
+        Pattern:     extractPattern(strategy),
+        Context:     result.TaskContext,
+        SuccessRate: 1.0,
+        UsageCount:  1,
+        CreatedAt:   time.Now(),
+        LastUsedAt:  time.Now(),
+    }
+
+    store.blocks[block.ID] = block
+    return nil
+}
+
+// FindMatchingBlocks 查找匹配当前任务的积木块
+func (store *BuildingBlockStore) FindMatchingBlocks(task TaskContext) []*BuildingBlock {
+    matches := make([]*BuildingBlock, 0)
+
+    for _, block := range store.blocks {
+        similarity := calculateSimilarity(task, block.Context)
+        if similarity > 0.7 { // 相似度 > 70% 才匹配
+            matches = append(matches, block)
+        }
+    }
+
+    // 按成功率排序
+    sort.Slice(matches, func(i, j int) bool {
+        return matches[i].SuccessRate > matches[j].SuccessRate
+    })
+
+    return matches
+}
+
+// CombineBlocks 组合多个积木块产生新策略
+func (store *BuildingBlockStore) CombineBlocks(blocks []*BuildingBlock) *Strategy {
+    // 从多个积木块中提取最佳部分，组合成新策略
+    combined := &Strategy{
+        Name: "Combined Strategy",
+        Steps: make([]Step, 0),
+    }
+
+    for _, block := range blocks {
+        // 提取积木块的步骤模板
+        for _, step := range block.Pattern.Steps {
+            combined.Steps = append(combined.Steps, step.Instantiate())
+        }
+    }
+
+    return combined
+}
+```
+
+### 2.10.3 内部模型（Internal Model）= Agent 认知更新
+
+**霍兰德原话**：每个自适应主体内部自带一套简化认知模型，用来预测环境、预判其他主体行为。
+
+**Agent 映射**：Agent 应该有一个"认知模型"，记录对世界/任务的理解，并根据经验持续更新。
+
+```go
+// internal/learning/internal_model.go
+
+package learning
+
+// InternalModel 内部模型：Agent 的认知模型
+type InternalModel struct {
+    // 世界模型：对环境的理解
+    WorldModel WorldModel
+
+    // 任务模型：对任务类型的理解
+    TaskModel TaskModel
+
+    // 工具模型：对各工具能力的理解
+    ToolModel ToolModel
+
+    // 更新历史
+    Updates []ModelUpdate
+}
+
+// WorldModel 世界模型
+type WorldModel struct {
+    KnownFacts    map[string]Fact      // 已知事实
+    Assumptions   map[string]float64   // 假设及其置信度
+    LastUpdated   time.Time
+}
+
+// TaskModel 任务模型
+type TaskModel struct {
+    TaskPatterns  map[string]TaskPattern  // 已知任务模式
+    Strategies    map[string]Strategy     // 已知策略
+    LastUpdated   time.Time
+}
+
+// ToolModel 工具模型
+type ToolModel struct {
+    ToolCapabilities map[string]ToolCapability  // 工具能力
+    ToolReliability  map[string]float64         // 工具可靠性
+    ToolSynergies    map[string][]string        // 工具协同关系
+    LastUpdated      time.Time
+}
+
+// UpdateModel 根据经验更新认知模型
+func (model *InternalModel) UpdateModel(experience Experience) {
+    // 1. 更新世界模型
+    if experience.NewFact != nil {
+        model.WorldModel.KnownFacts[experience.NewFact.Key] = *experience.NewFact
+    }
+
+    // 2. 更新任务模型
+    if experience.TaskPattern != nil {
+        model.TaskModel.TaskPatterns[experience.TaskPattern.Name] = *experience.TaskPattern
+    }
+
+    // 3. 更新工具模型
+    if experience.ToolResult != nil {
+        model.ToolModel.ToolReliability[experience.ToolResult.Tool] =
+            model.updateReliability(experience.ToolResult)
+    }
+
+    // 4. 记录更新
+    model.Updates = append(model.Updates, ModelUpdate{
+        Timestamp:  time.Now(),
+        Experience: experience,
+    })
+}
+
+// Predict 根据认知模型预测结果
+func (model *InternalModel) Predict(action Action) Prediction {
+    // 使用内部模型预测行动的结果
+    return Prediction{
+        ExpectedOutcome: model.estimateOutcome(action),
+        Confidence:      model.estimateConfidence(action),
+        Risks:           model.identifyRisks(action),
+    }
+}
+```
+
+### 2.10.4 多样性（Diversity）= 工具/策略多样性
+
+**霍兰德原话**：主体不会同质化，持续分化出不同类型、不同生存策略的个体；多样性是系统韧性的根源。
+
+**Agent 映射**：保持工具和策略的多样性，避免过度依赖单一方法。
+
+```go
+// internal/learning/diversity.go
+
+package learning
+
+// DiversityManager 多样性管理器
+type DiversityManager struct {
+    toolUsage    map[string]int      // 工具使用次数
+    strategyUsage map[string]int     // 策略使用次数
+    diversityThreshold float64       // 多样性阈值
+}
+
+// CheckDiversity 检查多样性是否足够
+func (dm *DiversityManager) CheckDiversity() DiversityReport {
+    toolDiversity := dm.calculateDiversity(dm.toolUsage)
+    strategyDiversity := dm.calculateDiversity(dm.strategyUsage)
+
+    return DiversityReport{
+        ToolDiversity:     toolDiversity,
+        StrategyDiversity: strategyDiversity,
+        IsHealthy:         toolDiversity > dm.diversityThreshold &&
+                          strategyDiversity > dm.diversityThreshold,
+        Recommendations:   dm.generateRecommendations(),
+    }
+}
+
+// calculateDiversity 计算多样性指数（香农熵）
+func (dm *DiversityManager) calculateDiversity(usage map[string]int) float64 {
+    total := 0
+    for _, count := range usage {
+        total += count
+    }
+
+    if total == 0 {
+        return 0
+    }
+
+    entropy := 0.0
+    for _, count := range usage {
+        p := float64(count) / float64(total)
+        if p > 0 {
+            entropy -= p * math.Log2(p)
+        }
+    }
+
+    return entropy
+}
+
+// SuggestUnderused 建议使用较少的工具/策略
+func (dm *DiversityManager) SuggestUnderused() []string {
+    suggestions := make([]string, 0)
+
+    // 找出使用次数最少的工具
+    minUsage := math.MaxInt32
+    for _, count := range dm.toolUsage {
+        if count < minUsage {
+            minUsage = count
+        }
+    }
+
+    for tool, count := range dm.toolUsage {
+        if count == minUsage {
+            suggestions = append(suggestions, tool)
+        }
+    }
+
+    return suggestions
+}
+```
+
+### 2.10.5 混沌边缘 = 探索/利用平衡
+
+**霍兰德原话**：系统最佳演化区间：既不过度混乱，也不过度僵化；处于秩序与混沌中间地带时，创新、适应、涌现能力最强。
+
+**Agent 映射**：在"利用已知策略"和"探索新策略"之间保持平衡。
+
+```go
+// internal/learning/edge_of_chaos.go
+
+package learning
+
+// EdgeOfChaos 混沌边缘管理器
+// 核心思想：在"利用"和"探索"之间保持最佳平衡
+type EdgeOfChaos struct {
+    exploitationScore float64  // 利用分数（使用已知策略）
+    explorationScore  float64  // 探索分数（尝试新策略）
+    balance           float64  // 平衡点（0=纯利用，1=纯探索）
+}
+
+// CalculateBalance 计算最佳平衡点
+func (eoc *EdgeOfChaos) CalculateBalance(history []Experience) float64 {
+    // 如果最近成功率高，可以多探索
+    recentSuccess := eoc.calculateRecentSuccess(history)
+    if recentSuccess > 0.8 {
+        // 成功率高，增加探索
+        return 0.6 // 60% 探索，40% 利用
+    }
+
+    // 如果最近成功率低，应该多利用
+    if recentSuccess < 0.4 {
+        // 成功率低，增加利用
+        return 0.3 // 30% 探索，70% 利用
+    }
+
+    // 中间状态，保持平衡
+    return 0.5
+}
+
+// ShouldExplore 是否应该探索
+func (eoc *EdgeOfChaos) ShouldExplore() bool {
+    // 根据平衡点决定是否探索
+    return rand.Float64() < eoc.balance
+}
+
+// GetExplorationTemperature 获取探索温度
+func (eoc *EdgeOfChaos) GetExplorationTemperature() float64 {
+    // 平衡点越高，温度越高（更多随机性）
+    return 0.5 + eoc.balance*0.5 // 0.5-1.0
+}
+```
+
+### 2.10.6 六论融合：完整理论框架
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                Zhulong 理论基础（六论融合）                        │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  一般系统论（贝塔朗菲）—— 系统是什么                      │    │
+│  │  - 开放系统：Agent 与环境持续交互                         │    │
+│  │  - 等终极性：多路径达成目标                               │    │
+│  │  - 动态稳态：目标可演化，核心稳定                         │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  工程控制论（钱学森）—— 系统怎么控                        │    │
+│  │  - 负反馈：误差驱动修正                                   │    │
+│  │  - 稳定性：振荡/发散检测                                  │    │
+│  │  - 最优控制：性能指标驱动                                 │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  信息论（香农）—— 信息怎么传                              │    │
+│  │  - 信息增益：工具选择优化                                 │    │
+│  │  - 信息密度：上下文压缩优化                               │    │
+│  │  - 噪声处理：LLM 不确定性应对                             │    │
+│  │  - 冗余管理：区分可压缩 vs 必要冗余                       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  耗散结构理论（普利高津）—— 系统怎么活                    │    │
+│  │  - 负熵流：持续信息输入维持进展                           │    │
+│  │  - 涨落探索：停滞时增加随机性突破                         │    │
+│  │  - 动态有序：进展需要持续"能量"维持                       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  协同学（哈肯）—— 系统怎么协同                           │    │
+│  │  - 序参量：识别驱动系统的慢变量（目标/策略）               │    │
+│  │  - 役使原理：目标/策略支配所有行动                        │    │
+│  │  - 自组织协调：工具间自发配合                             │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  复杂适应系统 CAS（霍兰德）—— 系统怎么学                  │    │
+│  │  - 积木块：成功策略可复用、可重组                         │    │
+│  │  - 内部模型：Agent 的认知模型持续更新                     │    │
+│  │  - 多样性：工具/策略多样性保障韧性                        │    │
+│  │  - 混沌边缘：秩序与随机之间的最佳探索区间                 │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Zhulong（工程实现）                                      │    │
+│  │  - 环境感知 + 反馈控制 + 信息优化 + 停滞突破 + 目标支配   │    │
+│  │  - 备选路径 + 稳定性保障 + 噪声对抗 + 探索触发 + 工具协同 │    │
+│  │  - 信息密度驱动的上下文管理 + 进展监控 + 序参量识别       │    │
+│  │  - 策略复用 + 认知模型更新 + 工具多样性 + 自适应学习      │    │
 │  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -3332,6 +3729,12 @@ zhulong/
 │   │   ├── order_parameter.go      # 序参量识别（目标/策略层级）
 │   │   ├── slaving.go              # 役使原理（目标支配行动）
 │   │   └── coordination.go         # 工具间自组织协调
+│   │
+│   ├── learning/                   # 自适应学习模块（CAS·霍兰德）
+│   │   ├── building_block.go       # 积木块：成功策略复用
+│   │   ├── internal_model.go       # 内部模型：Agent 认知更新
+│   │   ├── diversity.go            # 多样性：工具/策略多样性管理
+│   │   └── edge_of_chaos.go        # 混沌边缘：探索/利用平衡
 │   │
 │   ├── memory/                     # 三层记忆系统
 │   │   ├── interfaces.go           # MemoryReader / MemoryWriter 接口
