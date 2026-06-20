@@ -1,0 +1,1808 @@
+# Zhulong（烛龙） 详细设计文档
+
+> 版本: v0.1-draft
+> 日期: 2026-06-20
+> 语言: Go
+> 状态: 设计阶段
+
+---
+
+## 1. 项目定位
+
+Zhulong（烛龙） 是一个**通用自主循环 Agent 框架**，核心特性：
+
+- **自主多轮循环**：规划 → 执行 → 反省 → 重新规划，无需每轮人工触发
+- **高效上下文管理**：融合 Reasonix 工具结果裁剪 + Ailoom 骨架压缩，最大化 LLM prefix-cache 命中率
+- **生产级可靠性**：检查点恢复、成本控制、人机协作断点、完整可观测性
+
+### 1.1 设计目标
+
+| 目标 | 说明 |
+|------|------|
+| 通用性 | 不绑定特定场景（编程/写作/数据分析），通过工具和 prompt 定制 |
+| 高缓存命中率 | 保持 Reasonix 的 prefix-cache 优化水平，上下文布局只追加不重写 |
+| 崩溃可恢复 | 任意时刻中断都能从最近检查点恢复 |
+| 成本可控 | 多层预算机制，防止无限循环烧 token |
+| 可观测 | 完整 trace，每步决策可追溯 |
+| 多模型 | 不绑定 DeepSeek，支持 OpenAI / Anthropic / 任意 OpenAI 兼容 API |
+
+### 1.2 参考项目
+
+| 项目 | 借鉴内容 |
+|------|---------|
+| [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) | MCP 工具层、确定性工具结果裁剪、prefix-cache 优化、配置管理 |
+| [Ailoom-Context](https://github.com/EvanLyu-oss/Ailoom-Context) | 骨架压缩策略、焦点模式、增量压缩、无损恢复思路 |
+
+---
+
+## 2. 整体架构
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                          Zhulong（烛龙）                               │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │                     Controller                            │    │
+│  │                                                           │    │
+│  │   ┌────────┐    ┌────────┐    ┌──────────┐    ┌────────┐ │    │
+│  │   │Planner │───→│Executor│───→│ Reflector│───→│RePlanner│ │    │
+│  │   └───▲────┘    └────────┘    └─────┬────┘    └───┬────┘ │    │
+│  │       │                             │             │       │    │
+│  │       └─────────────┬───────────────┘             │       │    │
+│  │                     ▼                             │       │    │
+│  │              ┌─────────────┐                      │       │    │
+│  │              │   Goal FSM  │◄─────────────────────┘       │    │
+│  │              │   目标状态机  │                              │    │
+│  │              └──────┬──────┘                              │    │
+│  └─────────────────────┼──────────────────────────────────────┘    │
+│                        │                                          │
+│  ┌─────────────────────┼──────────────────────────────────────┐    │
+│  │                     ▼           Infrastructure             │    │
+│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────┐│    │
+│  │  │   Memory   │ │ Compressor │ │   Tools    │ │Checkpoint││    │
+│  │  │  三层记忆   │ │  上下文压缩 │ │  工具抽象层 │ │  检查点  ││    │
+│  │  └────────────┘ └────────────┘ └────────────┘ └──────────┘│    │
+│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────┐│    │
+│  │  │   Budget   │ │   Trace    │ │   Human    │ │Scheduler ││    │
+│  │  │  成本控制   │ │  可观测性   │ │  人机协作   │ │ 并行调度  ││    │
+│  │  └────────────┘ └────────────┘ └────────────┘ └──────────┘│    │
+│  └────────────────────────────────────────────────────────────┘    │
+│                                                                    │
+│  ┌────────────────────────────────────────────────────────────┐    │
+│  │                    Providers 接口层                         │    │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │    │
+│  │  │  LLM Provider│  │  MCP Client  │  │ Custom Tools │     │    │
+│  │  │  多模型适配    │  │  工具协议     │  │  自定义工具   │     │    │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘     │    │
+│  └────────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. 核心模块设计
+
+### 3.1 Controller — 状态机驱动的循环控制
+
+Controller 是 Zhulong（烛龙） 的大脑，通过有限状态机（FSM）驱动整个循环。
+
+#### 3.1.1 状态定义
+
+```go
+// internal/controller/state.go
+
+package controller
+
+type LoopState int
+
+const (
+    StateIdle          LoopState = iota // 空闲，等待目标输入
+    StatePlanning                        // 规划中：调用 Planner 生成计划
+    StateExecuting                       // 执行中：调用 Executor 执行当前步骤
+    StateReflecting                      // 反省中：调用 Reflector 评估执行结果
+    StateReplanning                      // 重规划中：根据反省结果调整计划
+    StateWaitingHuman                    // 等待人工确认/输入
+    StateDone                            // 正常完成
+    StateError                           // 出错终止
+    StateCancelled                       // 用户取消
+)
+```
+
+#### 3.1.2 状态转移规则
+
+```
+                  ┌──────────────────────────────────────┐
+                  │                                      │
+                  ▼                                      │
+  ┌──────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐ │
+  │ Idle │──→│ Planning │──→│Executing │──→│Reflecting│ │
+  └──────┘   └──────────┘   └──────────┘   └─────┬────┘ │
+                  ▲                               │      │
+                  │          ┌──────────┐         │      │
+                  └──────────│Replanning│◄────────┘      │
+                             └──────────┘                │
+                                   │                     │
+                                   │ (目标完成)           │
+                                   ▼                     │
+                             ┌──────────┐                │
+                             │   Done   │                │
+                             └──────────┘                │
+                                                         │
+  任意状态 ──→ WaitingHuman ──→ (恢复) ───────────────────┘
+  任意状态 ──→ Error / Cancelled
+```
+
+**转移条件表：**
+
+| 当前状态 | 下一状态 | 触发条件 |
+|---------|---------|---------|
+| Idle | Planning | 收到目标（Goal）|
+| Planning | Executing | 计划生成成功 |
+| Planning | Error | LLM 调用失败 / 生成无效计划 |
+| Executing | Reflecting | 当前步骤执行完成 |
+| Executing | Executing | 当前步骤完成，还有下一步（并行场景）|
+| Executing | Error | 工具调用失败 / 超时 |
+| Reflecting | Done | Reflector 判定目标完成 |
+| Reflecting | Replanning | Reflector 判定需要调整计划 |
+| Reflecting | Executing | Reflector 判定继续执行下一步 |
+| Reflecting | Error | Reflector 判定目标无法完成 |
+| Replanning | Executing | 新计划生成成功 |
+| Replanning | Error | 重规划失败 |
+| 任意 | WaitingHuman | 命中人工断点 / 成本超限 |
+| 任意 | Cancelled | 用户主动取消 |
+
+#### 3.1.3 核心循环实现
+
+```go
+// internal/controller/loop.go
+
+package controller
+
+import (
+    "context"
+    "fmt"
+    "time"
+
+    "zhulong/internal/budget"
+    "zhulong/internal/checkpoint"
+    "zhulong/internal/trace"
+)
+
+type LoopConfig struct {
+    MaxLoops    int           // 最大循环次数，默认 50
+    MaxTokens   int           // 最大 token 消耗
+    MaxCost     float64       // 最大费用（元）
+    MaxWallTime time.Duration // 最大运行时间
+    CheckpointEvery int       // 每 N 次状态转移保存一次检查点
+}
+
+type LoopResult struct {
+    FinalState LoopState
+    Answer     string        // 最终输出
+    Trace      trace.TraceLog
+    Stats      LoopStats
+}
+
+type LoopStats struct {
+    TotalLoops    int
+    TotalTokens   int
+    TotalCost     float64
+    TotalDuration time.Duration
+    PlanChanges   int         // 重规划次数
+}
+
+// Run 是主循环入口
+func (c *Controller) Run(ctx context.Context, goal string, opts ...RunOption) (*LoopResult, error) {
+    // 1. 初始化
+    session := c.newSession(goal)
+    c.budget.Reset()
+    c.trace.Start(session.ID)
+
+    // 2. 检查是否有未完成的检查点
+    if cp, err := c.checkpoint.LoadLatest(); err == nil && cp != nil {
+        session = c.restoreFromCheckpoint(cp)
+        c.trace.Log("checkpoint_restored", cp.ID)
+    }
+
+    // 3. 主循环
+    for {
+        // 3.1 检查 context 取消
+        select {
+        case <-ctx.Done():
+            session.State = StateCancelled
+            return c.finalize(session)
+        default:
+        }
+
+        // 3.2 检查预算
+        if c.budget.IsExceeded() {
+            session.State = StateWaitingHuman
+            c.trace.Log("budget_exceeded", c.budget.Summary())
+            return c.finalize(session)
+        }
+
+        // 3.3 状态转移
+        switch session.State {
+        case StateIdle:
+            session.State = StatePlanning
+
+        case StatePlanning:
+            plan, err := c.planner.Plan(ctx, session.Goal, session.Memory)
+            if err != nil {
+                session.State = StateError
+                session.Error = err
+                break
+            }
+            session.Plan = plan
+            session.CurrentStep = 0
+            session.State = StateExecuting
+            c.trace.Log("plan_created", plan)
+
+        case StateExecuting:
+            if session.CurrentStep >= len(session.Plan.Steps) {
+                // 所有步骤执行完毕，进入反省
+                session.State = StateReflecting
+                break
+            }
+
+            step := session.Plan.Steps[session.CurrentStep]
+            result, err := c.executor.Execute(ctx, step, session.Memory)
+            if err != nil {
+                session.State = StateError
+                session.Error = err
+                break
+            }
+
+            session.Memory.AddStepResult(step, result)
+            session.CurrentStep++
+            c.budget.Consume(result.TokensUsed)
+            c.trace.Log("step_executed", step.ID, result)
+
+            // 检查是否需要人工介入
+            if c.human.ShouldPause(step, result) {
+                session.State = StateWaitingHuman
+                break
+            }
+
+            session.State = StateReflecting
+
+        case StateReflecting:
+            assessment, err := c.reflector.Reflect(ctx, session.Goal, session.Plan, session.Memory)
+            if err != nil {
+                session.State = StateError
+                session.Error = err
+                break
+            }
+
+            session.Memory.AddAssessment(assessment)
+            c.trace.Log("reflected", assessment)
+
+            switch assessment.Decision {
+            case DecisionComplete:
+                session.State = StateDone
+            case DecisionContinue:
+                session.State = StateExecuting
+            case DecisionReplan:
+                session.State = StateReplanning
+            case DecisionFail:
+                session.State = StateError
+                session.Error = fmt.Errorf("reflector判定失败: %s", assessment.Reason)
+            }
+
+        case StateReplanning:
+            newPlan, err := c.planner.Replan(ctx, session.Goal, session.Plan, session.Memory)
+            if err != nil {
+                session.State = StateError
+                session.Error = err
+                break
+            }
+            session.Plan = newPlan
+            session.CurrentStep = 0
+            session.PlanChanges++
+            session.State = StateExecuting
+            c.trace.Log("replanned", newPlan)
+
+        case StateWaitingHuman:
+            // 阻塞等待人工输入
+            input, err := c.human.WaitForInput(ctx, session)
+            if err != nil {
+                session.State = StateError
+                session.Error = err
+                break
+            }
+            // 根据人工输入恢复状态
+            session = c.resumeFromHuman(session, input)
+            c.trace.Log("human_resumed", input)
+
+        case StateDone, StateError, StateCancelled:
+            return c.finalize(session)
+        }
+
+        // 3.4 保存检查点
+        if c.shouldCheckpoint(session) {
+            c.checkpoint.Save(session.ToCheckpoint())
+        }
+    }
+}
+```
+
+#### 3.1.4 检查点恢复逻辑
+
+```go
+// internal/checkpoint/store.go
+
+type Checkpoint struct {
+    ID          string
+    SessionID   string
+    State       controller.LoopState
+    Goal        string
+    Plan        *Plan
+    CurrentStep int
+    Memory      MemorySnapshot
+    BudgetUsed  BudgetSnapshot
+    CreatedAt   time.Time
+}
+
+// 持久化到本地文件（JSON 或 SQLite）
+type Store interface {
+    Save(cp *Checkpoint) error
+    LoadLatest() (*Checkpoint, error)
+    LoadByID(id string) (*Checkpoint, error)
+    List(sessionID string) ([]Checkpoint, error)
+    Delete(id string) error
+}
+
+// 文件存储实现
+type FileStore struct {
+    dir string
+}
+
+func (fs *FileStore) Save(cp *Checkpoint) error {
+    data, _ := json.Marshal(cp)
+    path := filepath.Join(fs.dir, cp.SessionID, fmt.Sprintf("%s.json", cp.ID))
+    return os.WriteFile(path, data, 0644)
+}
+```
+
+---
+
+### 3.2 Planner — 规划器
+
+负责将用户目标分解为可执行的步骤序列。
+
+#### 3.2.1 接口定义
+
+```go
+// internal/planner/planner.go
+
+package planner
+
+import (
+    "context"
+)
+
+type Planner interface {
+    // Plan 根据目标和当前记忆生成初始计划
+    Plan(ctx context.Context, goal string, memory MemoryReader) (*Plan, error)
+
+    // Replan 根据反省结果调整计划
+    Replan(ctx context.Context, goal string, currentPlan *Plan, memory MemoryReader) (*Plan, error)
+}
+
+type Plan struct {
+    ID          string
+    Steps       []Step
+    Rationale   string    // 为什么这样规划
+    Estimated   Estimate  // 预估成本
+    CreatedAt   time.Time
+}
+
+type Step struct {
+    ID          string
+    Description string
+    Action      Action     // 要执行的动作
+    DependsOn   []string   // 依赖的步骤 ID
+    Parallel    bool       // 是否可并行
+    Breakpoint  bool       // 是否需要执行前人工确认
+}
+
+type Action struct {
+    Type    string                 // "tool_call" | "llm_generate" | "human_input"
+    Tool    string                 // 工具名称（tool_call 类型时）
+    Params  map[string]interface{} // 工具参数
+    Prompt  string                 // LLM 提示（llm_generate 类型时）
+}
+
+type Estimate struct {
+    TokenEstimate int
+    CostEstimate  float64
+    DurationEst   time.Duration
+}
+```
+
+#### 3.2.2 Planner Prompt 设计
+
+```go
+// internal/planner/prompts.go
+
+var planSystemPrompt = `你是一个任务规划器。你的职责是将用户目标分解为清晰、可执行的步骤。
+
+## 输出格式
+返回 JSON 格式的计划，包含：
+- steps: 步骤列表，每个步骤包含 id, description, action, depends_on, parallel
+- rationale: 规划理由
+
+## 规划原则
+1. 每个步骤应该是原子的、可独立验证的
+2. 明确标注步骤间的依赖关系
+3. 无依赖的步骤标记 parallel=true
+4. 涉及高风险操作（删除、发送、公开）的步骤标记 breakpoint=true
+5. 控制总步骤数在合理范围内（默认 3-15 步）
+6. 第一步通常是"收集信息/理解上下文"
+
+## 可用工具
+{{.AvailableTools}}
+
+## 当前上下文
+{{.MemorySummary}}`
+
+var replanSystemPrompt = `你是一个任务重规划器。根据执行历史和反省结果，调整当前计划。
+
+## 当前计划
+{{.CurrentPlan}}
+
+## 执行历史
+{{.ExecutionHistory}}
+
+## 反省结论
+{{.Assessment}}
+
+## 重规划原则
+1. 保留已完成且成功的步骤
+2. 修复失败步骤的策略
+3. 根据新发现调整后续步骤
+4. 如果原计划方向错误，可以大幅调整，但要说明理由
+5. 避免重复已完成的工作`
+```
+
+#### 3.2.3 LLM 调用与解析
+
+```go
+// internal/planner/llm_planner.go
+
+package planner
+
+type LLMPlanner struct {
+    provider provider.LLMProvider
+    config   PlannerConfig
+}
+
+type PlannerConfig struct {
+    Model          string  // 使用的模型
+    MaxSteps       int     // 单次计划最大步骤数
+    Temperature    float64
+    JSONMode       bool    // 强制 JSON 输出
+}
+
+func (p *LLMPlanner) Plan(ctx context.Context, goal string, memory MemoryReader) (*Plan, error) {
+    // 1. 构建 prompt
+    prompt := p.buildPlanPrompt(goal, memory)
+
+    // 2. 调用 LLM
+    resp, err := p.provider.Chat(ctx, &provider.Request{
+        Model: p.config.Model,
+        Messages: []provider.Message{
+            {Role: "system", Content: planSystemPrompt},
+            {Role: "user", Content: prompt},
+        },
+        Temperature: p.config.Temperature,
+        JSONMode:    p.config.JSONMode,
+    })
+    if err != nil {
+        return nil, fmt.Errorf("planner LLM call failed: %w", err)
+    }
+
+    // 3. 解析 JSON 输出
+    plan, err := p.parsePlan(resp.Content)
+    if err != nil {
+        return nil, fmt.Errorf("failed to parse plan: %w", err)
+    }
+
+    // 4. 校验计划合法性
+    if err := p.validatePlan(plan); err != nil {
+        return nil, fmt.Errorf("invalid plan: %w", err)
+    }
+
+    return plan, nil
+}
+```
+
+---
+
+### 3.3 Executor — 执行器
+
+负责执行计划中的单个步骤。
+
+#### 3.3.1 接口定义
+
+```go
+// internal/executor/executor.go
+
+package executor
+
+import (
+    "context"
+)
+
+type Executor interface {
+    // Execute 执行单个步骤，返回结果
+    Execute(ctx context.Context, step Step, memory MemoryReader) (*StepResult, error)
+}
+
+type StepResult struct {
+    StepID      string
+    Success     bool
+    Output      string                 // 执行输出
+    ToolCalls   []ToolCallRecord       // 工具调用记录
+    TokensUsed  int                    // 本步骤消耗的 token
+    Duration    time.Duration
+    Error       error                  // 如果失败，错误信息
+}
+
+type ToolCallRecord struct {
+    ToolName   string
+    Input      map[string]interface{}
+    Output     string
+    Duration   time.Duration
+    Prunable   bool   // 结果是否可裁剪（Reasonix 策略）
+    CacheKey   string // 用于判断是否可重新获取
+}
+```
+
+#### 3.3.2 执行流程
+
+```go
+// 执行一个步骤的完整流程
+
+func (e *LLMExecutor) Execute(ctx context.Context, step Step, memory MemoryReader) (*StepResult, error) {
+    startTime := time.Now()
+
+    switch step.Action.Type {
+    case "tool_call":
+        return e.executeToolCall(ctx, step, memory)
+    case "llm_generate":
+        return e.executeLLMGenerate(ctx, step, memory)
+    case "human_input":
+        return e.executeHumanInput(ctx, step, memory)
+    default:
+        return nil, fmt.Errorf("unknown action type: %s", step.Action.Type)
+    }
+}
+
+func (e *LLMExecutor) executeToolCall(ctx context.Context, step Step, memory MemoryReader) (*StepResult, error) {
+    // 1. 解析工具名称和参数
+    toolName := step.Action.Tool
+    params := step.Action.Params
+
+    // 2. 查找工具
+    tool, err := e.toolRegistry.Get(toolName)
+    if err != nil {
+        return &StepResult{StepID: step.ID, Success: false, Error: err}, nil
+    }
+
+    // 3. 执行工具
+    output, err := tool.Call(ctx, params)
+    if err != nil {
+        return &StepResult{StepID: step.ID, Success: false, Error: err}, nil
+    }
+
+    // 4. 记录工具调用（用于后续 Reasonix 裁剪决策）
+    record := ToolCallRecord{
+        ToolName: toolName,
+        Input:    params,
+        Output:   output,
+        Prunable: tool.IsPrunable(), // 工具是否支持结果裁剪
+        CacheKey: tool.CacheKey(params), // 用于判断重新获取的可行性
+    }
+
+    return &StepResult{
+        StepID:    step.ID,
+        Success:   true,
+        Output:    output,
+        ToolCalls: []ToolCallRecord{record},
+        Duration:  time.Since(startTime),
+    }, nil
+}
+```
+
+#### 3.3.3 并行调度器
+
+```go
+// internal/executor/scheduler.go
+
+package executor
+
+// Scheduler 根据步骤依赖关系决定执行顺序
+type Scheduler struct {
+    maxParallel int // 最大并行数
+}
+
+// Schedule 根据计划生成执行批次
+// 返回的每个 batch 内的步骤可以并行执行，batch 间必须串行
+func (s *Scheduler) Schedule(plan *Plan) [][]Step {
+    // 拓扑排序 + 分层
+    // 无依赖的步骤在同一层（可并行）
+    // 有依赖的步骤在不同层（必须串行）
+
+    remaining := make(map[string]Step)
+    for _, step := range plan.Steps {
+        remaining[step.ID] = step
+    }
+
+    completed := make(map[string]bool)
+    var batches [][]Step
+
+    for len(remaining) > 0 {
+        // 找出所有依赖已满足的步骤
+        var batch []Step
+        for id, step := range remaining {
+            allDepsDone := true
+            for _, dep := range step.DependsOn {
+                if !completed[dep] {
+                    allDepsDone = false
+                    break
+                }
+            }
+            if allDepsDone {
+                batch = append(batch, step)
+            }
+        }
+
+        if len(batch) == 0 {
+            // 存在循环依赖，报错
+            break
+        }
+
+        // 限制并行数
+        if len(batch) > s.maxParallel {
+            batch = batch[:s.maxParallel]
+        }
+
+        // 标记完成
+        for _, step := range batch {
+            delete(remaining, step.ID)
+            completed[step.ID] = true
+        }
+
+        batches = append(batches, batch)
+    }
+
+    return batches
+}
+```
+
+---
+
+### 3.4 Reflector — 反省器
+
+负责评估执行结果，决定循环的下一步走向。
+
+#### 3.4.1 接口定义
+
+```go
+// internal/reflector/reflector.go
+
+package reflector
+
+import (
+    "context"
+)
+
+type Reflector interface {
+    // Reflect 评估当前状态，返回决策
+    Reflect(ctx context.Context, goal string, plan *Plan, memory MemoryReader) (*Assessment, error)
+}
+
+type Decision int
+
+const (
+    DecisionComplete Decision = iota // 目标已完成
+    DecisionContinue                  // 继续执行下一步
+    DecisionReplan                    // 需要重新规划
+    DecisionFail                      // 目标无法完成
+)
+
+type Assessment struct {
+    Decision    Decision
+    Reason      string   // 决策理由
+    Confidence  float64  // 置信度 0-1
+    Findings    []string // 本轮发现的新信息
+    Suggestions []string // 给 Replanner 的建议
+}
+```
+
+#### 3.4.2 Reflector Prompt
+
+```go
+var reflectSystemPrompt = `你是一个任务反省器。评估当前执行进度，决定下一步行动。
+
+## 当前目标
+{{.Goal}}
+
+## 当前计划
+{{.Plan}}
+
+## 执行历史
+{{.ExecutionHistory}}
+
+## 评估维度
+1. 目标完成度：当前进度距离目标还有多远？
+2. 计划有效性：原计划的策略是否正确？
+3. 资源消耗：是否在预算范围内？
+4. 风险评估：继续执行是否有风险？
+
+## 输出格式（JSON）
+{
+  "decision": "complete|continue|replan|fail",
+  "reason": "决策理由",
+  "confidence": 0.0-1.0,
+  "findings": ["发现1", "发现2"],
+  "suggestions": ["建议1", "建议2"]
+}
+
+## 决策规则
+- complete: 目标已完全达成，可以输出最终结果
+- continue: 当前进展正常，继续执行下一步
+- replan: 发现原计划有重大问题，需要调整
+- fail: 确定无法完成目标（工具不足、信息缺失、目标不合理）`
+```
+
+---
+
+### 3.5 Memory — 三层记忆系统
+
+#### 3.5.1 架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Memory System                         │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  Layer 1: Working Memory (当前循环)              │    │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐        │    │
+│  │  │当前计划   │ │步骤结果   │ │工具输出   │        │    │
+│  │  │ Plan     │ │ Results  │ │ Outputs  │        │    │
+│  │  └──────────┘ └──────────┘ └──────────┘        │    │
+│  │  生命周期: 单次循环 | 完整保留，不压缩            │    │
+│  └─────────────────────────────────────────────────┘    │
+│                         │                               │
+│                     循环结束时                            │
+│                         ▼                               │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  Layer 2: Session Memory (当前会话)              │    │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐        │    │
+│  │  │循环摘要   │ │关键决策   │ │反省记录   │        │    │
+│  │  │ Summaries│ │ Decisions│ │Assessments│        │    │
+│  │  └──────────┘ └──────────┘ └──────────┘        │    │
+│  │  生命周期: 整个会话 | 压缩存储（Reasonix裁剪）    │    │
+│  └─────────────────────────────────────────────────┘    │
+│                         │                               │
+│                     会话结束时                            │
+│                         ▼                               │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  Layer 3: Long-term Memory (跨会话)              │    │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐        │    │
+│  │  │用户偏好   │ │项目知识   │ │经验教训   │        │    │
+│  │  │ Prefs    │ │ Knowledge│ │ Lessons  │        │    │
+│  │  └──────────┘ └──────────┘ └──────────┘        │    │
+│  │  生命周期: 永久 | 骨架压缩（Ailoom策略）           │    │
+│  └─────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### 3.5.2 接口定义
+
+```go
+// internal/memory/interfaces.go
+
+package memory
+
+// MemoryReader 只读接口，供 Planner/Executor/Reflector 使用
+type MemoryReader interface {
+    // GetWorkingMemory 获取当前循环的工作记忆
+    GetWorkingMemory() *WorkingMemory
+
+    // GetSessionSummary 获取会话摘要（压缩后的历史）
+    GetSessionSummary() string
+
+    // GetLongTermMemory 获取长期记忆
+    GetLongTermMemory() *LongTermMemory
+
+    // GetContextWindow 获取当前上下文窗口（已压缩，可直接发给 LLM）
+    GetContextWindow() []Message
+
+    // Search 搜索记忆（跨层级）
+    Search(query string, limit int) []MemoryEntry
+}
+
+// MemoryWriter 写入接口，仅供 Controller 使用
+type MemoryWriter interface {
+    // AddStepResult 添加步骤执行结果到工作记忆
+    AddStepResult(step Step, result StepResult)
+
+    // AddAssessment 添加反省评估到工作记忆
+    AddAssessment(assessment Assessment)
+
+    // CompressWorkingToSession 将工作记忆压缩到会话记忆
+    CompressWorkingToSession() error
+
+    // CompressSessionToLongTerm 将会话记忆压缩到长期记忆
+    CompressSessionToLongTerm() error
+
+    // UpdateLongTerm 更新长期记忆
+    UpdateLongTerm(entry MemoryEntry) error
+}
+```
+
+#### 3.5.3 Working Memory 实现
+
+```go
+// internal/memory/working.go
+
+package memory
+
+type WorkingMemory struct {
+    CurrentPlan   *Plan
+    StepResults   []StepRecord
+    Assessments   []Assessment
+    ToolOutputs   []ToolOutput
+    TokenCount    int  // 当前 token 总量
+}
+
+type StepRecord struct {
+    Step     Step
+    Result   StepResult
+    Timestamp time.Time
+}
+
+type ToolOutput struct {
+    CallID   string
+    ToolName string
+    Input    string
+    Output   string
+    Tokens   int
+    Prunable bool   // Reasonix: 是否可裁剪
+}
+
+// GetTokenCount 计算当前工作记忆的 token 总量
+func (w *WorkingMemory) GetTokenCount() int {
+    // 使用 tokenizer 精确计算
+    total := 0
+    for _, rec := range w.StepResults {
+        total += rec.Result.TokensUsed
+    }
+    return total
+}
+```
+
+#### 3.5.4 Session Memory 实现
+
+```go
+// internal/memory/session.go
+
+package memory
+
+type SessionMemory struct {
+    Goal           string
+    LoopSummaries  []LoopSummary   // 每次循环的摘要
+    Decisions      []Decision      // 关键决策记录
+    Findings       []string        // 累积发现
+    TokenCount     int
+}
+
+type LoopSummary struct {
+    LoopNumber  int
+    PlanBrief   string    // 计划摘要（非完整计划）
+    StepsDone   int       // 完成步骤数
+    Assessment  string    // 反省结论
+    Duration    time.Duration
+    TokensUsed  int
+}
+
+// CompressLoop 将一次循环的工作记忆压缩为摘要
+func (s *SessionMemory) CompressLoop(wm *WorkingMemory) {
+    summary := LoopSummary{
+        LoopNumber:  len(s.LoopSummaries) + 1,
+        PlanBrief:   wm.CurrentPlan.Rationale,
+        StepsDone:   len(wm.StepResults),
+        Assessment:  wm.Assessments[len(wm.Assessments)-1].Reason,
+        TokensUsed:  wm.GetTokenCount(),
+    }
+    s.LoopSummaries = append(s.LoopSummaries, summary)
+}
+```
+
+---
+
+### 3.6 Compressor — 上下文压缩
+
+这是保持缓存命中率的核心模块。
+
+#### 3.6.1 设计原则
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  Context Layout (铁律)                       │
+│                                                             │
+│  ┌─────── 固定 Prefix（永不变化）────────────────────────┐   │
+│  │  [system prompt]                                      │   │
+│  │  [project skeleton]        ← Ailoom 风格，低频刷新     │   │
+│  └───────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌─────── 稳定区间（只追加，不修改）──────────────────────┐   │
+│  │  [session summary]                                    │   │
+│  │  [loop 1 summary]                                     │   │
+│  │  [loop 2 summary]                                     │   │
+│  │  ...                                                  │   │
+│  └───────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌─────── 动态区间（Reasonix 裁剪活跃区）────────────────┐   │
+│  │  [current loop: plan + step results]                  │   │
+│  │    ↑ 工具结果在此区间内被裁剪                           │   │
+│  │  [current turn input]                                 │   │
+│  └───────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ←── 高缓存命中（字节级稳定）──→│←── Reasonix 优化 ──→│      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 3.6.2 两层压缩策略
+
+```go
+// internal/compressor/compressor.go
+
+package compressor
+
+// Compressor 统一压缩接口
+type Compressor interface {
+    // Prune 执行 Reasonix 风格的工具结果裁剪
+    Prune(ctx *ContextWindow) error
+
+    // Skeletonize 执行 Ailoom 风格的骨架压缩
+    Skeletonize(input SkeletonInput) (*Skeleton, error)
+
+    // CompressSession 会话级压缩（循环摘要 → 单条 summary）
+    CompressSession(session *SessionMemory) (string, error)
+
+    // ShouldRefresh 判断骨架是否需要刷新
+    ShouldRefresh(current *Skeleton, projectPath string) bool
+}
+
+// Reasonix 风格：确定性工具结果裁剪
+type PruneStrategy struct {
+    PrunableTools  map[string]bool  // 哪些工具的结果可以裁剪
+    MaxAge         int              // 超过 N 轮循环的结果可裁剪
+    KeepSignature  bool             // 保留工具调用签名，只裁剪输出
+}
+
+// Ailoom 风格：骨架压缩
+type SkeletonStrategy struct {
+    FocusMode   string  // "symbols" | "imports" | "tree" | "writing-outline"
+    Density     string  // "adaptive" | "standard" | "compact"
+    MaxTokens   int     // 骨架最大 token 数
+    RefreshRate int     // 多少次循环后检查是否需要刷新骨架
+}
+```
+
+#### 3.6.3 Reasonix 裁剪实现
+
+```go
+// internal/compressor/prune.go
+
+package compressor
+
+// PruneToolResults 裁剪可重新获取的工具结果
+// 核心逻辑：保留工具调用记录，裁剪输出内容
+// 当 LLM 需要该结果时，重新调用工具获取
+func (c *ContextCompressor) PruneToolResults(messages []Message, currentLoop int) []Message {
+    result := make([]Message, 0, len(messages))
+
+    for _, msg := range messages {
+        if msg.Role == "tool" && c.isPrunable(msg, currentLoop) {
+            // 裁剪：保留调用签名，替换输出为 placeholder
+            pruned := Message{
+                Role:    msg.Role,
+                Content: fmt.Sprintf("[PRUNED: %s result, %d tokens saved. Re-call if needed.]",
+                    msg.ToolName, msg.OrigTokenCount),
+                ToolCallID: msg.ToolCallID,
+            }
+            result = append(result, pruned)
+        } else {
+            result = append(result, msg)
+        }
+    }
+
+    return result
+}
+
+// isPrunable 判断是否可以裁剪
+func (c *ContextCompressor) isPrunable(msg Message, currentLoop int) bool {
+    // 1. 工具必须在可裁剪列表中
+    if !c.strategy.PrunableTools[msg.ToolName] {
+        return false
+    }
+    // 2. 必须是旧循环的结果（当前循环的不裁剪）
+    if msg.LoopNumber >= currentLoop {
+        return false
+    }
+    // 3. 结果必须可以重新获取（有确定性 cache key）
+    if msg.CacheKey == "" {
+        return false
+    }
+    return true
+}
+```
+
+#### 3.6.4 骨架压缩实现（参考 Ailoom）
+
+```go
+// internal/compressor/skeleton.go
+
+package compressor
+
+// Skeleton 项目骨架
+type Skeleton struct {
+    Version     string            `json:"version"`      // "zhulong-skl.v1"
+    FocusMode   string            `json:"focus_mode"`
+    Density     string            `json:"density"`
+    Text        string            `json:"skeleton_text"` // AI 可读的骨架文本
+    Manifest    SkeletonManifest  `json:"manifest"`      // 结构元数据
+    Fingerprint string            `json:"fingerprint"`   // 项目指纹，用于判断是否需要刷新
+    TokenCount  int               `json:"token_count"`
+    CreatedAt   time.Time         `json:"created_at"`
+}
+
+type SkeletonManifest struct {
+    FileCount    int               `json:"file_count"`
+    DirCount     int               `json:"dir_count"`
+    SymbolCount  int               `json:"symbol_count"`
+    TotalSize    int64             `json:"total_size"`
+    FileHashes   map[string]string `json:"file_hashes"` // 路径 → hash，用于增量更新
+}
+
+// GenerateSkeleton 生成项目骨架
+func (c *ContextCompressor) GenerateSkeleton(projectPath string, opts SkeletonOptions) (*Skeleton, error) {
+    // 1. 扫描项目结构
+    structure := c.scanProject(projectPath, opts.IgnorePatterns)
+
+    // 2. 根据 FocusMode 生成骨架
+    var text string
+    switch opts.FocusMode {
+    case "symbols":
+        text = c.generateSymbolSkeleton(structure)
+    case "tree":
+        text = c.generateTreeSkeleton(structure)
+    case "writing-outline":
+        text = c.generateWritingOutline(structure)
+    default: // "full"
+        text = c.generateFullSkeleton(structure)
+    }
+
+    // 3. 根据 Density 裁剪
+    text = c.applyDensity(text, opts.Density, opts.MaxTokens)
+
+    // 4. 计算指纹
+    fingerprint := c.computeFingerprint(structure)
+
+    return &Skeleton{
+        Version:     "zhulong-skl.v1",
+        FocusMode:   opts.FocusMode,
+        Density:     opts.Density,
+        Text:        text,
+        Manifest:    structure.Manifest,
+        Fingerprint: fingerprint,
+        TokenCount:  c.countTokens(text),
+        CreatedAt:   time.Now(),
+    }, nil
+}
+
+// ShouldRefresh 检查骨架是否需要刷新
+func (c *ContextCompressor) ShouldRefresh(current *Skeleton, projectPath string) bool {
+    // 计算当前项目的指纹
+    currentFingerprint := c.computeProjectFingerprint(projectPath)
+    // 指纹不同 → 项目结构变了 → 需要刷新
+    return current.Fingerprint != currentFingerprint
+}
+```
+
+#### 3.6.5 上下文组装
+
+```go
+// internal/compressor/assembler.go
+
+package compressor
+
+// AssembleContext 将所有组件组装成最终的上下文窗口
+// 这是整个压缩系统的核心入口
+func (c *ContextCompressor) AssembleContext(
+    systemPrompt string,
+    skeleton *Skeleton,
+    session *SessionMemory,
+    working *WorkingMemory,
+    currentInput string,
+    maxTokens int,
+) []Message {
+    var messages []Message
+    usedTokens := 0
+
+    // ──── 固定 Prefix ────
+    // 1. System prompt（永不变化）
+    messages = append(messages, Message{Role: "system", Content: systemPrompt})
+    usedTokens += c.countTokens(systemPrompt)
+
+    // 2. Project skeleton（低频刷新，保持 prefix 稳定）
+    if skeleton != nil {
+        skeletonMsg := Message{
+            Role:    "system",
+            Content: fmt.Sprintf("## 项目骨架\n\n%s", skeleton.Text),
+        }
+        messages = append(messages, skeletonMsg)
+        usedTokens += skeleton.TokenCount
+    }
+
+    // ──── 稳定区间（只追加） ────
+    // 3. Session summary
+    if session != nil && len(session.LoopSummaries) > 0 {
+        summary := c.buildSessionSummary(session)
+        summaryMsg := Message{Role: "system", Content: summary}
+        messages = append(messages, summaryMsg)
+        usedTokens += c.countTokens(summary)
+    }
+
+    // ──── 动态区间（Reasonix 裁剪活跃区） ────
+    // 4. Current loop working memory
+    remainingTokens := maxTokens - usedTokens - c.countTokens(currentInput)
+
+    // 先添加完整的当前循环内容
+    workingMessages := c.buildWorkingMessages(working)
+    workingTokens := c.countMessagesTokens(workingMessages)
+
+    if workingTokens > remainingTokens {
+        // 需要裁剪：对旧循环的工具结果执行 Reasonix 裁剪
+        workingMessages = c.PruneToolResults(workingMessages, working.CurrentLoop)
+        workingTokens = c.countMessagesTokens(workingMessages)
+
+        // 如果裁剪后仍然超限，进一步压缩旧循环摘要
+        if workingTokens > remainingTokens {
+            messages = c.compressSessionPrefix(messages)
+        }
+    }
+
+    messages = append(messages, workingMessages...)
+
+    // 5. Current turn input
+    messages = append(messages, Message{Role: "user", Content: currentInput})
+
+    return messages
+}
+```
+
+---
+
+### 3.7 Budget — 成本控制
+
+```go
+// internal/budget/tracker.go
+
+package budget
+
+type Budget struct {
+    MaxLoops    int
+    MaxTokens   int
+    MaxCost     float64       // 单位：元
+    MaxWallTime time.Duration
+
+    // 运行时状态
+    currentLoops  int
+    currentTokens int
+    currentCost   float64
+    startTime     time.Time
+}
+
+type BudgetConfig struct {
+    MaxLoops     int           `yaml:"max_loops"`     // 默认 50
+    MaxTokens    int           `yaml:"max_tokens"`    // 默认 500000
+    MaxCost      float64       `yaml:"max_cost"`      // 默认 10.0 元
+    MaxWallTime  time.Duration `yaml:"max_wall_time"` // 默认 30 分钟
+    WarnAt       float64       `yaml:"warn_at"`       // 预警阈值，默认 0.8 (80%)
+}
+
+func (b *Budget) Consume(tokens int, cost float64) {
+    b.currentTokens += tokens
+    b.currentCost += cost
+}
+
+func (b *Budget) IsExceeded() bool {
+    return b.currentLoops >= b.MaxLoops ||
+           b.currentTokens >= b.MaxTokens ||
+           b.currentCost >= b.MaxCost ||
+           time.Since(b.startTime) >= b.MaxWallTime
+}
+
+func (b *Budget) IsWarning() bool {
+    return float64(b.currentTokens)/float64(b.MaxTokens) >= b.WarnAt ||
+           b.currentCost/b.MaxCost >= b.WarnAt
+}
+
+func (b *Budget) Summary() BudgetSummary {
+    return BudgetSummary{
+        LoopsUsed:     b.currentLoops,
+        LoopsMax:      b.MaxLoops,
+        TokensUsed:    b.currentTokens,
+        TokensMax:     b.MaxTokens,
+        CostUsed:      b.currentCost,
+        CostMax:       b.MaxCost,
+        WallTimeUsed:  time.Since(b.startTime),
+        WallTimeMax:   b.MaxWallTime,
+    }
+}
+```
+
+---
+
+### 3.8 Trace — 可观测性
+
+```go
+// internal/trace/trace.go
+
+package trace
+
+type TraceLog struct {
+    SessionID string
+    Entries   []TraceEntry
+    StartTime time.Time
+}
+
+type TraceEntry struct {
+    Timestamp time.Time
+    Loop      int
+    Phase     string                 // "planning" | "executing" | "reflecting" | "replanning"
+    Event     string                 // "plan_created" | "step_executed" | "reflected" | ...
+    Data      map[string]interface{} // 事件数据
+    Duration  time.Duration
+    Tokens    int
+}
+
+// Logger 接口
+type Logger interface {
+    Start(sessionID string)
+    Log(phase string, event string, data ...interface{})
+    LogError(phase string, err error)
+    GetTrace() *TraceLog
+    Export(format string) ([]byte, error) // "json" | "text" | "markdown"
+}
+
+// 输出示例：
+// ┌─ Zhulong（烛龙） Trace ─────────────────────────────────┐
+// │ Session: abc123 | Started: 2026-06-20 22:00:00    │
+// ├───────────────────────────────────────────────────┤
+// │ [Loop 1] Planning                                 │
+// │   → Plan created: 5 steps (1.2s, 342 tokens)     │
+// │ [Loop 1] Executing Step 1/5                       │
+// │   → Tool: search_file("*.go") → 15 files (0.3s)  │
+// │ [Loop 1] Reflecting                               │
+// │   → Decision: continue (confidence: 0.9)          │
+// │ [Loop 1] Executing Step 2/5                       │
+// │   → Tool: read_file("main.go") → 234 lines (0.2s)│
+// │ [Loop 1] Reflecting                               │
+// │   → Decision: replan (new info discovered)        │
+// │ [Loop 2] Replanning                               │
+// │   → New plan: 4 steps (1.1s, 289 tokens)         │
+// │ ...                                               │
+// ├───────────────────────────────────────────────────┤
+// │ Stats: 3 loops | 12,450 tokens | ¥0.23 | 45.2s   │
+// └───────────────────────────────────────────────────┘
+```
+
+---
+
+### 3.9 Human — 人机协作断点
+
+```go
+// internal/human/breakpoint.go
+
+package human
+
+type BreakpointType int
+
+const (
+    BPBeforeExecute   BreakpointType = iota // 每次执行前暂停
+    BPCostExceed                             // 成本超限时暂停
+    BPOnError                                // 出错时暂停
+    BPOnReplan                               // 重规划时暂停
+    BPOnReflectFail                          // 反省判定失败时暂停
+    BPCustom                                 // 自定义条件
+)
+
+type Breakpoint struct {
+    Type      BreakpointType
+    Condition string   // 自定义条件表达式（BPCustom 类型时）
+    Message   string   // 暂停时显示给用户的消息
+}
+
+type HumanInput struct {
+    Action  string                 // "continue" | "abort" | "modify_plan" | "provide_info"
+    Content string                 // 用户输入的内容
+    Data    map[string]interface{} // 附加数据（如修改后的计划）
+}
+
+// ShouldPause 判断是否需要暂停
+func (h *HumanBreakpoint) ShouldPause(step Step, result StepResult) bool {
+    for _, bp := range h.breakpoints {
+        switch bp.Type {
+        case BPBeforeExecute:
+            if step.Breakpoint {
+                return true
+            }
+        case BPOnError:
+            if !result.Success {
+                return true
+            }
+        case BPCustom:
+            if h.evaluateCondition(bp.Condition, step, result) {
+                return true
+            }
+        }
+    }
+    return false
+}
+```
+
+---
+
+### 3.10 Tools — 工具抽象层
+
+```go
+// internal/tools/interface.go
+
+package tools
+
+// Tool 统一工具接口
+type Tool interface {
+    // Name 工具名称
+    Name() string
+
+    // Description 工具描述（用于 LLM 理解）
+    Description() string
+
+    // Schema 参数 JSON Schema
+    Schema() map[string]interface{}
+
+    // Call 执行工具
+    Call(ctx context.Context, params map[string]interface{}) (string, error)
+
+    // IsPrunable 结果是否可裁剪（Reasonix 策略）
+    IsPrunable() bool
+
+    // CacheKey 根据参数生成缓存 key（相同 key = 可重新获取）
+    CacheKey(params map[string]interface{}) string
+}
+
+// Registry 工具注册表
+type Registry struct {
+    tools map[string]Tool
+}
+
+func (r *Registry) Register(tool Tool) {
+    r.tools[tool.Name()] = tool
+}
+
+func (r *Registry) Get(name string) (Tool, error) {
+    tool, ok := r.tools[name]
+    if !ok {
+        return nil, fmt.Errorf("tool not found: %s", name)
+    }
+    return tool, nil
+}
+
+// ToToolDescriptions 生成工具描述列表（用于 Planner prompt）
+func (r *Registry) ToToolDescriptions() string {
+    // 生成类似 Reasonix 的工具列表格式
+}
+```
+
+---
+
+### 3.11 Provider — LLM 提供商抽象
+
+```go
+// internal/provider/interface.go
+
+package provider
+
+type LLMProvider interface {
+    Chat(ctx context.Context, req *Request) (*Response, error)
+    StreamChat(ctx context.Context, req *Request) (<-chan StreamChunk, error)
+}
+
+type Request struct {
+    Model       string
+    Messages    []Message
+    Tools       []ToolDefinition
+    Temperature float64
+    MaxTokens   int
+    JSONMode    bool
+    Stream      bool
+}
+
+type Message struct {
+    Role       string // "system" | "user" | "assistant" | "tool"
+    Content    string
+    ToolCalls  []ToolCall
+    ToolCallID string
+}
+
+type Response struct {
+    Content      string
+    ToolCalls    []ToolCall
+    TokensUsed   TokenUsage
+    FinishReason string
+}
+
+type TokenUsage struct {
+    PromptTokens     int
+    CompletionTokens int
+    TotalTokens      int
+    CachedTokens     int  // prefix-cache 命中的 token 数
+}
+
+// Provider 实现列表
+// - DeepSeekProvider  (复用 Reasonix 的实现)
+// - OpenAIProvider
+// - AnthropicProvider
+// - OpenAICompatProvider (通用 OpenAI 兼容 API)
+```
+
+---
+
+## 4. 缓存命中率保障机制
+
+### 4.1 为什么 Zhulong（烛龙） 能保持高缓存命中率
+
+```
+传统 Agent（缓存命中率低）:
+请求 1: [system][user][tool result 1234 tokens][assistant]
+请求 2: [system][user][tool result 1234 tokens][assistant][user][NEW tool result 567 tokens]
+                                              ↑ 前缀相同，但中间插入了大块工具结果
+                                              请求 2 的 prefix 比请求 1 长
+                                              → 缓存部分命中
+
+Zhulong（烛龙）（缓存命中率高）:
+请求 1: [system][skeleton][summary][loop1 pruned][current input]
+请求 2: [system][skeleton][summary][loop1 pruned][loop2 pruned][current input]
+         ↑─────────── 完全相同的 prefix ──────────↑
+         → 100% 缓存命中
+
+关键差异：
+1. system + skeleton 永不变化 → prefix 稳定
+2. 旧循环的工具结果被裁剪 → 中间部分体积小且稳定
+3. 新内容只追加在末尾 → prefix 不会被覆盖
+```
+
+### 4.2 缓存命中率保障的三条铁律
+
+| 铁律 | 说明 | 实现位置 |
+|------|------|---------|
+| **Prefix 只追加不修改** | system prompt + skeleton 永不改写 | `Compressor.AssembleContext()` |
+| **历史只压缩不重排** | 旧循环压缩为 summary，追加到稳定区间 | `Memory.CompressWorkingToSession()` |
+| **裁剪只在动态区间** | Reasonix 裁剪只发生在当前循环的工具结果 | `Compressor.PruneToolResults()` |
+
+### 4.3 与 Reasonix 的缓存效果对比
+
+```
+Reasonix（单轮对话）:
+  输入: [system][tools][user msg][tool results...][assistant]
+  优化: 裁剪 tool results → prefix 稳定
+  缓存命中率: ~80-90%
+
+Zhulong（烛龙）（自主循环）:
+  输入: [system][skeleton][session summary][loop history][current loop][input]
+  优化:
+    - skeleton 保持 prefix 稳定（Ailoom 策略）
+    - 裁剪旧循环 tool results（Reasonix 策略）
+    - 压缩旧循环为 summary（自摘要）
+  缓存命中率: ~75-90%（略低于纯 Reasonix，因为循环本身会追加新内容）
+
+  如果循环次数少（< 5 次）: 缓存命中率 ≈ Reasonix 水平
+  如果循环次数多（> 20 次）: 通过压缩，prefix 仍然稳定
+```
+
+---
+
+## 5. 配置系统
+
+```yaml
+# config/default.yaml
+
+# LLM 配置
+llm:
+  provider: "deepseek"          # deepseek | openai | anthropic | openai_compat
+  model: "deepseek-chat"
+  api_key: "${DEEPSEEK_API_KEY}"
+  base_url: ""                  # 自定义 API 地址
+  temperature: 0.7
+  max_tokens: 4096
+
+# 循环控制
+loop:
+  max_loops: 50
+  max_wall_time: "30m"
+  checkpoint_every: 3           # 每 3 次状态转移保存检查点
+  checkpoint_dir: ".zhulong/checkpoints"
+
+# 成本控制
+budget:
+  max_tokens: 500000
+  max_cost: 10.0                # 元
+  warn_at: 0.8                  # 80% 时预警
+
+# 规划器
+planner:
+  max_steps: 15
+  allow_replan: true
+  max_replans: 5                # 最大重规划次数
+
+# 执行器
+executor:
+  max_parallel: 3               # 最大并行步骤数
+  tool_timeout: "30s"           # 单个工具调用超时
+
+# 反省器
+reflector:
+  confidence_threshold: 0.7     # 置信度低于此值触发重规划
+  auto_fail_threshold: 0.3      # 置信度低于此值判定失败
+
+# 压缩
+compressor:
+  # Reasonix 风格裁剪
+  prune:
+    enabled: true
+    max_age: 2                  # 超过 2 个循环的工具结果可裁剪
+    keep_signature: true        # 保留调用签名
+
+  # Ailoom 风格骨架
+  skeleton:
+    enabled: true
+    focus_mode: "auto"          # auto | symbols | tree | writing-outline
+    density: "adaptive"         # adaptive | standard | compact
+    max_tokens: 2000
+    refresh_check_interval: 5   # 每 5 次循环检查是否需要刷新
+
+  # 会话压缩
+  session:
+    compress_after_loops: 3     # 超过 3 次循环后压缩旧循环为 summary
+
+# 人机协作
+human:
+  enabled: true
+  default_breakpoints:
+    - type: "on_error"
+    - type: "on_replan"
+    - type: "cost_exceed"
+  interactive: true             # 是否在终端交互
+
+# 可观测性
+trace:
+  enabled: true
+  output_dir: ".zhulong/traces"
+  format: "markdown"            # json | text | markdown
+  verbose: false
+
+# 工具
+tools:
+  mcp_config: "mcp.json"       # MCP 服务器配置
+  builtin:
+    - "read_file"
+    - "write_file"
+    - "search_file"
+    - "execute_command"
+    - "web_search"
+
+# 项目骨架
+project:
+  path: "."                     # 项目根目录
+  ignore_patterns:
+    - ".git"
+    - "node_modules"
+    - "vendor"
+    - "dist"
+    - "build"
+    - ".zhulong"
+```
+
+---
+
+## 6. 项目目录结构
+
+```
+zhulong/
+├── cmd/
+│   └── zhulong/
+│       └── main.go                 # CLI 入口
+│
+├── internal/
+│   ├── controller/                 # 状态机 + 循环控制
+│   │   ├── fsm.go                  # 状态机定义 + 转移逻辑
+│   │   ├── loop.go                 # 主循环 Run()
+│   │   └── session.go              # 会话管理
+│   │
+│   ├── planner/                    # 规划器
+│   │   ├── planner.go              # Planner 接口 + LLM 实现
+│   │   ├── prompts.go              # 规划 prompt 模板
+│   │   ├── parser.go               # JSON 计划解析 + 校验
+│   │   └── replan.go               # 重规划逻辑
+│   │
+│   ├── executor/                   # 执行器
+│   │   ├── executor.go             # Executor 接口 + 实现
+│   │   ├── scheduler.go            # 并行调度（拓扑排序）
+│   │   └── retry.go                # 工具调用重试策略
+│   │
+│   ├── reflector/                  # 反省器
+│   │   ├── reflector.go            # Reflector 接口 + 实现
+│   │   ├── prompts.go              # 反省 prompt 模板
+│   │   └── assessment.go           # 评估结果解析
+│   │
+│   ├── memory/                     # 三层记忆系统
+│   │   ├── interfaces.go           # MemoryReader / MemoryWriter 接口
+│   │   ├── working.go              # Working Memory
+│   │   ├── session.go              # Session Memory
+│   │   ├── longterm.go             # Long-term Memory
+│   │   └── store.go                # 持久化（JSON/SQLite）
+│   │
+│   ├── compressor/                 # 上下文压缩
+│   │   ├── compressor.go           # Compressor 接口 + 主逻辑
+│   │   ├── prune.go                # Reasonix 风格裁剪
+│   │   ├── skeleton.go             # Ailoom 风格骨架压缩
+│   │   ├── assembler.go            # 上下文组装（最终输出）
+│   │   └── tokenizer.go            # Token 计数工具
+│   │
+│   ├── checkpoint/                 # 检查点持久化
+│   │   ├── checkpoint.go           # Checkpoint 数据结构
+│   │   ├── store.go                # 文件存储实现
+│   │   └── restore.go              # 恢复逻辑
+│   │
+│   ├── budget/                     # 成本控制
+│   │   ├── budget.go               # Budget 主逻辑
+│   │   └── pricing.go              # 各模型定价表
+│   │
+│   ├── trace/                      # 可观测性
+│   │   ├── logger.go               # Trace Logger 实现
+│   │   ├── formatter.go            # 输出格式化（JSON/Text/Markdown）
+│   │   └── export.go               # 导出功能
+│   │
+│   ├── human/                      # 人机协作
+│   │   ├── breakpoint.go           # 断点管理
+│   │   ├── terminal.go             # 终端交互实现
+│   │   └── input.go                # 用户输入解析
+│   │
+│   ├── tools/                      # 工具抽象层
+│   │   ├── interface.go            # Tool 接口 + Registry
+│   │   ├── mcp.go                  # MCP 协议适配
+│   │   ├── builtin.go              # 内置工具（read/write/search/exec）
+│   │   └── custom.go               # 自定义工具注册
+│   │
+│   └── provider/                   # LLM 提供商
+│       ├── interface.go            # LLMProvider 接口
+│       ├── deepseek.go             # DeepSeek 实现
+│       ├── openai.go               # OpenAI 实现
+│       ├── anthropic.go            # Anthropic 实现
+│       ├── openai_compat.go        # OpenAI 兼容通用实现
+│       └── registry.go             # Provider 注册 + 选择
+│
+├── pkg/                            # 对外公共 API
+│   ├── agent.go                    # Agent 构造函数 + Run()
+│   ├── options.go                  # 函数式选项
+│   └── types.go                    # 公共类型导出
+│
+├── config/
+│   ├── default.yaml                # 默认配置
+│   └── schema.json                 # 配置 JSON Schema
+│
+├── examples/                       # 使用示例
+│   ├── coding/main.go              # 编程场景
+│   ├── writing/main.go             # 写作场景
+│   └── analysis/main.go            # 数据分析场景
+│
+├── testing/                        # 测试
+│   ├── unit/                       # 单元测试
+│   ├── integration/                # 集成测试
+│   └── benchmark/                  # 缓存命中率基准测试
+│
+├── docs/
+│   ├── design.md                   # 本文档
+│   ├── api.md                      # API 文档
+│   └── architecture.md             # 架构图
+│
+├── go.mod
+├── go.sum
+├── Makefile
+└── README.md
+```
+
+---
+
+## 7. 开发路线图
+
+### Phase 1: 最小可运行原型（MVP）
+- [ ] 项目初始化（go mod, 目录结构）
+- [ ] Controller 状态机（核心循环）
+- [ ] Planner（LLM 规划，JSON 解析）
+- [ ] Executor（单工具调用）
+- [ ] Reflector（基础反省）
+- [ ] DeepSeek Provider
+- [ ] 基础配置系统
+- **目标**：能跑通 Plan → Execute → Reflect → Replan 完整循环
+
+### Phase 2: 上下文优化
+- [ ] Memory 三层系统实现
+- [ ] Reasonix 工具结果裁剪
+- [ ] 上下文组装器
+- [ ] Token 计数 + 预算控制
+- **目标**：缓存命中率可测量，预算控制生效
+
+### Phase 3: 生产级特性
+- [ ] 检查点持久化 + 恢复
+- [ ] Trace 可观测性
+- [ ] 人机协作断点
+- [ ] 并行调度器
+- [ ] Ailoom 骨架压缩
+- **目标**：可崩溃恢复，可调试，可人工介入
+
+### Phase 4: 多模型 + 工具生态
+- [ ] OpenAI / Anthropic Provider
+- [ ] MCP 工具协议适配
+- [ ] 内置工具集
+- [ ] 自定义工具注册
+- **目标**：不绑定特定 LLM，工具生态可扩展
+
+### Phase 5: 打磨 + 文档
+- [ ] 缓存命中率基准测试
+- [ ] 使用示例
+- [ ] API 文档
+- [ ] README + 贡献指南
+- **目标**：可开源发布
+
+---
+
+## 8. 风险与缓解
+
+| 风险 | 影响 | 缓解策略 |
+|------|------|---------|
+| LLM 输出 JSON 格式不稳定 | 计划解析失败 | 多次重试 + 容错解析 + 降级到纯文本模式 |
+| 自主循环死循环 | 无限消耗 token | 最大循环次数 + 成本上限 + 超时机制 |
+| 反省器过于保守 | 频繁触发重规划 | 置信度阈值可调 + 重规划次数上限 |
+| Ailoom 骨架压缩 Go 移植难度 | 开发周期拉长 | Phase 2 先跳过骨架压缩，Phase 3 再做 |
+| 多模型 Prompt 效果不一致 | 不同 LLM 规划质量差异大 | 针对每个模型定制 prompt + 测试用例 |
+| 并行执行状态管理复杂 | 死锁、竞态 | 单线程优先，Phase 3 再加并行 |
+
+---
+
+## 附录 A: 与 Reasonix 的复用清单
+
+| 模块 | Reasonix 路径 | 复用方式 |
+|------|--------------|---------|
+| MCP 工具协议 | `internal/mcp/` | 直接 fork，适配到 `tools/mcp.go` |
+| 工具结果裁剪逻辑 | `internal/session/pruning/` | 参考实现，重写到 `compressor/prune.go` |
+| Prefix-cache 配置 | `internal/llm/config.go` | 参考结构，扩展到 `provider/` |
+| 配置管理 | `config/` | 参考 YAML 结构 |
+| DeepSeek API 调用 | `internal/llm/deepseek.go` | 参考实现，适配到 `provider/deepseek.go` |
+
+## 附录 B: 与 Ailoom-Context 的复用清单
+
+| 模块 | Ailoom 路径 | 复用方式 |
+|------|------------|---------|
+| 骨架生成策略 | `ailoom_core/compress.py` | 参考算法，Go 重写到 `compressor/skeleton.go` |
+| 焦点模式 | `ailoom_core/focus_modes/` | 参考模式定义，Go 实现 |
+| 增量压缩 | `ailoom_core/incremental.py` | 参考 diff 策略 |
+| 项目扫描 | `ailoom_core/scan.py` | 参考扫描逻辑，Go 重写 |
+| 配置预设 | `config/presets/` | 参考预设定义 |
