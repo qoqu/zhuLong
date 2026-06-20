@@ -1156,6 +1156,306 @@ func RemoveCompressible(messages []Message) []Message {
 
 ---
 
+## 2.8 耗散结构理论基础
+
+> 普利高津《耗散结构理论》(1977) 的核心思想应用于 Agent 系统设计
+> "新三论"之一，解释开放系统如何通过持续输入负熵维持动态有序
+
+### 2.8.1 核心洞察：Agent 是耗散结构
+
+**耗散结构四大条件**：
+1. 开放 ✅ — Agent 与环境持续交互
+2. 远离平衡态 ✅ — 目标未完成 = 不平衡
+3. 非线性 ✅ — LLM 推理天然非线性
+4. 随机涨落 ✅ — LLM 输出有随机性
+
+**Agent 作为耗散结构**：
+
+```
+耗散结构维持条件：
+  持续输入负熵（有用信息）→ 维持有序（向目标推进）
+  停止输入负熵 → 熵增 → 停滞 → 结构瓦解
+
+Agent 运行逻辑：
+  持续调用工具获取新信息 → 维持进展（向目标推进）
+  停止获取新信息 → 停滞 → 循环浪费
+```
+
+### 2.8.2 负熵流 = 持续信息输入
+
+**普利高津原话**：开放系统从外部输入负熵流，抵消内部自发产生的正熵，让系统总熵降低，维持有序结构。
+
+**Agent 映射**：
+
+| 耗散结构概念 | Agent 对应 | 实际意义 |
+|------------|-----------|---------|
+| 负熵流 | 工具调用获取的新信息 | 推动进展的动力 |
+| 内部熵增 | 上下文膨胀、重复循环 | 阻碍进展的阻力 |
+| 动态有序 | 持续向目标推进 | 进展需要持续"喂"信息 |
+| 结构瓦解 | 停滞、无限循环 | 停止获取新信息的后果 |
+
+**停滞检测器**：
+
+```go
+// internal/stagnation/detector.go
+
+package stagnation
+
+// Detector 停滞检测器
+// 核心思想：如果连续 N 步没有获取新信息，说明"负熵流"断了
+type Detector struct {
+    windowSize     int     // 检测窗口大小（最近 N 步）
+    entropyThreshold float64 // 信息增益阈值
+    history        []StepInfo
+}
+
+type StepInfo struct {
+    StepNumber    int
+    NewInfoScore  float64 // 本步获取的新信息量（0-1）
+    ToolUsed      string
+    ProgressDelta float64 // 进展变化（-1 到 1）
+}
+
+// IsStagnating 检测是否停滞
+// 判据：连续 N 步新信息量低于阈值
+func (d *Detector) IsStagnating() bool {
+    if len(d.history) < d.windowSize {
+        return false
+    }
+
+    recent := d.history[len(d.history)-d.windowSize:]
+    for _, step := range recent {
+        if step.NewInfoScore >= d.entropyThreshold {
+            return false // 还有新信息输入，未停滞
+        }
+    }
+    return true // 连续 N 步无新信息，停滞
+}
+
+// StagnationType 停滞类型
+type StagnationType int
+
+const (
+    StagnationInfoStarved StagnationType = iota // 信息饥饿：工具没返回新信息
+    StagnationLooping                            // 循环卡死：重复相同操作
+    StagnationBlocked                            // 路径阻塞：遇到不可逾越的障碍
+)
+
+// DiagnoseStagnation 诊断停滞原因
+func (d *Detector) DiagnoseStagnation() StagnationType {
+    recent := d.history[len(d.history)-d.windowSize:]
+
+    // 检测循环卡死：相同工具重复调用
+    tools := make(map[string]int)
+    for _, step := range recent {
+        tools[step.ToolUsed]++
+    }
+    for _, count := range tools {
+        if count >= d.windowSize/2 {
+            return StagnationLooping
+        }
+    }
+
+    // 检测路径阻塞：进展持续为负
+    negativeCount := 0
+    for _, step := range recent {
+        if step.ProgressDelta < 0 {
+            negativeCount++
+        }
+    }
+    if negativeCount >= d.windowSize/2 {
+        return StagnationBlocked
+    }
+
+    return StagnationInfoStarved
+}
+```
+
+### 2.8.3 涨落驱动探索（随机性利用）
+
+**普利高津原话**：微小随机扰动（涨落）在远离平衡、非线性作用下，会被放大，驱动系统跃迁到全新有序结构。
+
+**Agent 映射**：当停滞时，增加"随机性"（提高 temperature、尝试意外工具）可能带来突破。
+
+```go
+// internal/exploration/trigger.go
+
+package exploration
+
+// Trigger 探索触发器
+// 核心思想：停滞时增加随机性，利用"涨落"突破停滞
+type Trigger struct {
+    stagnationDetector *stagnation.Detector
+    baseTemperature    float64
+    explorationTools   []Tool // 备选的探索性工具
+}
+
+// ShouldExplore 是否应该触发探索
+func (t *Trigger) ShouldExplore() bool {
+    return t.stagnationDetector.IsStagnating()
+}
+
+// ExplorationAction 探索行动
+type ExplorationAction struct {
+    Type        string  // "increase_temperature" | "try_new_tool" | "change_strategy"
+    Temperature float64 // 新的 temperature
+    Tool        Tool    // 要尝试的新工具
+    Strategy    string  // 新策略描述
+}
+
+// GenerateExploration 生成探索行动
+func (t *Trigger) GenerateExploration() ExplorationAction {
+    stagnationType := t.stagnationDetector.DiagnoseStagnation()
+
+    switch stagnationType {
+    case stagnation.StagnationInfoStarved:
+        // 信息饥饿：提高 temperature，增加随机性
+        return ExplorationAction{
+            Type:        "increase_temperature",
+            Temperature: t.baseTemperature * 1.5, // 提高 50%
+        }
+
+    case stagnation.StagnationLooping:
+        // 循环卡死：尝试新工具
+        newTool := t.selectUnexpectedTool()
+        return ExplorationAction{
+            Type: "try_new_tool",
+            Tool: newTool,
+        }
+
+    case stagnation.StagnationBlocked:
+        // 路径阻塞：改变策略
+        return ExplorationAction{
+            Type:     "change_strategy",
+            Strategy: "尝试完全不同的方法",
+        }
+    }
+
+    return ExplorationAction{Type: "increase_temperature", Temperature: t.baseTemperature * 1.2}
+}
+
+// selectUnexpectedTool 选择一个"意外"的工具
+// 不是选最可能有用的，而是选之前没用过的
+func (t *Trigger) selectUnexpectedTool() Tool {
+    // 优先选从未调用过的工具
+    for _, tool := range t.explorationTools {
+        if !t.hasBeenUsed(tool) {
+            return tool
+        }
+    }
+    // 都用过，选调用次数最少的
+    return t.leastUsedTool()
+}
+```
+
+### 2.8.4 动态有序 = 持续进展
+
+**普利高津原话**：耗散结构的有序是动态、流动、需要持续耗能维持的。一旦切断物质能量输入，结构立刻瓦解。
+
+**Agent 映射**：Agent 的"有序"（向目标推进）需要持续"能量"（新信息）维持。如果停止获取新信息，进展会停滞。
+
+```go
+// internal/controller/progress_monitor.go
+
+package controller
+
+// ProgressMonitor 进展监控器
+// 核心思想：进展需要持续"能量"（新信息）维持
+type ProgressMonitor struct {
+    history          []ProgressSnapshot
+    stagnationWindow int
+    minProgressRate  float64 // 最低进展速率
+}
+
+type ProgressSnapshot struct {
+    LoopNumber    int
+    GoalProgress  float64 // 目标完成度 0-1
+    InfoGained    float64 // 本循环获取的新信息量
+    EnergyInput   float64 // "能量输入" = 信息增益 + 工具调用
+    Timestamp     time.Time
+}
+
+// IsProgressing 是否在持续进展
+func (pm *ProgressMonitor) IsProgressing() bool {
+    if len(pm.history) < pm.stagnationWindow {
+        return true // 刚开始，假定正常
+    }
+
+    recent := pm.history[len(pm.history)-pm.stagnationWindow:]
+
+    // 检查进展速率
+    totalProgress := recent[len(recent)-1].GoalProgress - recent[0].GoalProgress
+    progressRate := totalProgress / float64(pm.stagnationWindow)
+
+    return progressRate >= pm.minProgressRate
+}
+
+// EnergyBalance 能量平衡
+// 正 = 输入 > 消耗（进展中）
+// 负 = 消耗 > 输入（停滞中）
+func (pm *ProgressMonitor) EnergyBalance() float64 {
+    if len(pm.history) == 0 {
+        return 0
+    }
+
+    latest := pm.history[len(pm.history)-1]
+    return latest.EnergyInput - pm.estimateConsumption(latest)
+}
+
+// estimateConsumption 估算"能量消耗"
+// 上下文膨胀、重复循环、工具调用都消耗"能量"
+func (pm *ProgressMonitor) estimateConsumption(snapshot ProgressSnapshot) float64 {
+    // 简化实现：消耗 = token 使用量 / 1000
+    return float64(snapshot.TokensUsed) / 1000.0
+}
+```
+
+### 2.8.5 四论融合：完整理论框架
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                Zhulong 理论基础（四论融合）                        │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  一般系统论（贝塔朗菲）—— 系统是什么                      │    │
+│  │  - 开放系统：Agent 与环境持续交互                         │    │
+│  │  - 等终极性：多路径达成目标                               │    │
+│  │  - 动态稳态：目标可演化，核心稳定                         │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  工程控制论（钱学森）—— 系统怎么控                        │    │
+│  │  - 负反馈：误差驱动修正                                   │    │
+│  │  - 稳定性：振荡/发散检测                                  │    │
+│  │  - 最优控制：性能指标驱动                                 │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  信息论（香农）—— 信息怎么传                              │    │
+│  │  - 信息增益：工具选择优化                                 │    │
+│  │  - 信息密度：上下文压缩优化                               │    │
+│  │  - 噪声处理：LLM 不确定性应对                             │    │
+│  │  - 冗余管理：区分可压缩 vs 必要冗余                       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  耗散结构理论（普利高津）—— 系统怎么活                    │    │
+│  │  - 负熵流：持续信息输入维持进展                           │    │
+│  │  - 涨落探索：停滞时增加随机性突破                         │    │
+│  │  - 动态有序：进展需要持续"能量"维持                       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Zhulong（工程实现）                                      │    │
+│  │  - 环境感知 + 反馈控制 + 信息优化 + 停滞突破              │    │
+│  │  - 备选路径 + 稳定性保障 + 噪声对抗 + 探索触发            │    │
+│  │  - 信息密度驱动的上下文管理 + 进展监控                    │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 3. 核心模块设计
 
 ### 3.1 Controller — 状态机驱动的循环控制
@@ -2779,6 +3079,16 @@ zhulong/
 │   │   ├── density.go              # 信息密度优化（上下文压缩）
 │   │   ├── noise.go                # 噪声处理（LLM 不确定性应对）
 │   │   └── redundancy.go           # 冗余管理（可压缩 vs 必要）
+│   │
+│   ├── stagnation/                 # 停滞检测器（耗散结构理论）
+│   │   ├── detector.go             # 停滞检测主逻辑
+│   │   ├── diagnosis.go            # 停滞原因诊断
+│   │   └── metrics.go              # 进展指标计算
+│   │
+│   ├── exploration/                # 探索触发器（耗散结构理论）
+│   │   ├── trigger.go              # 探索触发逻辑
+│   │   ├── temperature.go          # 动态 temperature 调整
+│   │   └── tool_roulette.go        # 工具轮盘赌选择
 │   │
 │   ├── memory/                     # 三层记忆系统
 │   │   ├── interfaces.go           # MemoryReader / MemoryWriter 接口
