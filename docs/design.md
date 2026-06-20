@@ -807,6 +807,355 @@ func (g *GoalEvolution) isCoreChanged(newGoal string) bool {
 
 ---
 
+## 2.7 信息论基础
+
+> 香农《通信的数学理论》(1948) 的核心思想应用于 Agent 系统设计
+> "三论"最后一块拼图：系统论说"是什么"，控制论说"怎么控"，信息论说"传什么"
+
+### 2.7.1 核心洞察：上下文窗口是噪声信道
+
+**香农信息论的核心**：通信系统 = 信源 → 编码 → 信道 → 解码 → 信宿，信道有容量上限，存在噪声。
+
+**映射到 Agent 系统**：
+
+```
+Agent 通信系统：
+  信源 = 工具输出 + 环境信息 + 历史记忆
+  编码 = 上下文组装（压缩、裁剪、排序）
+  信道 = 上下文窗口（有限容量）
+  解码 = LLM 推理（有噪声/不确定性）
+  信宿 = 决策输出（Plan/Action/Reflection）
+```
+
+**关键类比**：
+
+| 信息论概念 | Agent 对应 | 实际意义 |
+|-----------|-----------|---------|
+| 信道容量 | 上下文窗口 token 上限 | 能装多少信息是硬约束 |
+| 信噪比 | 有用信息 / 总 token | 信息密度越高越好 |
+| 噪声 | LLM 推理不确定性 | 输出不可预测 |
+| 冗余 | 可压缩的重复信息 | 应该被移除 |
+| 编码 | 上下文组装策略 | 决定信息密度 |
+
+### 2.7.2 信息增益驱动的工具选择
+
+**香农原话**：信息量 = 消除不确定性的程度。越不确定的事，发生后带来的信息量越大。
+
+**Agent 场景**：选择工具时，应该选那个能提供最多"新信息"的工具。
+
+```go
+// internal/executor/tool_selector.go
+
+package executor
+
+import "math"
+
+// InformationGain 信息增益计算器
+type InformationGain struct {
+    toolHistory map[string][]ToolResult
+}
+
+// EstimateGain 估算工具调用的信息增益
+// 核心思想：选择最能消除不确定性的工具
+func (ig *InformationGain) EstimateGain(tool Tool, params map[string]interface{}, currentContext string) float64 {
+    // 1. 当前不确定性（基于已有上下文）
+    currentEntropy := ig.estimateEntropy(currentContext)
+
+    // 2. 预期信息增益 = 工具输出的预期熵减少量
+    // 如果这个工具之前调用过且结果已知，信息增益低
+    // 如果这个工具从未调用过，信息增益高
+    priorResults := ig.toolHistory[tool.Name()]
+    if len(priorResults) > 0 {
+        // 已有结果，信息增益递减
+        return ig.diminishingGain(priorResults)
+    }
+
+    // 新工具，预期信息增益高
+    return currentEntropy * 0.8 // 保守估计
+}
+
+// diminishingGain 边际信息递减
+// 同一工具多次调用，每次新增信息递减
+func (ig *InformationGain) diminishingGain(results []ToolResult) float64 {
+    baseGain := 1.0
+    decay := 0.6 // 每次调用衰减 40%
+    return baseGain * math.Pow(decay, float64(len(results)))
+}
+```
+
+**工具选择策略**：
+
+```go
+// SelectTool 选择信息增益最高的工具
+func (s *ToolSelector) SelectTool(tools []Tool, context string) Tool {
+    bestTool := tools[0]
+    bestGain := 0.0
+
+    for _, tool := range tools {
+        gain := s.infoGain.EstimateGain(tool, nil, context)
+        // 加权：信息增益 + 工具置信度
+        score := gain * 0.7 + s.trustScore(tool) * 0.3
+        if score > bestGain {
+            bestGain = score
+            bestTool = tool
+        }
+    }
+
+    return bestTool
+}
+```
+
+### 2.7.3 信息密度优化（信源编码）
+
+**香农原话**：任何信源都存在最低压缩下限 = 信源熵。不可能长期压缩到低于熵，否则必然丢失信息。
+
+**Agent 场景**：上下文窗口有容量上限，必须最大化"信息密度"——每 token 携带多少有用信息。
+
+```go
+// internal/compressor/information_density.go
+
+package compressor
+
+// InformationDensity 信息密度计算器
+type InformationDensity struct {
+    tokenizer Tokenizer
+}
+
+// Density 信息密度 = 有用信息量 / token 数
+func (id *InformationDensity) Density(messages []Message) float64 {
+    usefulInfo := 0.0
+    totalTokens := 0
+
+    for _, msg := range messages {
+        tokens := id.tokenizer.Count(msg.Content)
+        totalTokens += tokens
+
+        // 有用信息估算
+        switch {
+        case msg.Role == "system" && isSystemPrompt(msg):
+            usefulInfo += float64(tokens) * 1.0 // 系统提示信息密度高
+        case msg.Role == "tool" && isPrunable(msg):
+            usefulInfo += float64(tokens) * 0.1 // 可裁剪的工具结果信息密度低
+        case msg.Role == "tool" && !isPrunable(msg):
+            usefulInfo += float64(tokens) * 0.8 // 不可裁剪的工具结果信息密度高
+        default:
+            usefulInfo += float64(tokens) * 0.5
+        }
+    }
+
+    if totalTokens == 0 {
+        return 0
+    }
+    return usefulInfo / float64(totalTokens)
+}
+
+// OptimizeDensity 优化信息密度
+// 核心策略：移除信息密度低的内容，保留信息密度高的内容
+func (id *InformationDensity) OptimizeDensity(messages []Message, maxTokens int) []Message {
+    // 按信息密度排序
+    scored := id.scoreMessages(messages)
+    sort.Slice(scored, func(i, j int) bool {
+        return scored[i].Density > scored[j].Density
+    })
+
+    // 贪心选择：优先保留高密度内容
+    result := make([]Message, 0)
+    usedTokens := 0
+    for _, s := range scored {
+        tokens := id.tokenizer.Count(s.Message.Content)
+        if usedTokens+tokens <= maxTokens {
+            result = append(result, s.Message)
+            usedTokens += tokens
+        }
+    }
+
+    return result
+}
+```
+
+### 2.7.4 噪声处理（信道编码思想）
+
+**香农原话**：噪声不代表无法可靠通信，只是存在传输速度天花板。通过信道编码（增加可控冗余）可以对抗噪声。
+
+**Agent 场景**：LLM 输出是"噪声"（不确定性），需要通过"冗余"（验证、重试）来对抗。
+
+```go
+// internal/executor/noise_handler.go
+
+package executor
+
+// NoiseHandler 噪声处理器
+// 核心思想：LLM 输出不可靠，需要验证和冗余
+type NoiseHandler struct {
+    maxRetries     int
+    verifyEnabled  bool
+    confidenceThresh float64
+}
+
+// HandleNoise 处理 LLM 输出的不确定性
+func (n *NoiseHandler) HandleNoise(output LLMOutput, task string) (*VerifiedOutput, error) {
+    // 策略1：置信度过滤（低噪声场景）
+    if output.Confidence >= n.confidenceThresh {
+        return &VerifiedOutput{
+            Output:     output,
+            Verified:   false,
+            Method:     "confidence_pass",
+        }, nil
+    }
+
+    // 策略2：冗余验证（高噪声场景）
+    if n.verifyEnabled {
+        verified, err := n.verifyWithRetry(output, task)
+        if err == nil {
+            return verified, nil
+        }
+    }
+
+    // 策略3：降级处理（噪声过大，无法可靠输出）
+    return &VerifiedOutput{
+        Output:     output,
+        Verified:   false,
+        Method:     "degraded",
+        Warning:    "低置信度输出，建议人工确认",
+    }, nil
+}
+
+// verifyWithRetry 冗余验证：多次尝试，选择一致性最高的结果
+func (n *NoiseHandler) verifyWithRetry(original LLMOutput, task string) (*VerifiedOutput, error) {
+    results := []LLMOutput{original}
+
+    for i := 0; i < n.maxRetries; i++ {
+        retry, err := n.retryLLM(task)
+        if err != nil {
+            continue
+        }
+        results = append(results, retry)
+
+        // 如果两次结果一致，认为验证通过
+        if n.isConsistent(original, retry) {
+            return &VerifiedOutput{
+                Output:     original,
+                Verified:   true,
+                Method:     "consistency_check",
+                Retries:    i + 1,
+            }, nil
+        }
+    }
+
+    // 多次尝试结果不一致，选择出现频率最高的
+    best := n.selectMostFrequent(results)
+    return &VerifiedOutput{
+        Output:     best,
+        Verified:   false,
+        Method:     "majority_vote",
+        Retries:    len(results) - 1,
+    }, nil
+}
+```
+
+### 2.7.5 冗余管理（区分可压缩冗余 vs 必要冗余）
+
+**香农原话**：冗余有两面——信源冗余是可压缩空间，信道冗余是抗干扰必需。
+
+**Agent 场景**：
+
+| 冗余类型 | 含义 | 处理策略 |
+|---------|------|---------|
+| 可压缩冗余 | 旧工具结果、重复描述、冗长日志 | 移除（Reasonix 裁剪） |
+| 必要冗余 | 验证步骤、错误检查、备选路径 | 保留（信道编码） |
+
+```go
+// internal/compressor/redundancy.go
+
+package compressor
+
+// RedundancyType 冗余类型
+type RedundancyType int
+
+const (
+    RedundancyCompressible RedundancyType = iota // 可压缩冗余（信源冗余）
+    RedundancyNecessary                           // 必要冗余（信道冗余）
+)
+
+// ClassifyRedundancy 分类冗余
+func ClassifyRedundancy(msg Message) RedundancyType {
+    // 可压缩冗余特征
+    if msg.Role == "tool" && msg.LoopNumber < currentLoop-1 {
+        return RedundancyCompressible // 旧工具结果
+    }
+    if msg.Role == "system" && isDuplicate(msg) {
+        return RedundancyCompressible // 重复系统消息
+    }
+
+    // 必要冗余特征
+    if msg.Role == "tool" && isVerification(msg) {
+        return RedundancyNecessary // 验证步骤
+    }
+    if msg.Role == "assistant" && containsAlternative(msg) {
+        return RedundancyNecessary // 备选路径
+    }
+
+    return RedundancyCompressible
+}
+
+// RemoveCompressible 移除可压缩冗余
+func RemoveCompressible(messages []Message) []Message {
+    result := make([]Message, 0)
+    for _, msg := range messages {
+        if ClassifyRedundancy(msg) == RedundancyCompressible {
+            // 可压缩：裁剪或移除
+            if isPrunable(msg) {
+                result = append(result, prune(msg))
+            }
+            // 否则直接跳过
+        } else {
+            // 必要冗余：保留
+            result = append(result, msg)
+        }
+    }
+    return result
+}
+```
+
+### 2.7.6 三论融合：完整理论框架
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Zhulong 理论基础（三论融合）                    │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  一般系统论（贝塔朗菲）—— 系统是什么                      │    │
+│  │  - 开放系统：Agent 与环境持续交互                         │    │
+│  │  - 等终极性：多路径达成目标                               │    │
+│  │  - 动态稳态：目标可演化，核心稳定                         │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  工程控制论（钱学森）—— 系统怎么控                        │    │
+│  │  - 负反馈：误差驱动修正                                   │    │
+│  │  - 稳定性：振荡/发散检测                                  │    │
+│  │  - 最优控制：性能指标驱动                                 │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  信息论（香农）—— 信息怎么传                              │    │
+│  │  - 信息增益：工具选择优化                                 │    │
+│  │  - 信息密度：上下文压缩优化                               │    │
+│  │  - 噪声处理：LLM 不确定性应对                             │    │
+│  │  - 冗余管理：区分可压缩 vs 必要冗余                       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Zhulong（工程实现）                                      │    │
+│  │  - 环境感知 + 反馈控制 + 信息优化                         │    │
+│  │  - 备选路径 + 稳定性保障 + 噪声对抗                       │    │
+│  │  - 信息密度驱动的上下文管理                               │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 3. 核心模块设计
 
 ### 3.1 Controller — 状态机驱动的循环控制
@@ -2399,10 +2748,12 @@ zhulong/
 │   │   ├── replan.go               # 重规划逻辑
 │   │   └── alternative.go          # 备选路径生成 + 切换
 │   │
-│   ├── executor/                   # 执行器
+│   ├── executor/                   # 执行器（含信息增益工具选择）
 │   │   ├── executor.go             # Executor 接口 + 实现
 │   │   ├── scheduler.go            # 并行调度（拓扑排序）
-│   │   └── retry.go                # 工具调用重试策略
+│   │   ├── retry.go                # 工具调用重试策略
+│   │   ├── tool_selector.go        # 信息增益驱动的工具选择
+│   │   └── noise_handler.go        # LLM 输出噪声处理
 │   │
 │   ├── reflector/                  # 反省器（含负反馈控制）
 │   │   ├── reflector.go            # Reflector 接口 + 实现
@@ -2422,6 +2773,12 @@ zhulong/
 │   │   ├── file_watcher.go         # 文件变化监控（fsnotify）
 │   │   ├── api_watcher.go          # API 可用性探测
 │   │   └── impact.go               # 环境变化影响评估
+│   │
+│   ├── information/                # 信息论模块（香农）
+│   │   ├── gain.go                 # 信息增益计算（工具选择优化）
+│   │   ├── density.go              # 信息密度优化（上下文压缩）
+│   │   ├── noise.go                # 噪声处理（LLM 不确定性应对）
+│   │   └── redundancy.go           # 冗余管理（可压缩 vs 必要）
 │   │
 │   ├── memory/                     # 三层记忆系统
 │   │   ├── interfaces.go           # MemoryReader / MemoryWriter 接口
