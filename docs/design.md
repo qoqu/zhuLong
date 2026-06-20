@@ -499,6 +499,314 @@ func (s *SystemPerformance) OptimizationSuggestions() []Suggestion {
 
 ---
 
+## 2.6 一般系统论基础
+
+> 贝塔朗菲《一般系统论》(1968) 的核心思想应用于 Agent 系统设计
+> 与工程控制论互补：控制论侧重反馈调控，一般系统论侧重系统通用规律
+
+### 2.6.1 开放系统模型
+
+**一般系统论原话**：生命、社会都是开放动态系统，持续和外部环境交换物质、能量、信息，能抵抗熵增、维持有序稳态。
+
+**当前架构的问题**：
+
+```
+当前设计（封闭系统）：
+  Goal → Plan → Execute → Reflect → Done
+  假设：环境在执行期间不变
+  问题：文件被外部修改、API 变更、用户需求演进 → 计划失效
+
+开放系统设计：
+  环境 ←→ Agent ←→ 环境
+  假设：环境持续变化，Agent 需要感知并适应
+```
+
+**环境感知器**：
+
+```go
+// internal/environment/monitor.go
+
+package environment
+
+// Monitor 持续监控外部环境变化
+type Monitor struct {
+    watchers []Watcher
+    changes  chan Change
+}
+
+type Watcher interface {
+    // Watch 监控特定资源的变化
+    Watch(ctx context.Context, resource string) (<-chan Change, error)
+    // Stop 停止监控
+    Stop() error
+}
+
+type Change struct {
+    Resource  string      // 变化的资源（文件、API、数据库等）
+    Type      ChangeType  // 变化类型
+    Timestamp time.Time
+    Details   interface{}
+}
+
+type ChangeType int
+
+const (
+    ChangeModified  ChangeType = iota // 内容被修改
+    ChangeAdded                       // 新增资源
+    ChangeDeleted                     // 资源被删除
+    ChangeUnavailable                 // 资源不可用（API 下线等）
+)
+
+// 内置 Watcher
+// - FileWatcher: 监控文件变化（fsnotify）
+// - APIWatcher: 定期探测 API 可用性
+// - UserWatcher: 监听用户输入（人机协作场景）
+```
+
+**环境变化触发重规划**：
+
+```go
+// 环境变化处理逻辑
+func (c *Controller) handleEnvironmentChange(change Change) {
+    // 评估变化对当前计划的影响
+    impact := c.assessImpact(change, c.session.Plan)
+
+    switch impact.Severity {
+    case ImpactNone:
+        // 无影响，继续执行
+        return
+
+    case ImpactMinor:
+        // 轻微影响，记录到记忆，不影响当前步骤
+        c.memory.AddEnvironmentChange(change)
+
+    case ImpactMajor:
+        // 重大影响，触发重规划
+        c.session.State = StateReplanning
+        c.session.ReplanReason = fmt.Sprintf("环境变化: %s", change.Resource)
+
+    case ImpactCritical:
+        // 关键影响，暂停等待人工确认
+        c.session.State = StateWaitingHuman
+        c.session.WaitReason = fmt.Sprintf("关键环境变化: %s", change.Resource)
+    }
+}
+```
+
+### 2.6.2 等终极性（Equifinality）
+
+**一般系统论原话**：不同初始条件、不同路径的系统，最终可以趋向同一个稳定目标。
+
+**当前架构的问题**：
+
+```
+当前设计（单一路径）：
+  Plan: [Step1 → Step2 → Step3]
+  如果 Step2 失败 → 重规划 → 可能还是类似路径 → 再次失败
+
+等终极性设计（多路径）：
+  Plan: [Step1 → Step2 → Step3]  (主路径)
+  Alt:  [Step1 → Step4 → Step5]  (备选路径)
+  如果 Step2 失败 → 尝试备选路径 → 更高成功率
+```
+
+**备选路径规划**：
+
+```go
+// internal/planner/alternative.go
+
+package planner
+
+// AlternativePath 备选路径
+type AlternativePath struct {
+    ID          string
+    Description string
+    Steps       []Step
+    WhenToUse   string  // 何时切换到此路径
+    Confidence  float64 // 路径置信度
+}
+
+// PlanWithAlternatives 生成带备选路径的计划
+func (p *LLMPlanner) PlanWithAlternatives(ctx context.Context, goal string, memory MemoryReader) (*Plan, error) {
+    // 1. 生成主计划
+    mainPlan, err := p.Plan(ctx, goal, memory)
+    if err != nil {
+        return nil, err
+    }
+
+    // 2. 生成备选路径
+    alternatives := p.generateAlternatives(ctx, goal, mainPlan, memory)
+
+    // 3. 评估各路径的置信度
+    for i := range alternatives {
+        alternatives[i].Confidence = p.evaluateConfidence(alternatives[i], memory)
+    }
+
+    // 4. 按置信度排序
+    sort.Slice(alternatives, func(i, j int) bool {
+        return alternatives[i].Confidence > alternatives[j].Confidence
+    })
+
+    mainPlan.Alternatives = alternatives
+    return mainPlan, nil
+}
+
+// generateAlternatives 生成备选路径的 prompt
+var alternativePrompt = `基于以下主计划，生成 2-3 个备选路径。
+
+## 主计划
+{{.MainPlan}}
+
+## 目标
+{{.Goal}}
+
+## 要求
+1. 备选路径应使用不同的方法或工具
+2. 每个备选路径说明何时应该切换到它
+3. 评估每个路径的置信度（0-1）
+
+## 输出格式（JSON）
+{
+  "alternatives": [
+    {
+      "description": "路径描述",
+      "steps": [...],
+      "when_to_use": "当主路径的 Step X 失败时",
+      "confidence": 0.7
+    }
+  ]
+}`
+```
+
+**路径切换逻辑**：
+
+```go
+// 当主路径失败时，尝试备选路径
+func (c *Controller) tryAlternativePath(failedStep Step, err error) bool {
+    // 查找适合当前失败情况的备选路径
+    alt := c.findBestAlternative(failedStep, err)
+    if alt == nil {
+        return false
+    }
+
+    // 切换到备选路径
+    c.session.Plan.Steps = alt.Steps
+    c.session.CurrentStep = 0
+    c.session.State = StateExecuting
+
+    c.trace.Log("path_switch", map[string]interface{}{
+        "from":      "main",
+        "to":        alt.ID,
+        "reason":    failedStep.ID + " failed",
+        "confidence": alt.Confidence,
+    })
+
+    return true
+}
+```
+
+### 2.6.3 动态稳态（Dynamic Equilibrium）
+
+**一般系统论原话**：开放系统不是静止不变，而是持续流动中保持整体结构稳定。
+
+**在 Zhulong 中的体现**：
+
+```
+静态执行（当前设计）：
+  Goal → Plan → Execute → Execute → Execute → Done
+  问题：如果目标本身需要调整，系统无法适应
+
+动态稳态（改进设计）：
+  Goal → Plan → Execute → 目标微调 → Plan → Execute → 目标确认 → Done
+  特点：目标可以随执行深入而细化，但核心方向不变
+```
+
+**目标演化追踪**：
+
+```go
+// internal/controller/goal.go
+
+package controller
+
+// GoalEvolution 目标演化追踪
+type GoalEvolution struct {
+    Original    string    // 原始目标
+    Current     string    // 当前目标（可能已细化）
+    Refinements []Refinement
+    Core        string    // 核心目标（不可变）
+}
+
+type Refinement struct {
+    Timestamp time.Time
+    From      string
+    To        string
+    Reason    string
+    Source    string // "user" | "reflection" | "environment"
+}
+
+// RefineGoal 细化目标（保持核心不变）
+func (g *GoalEvolution) RefineGoal(newGoal string, reason string, source string) error {
+    // 核心目标不能改变
+    if g.isCoreChanged(newGoal) {
+        return fmt.Errorf("核心目标不能改变: %s → %s", g.Core, newGoal)
+    }
+
+    g.Refinements = append(g.Refinements, Refinement{
+        Timestamp: time.Now(),
+        From:      g.Current,
+        To:        newGoal,
+        Reason:    reason,
+        Source:    source,
+    })
+    g.Current = newGoal
+    return nil
+}
+
+// isCoreChanged 检查核心目标是否被改变
+func (g *GoalEvolution) isCoreChanged(newGoal string) bool {
+    // 使用 LLM 判断新目标是否偏离核心
+    // 或使用关键词匹配等简单方法
+    return false // 简化实现
+}
+```
+
+### 2.6.4 与工程控制论的互补关系
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              系统科学三层架构                                  │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  一般系统论（基础本体层）                              │    │
+│  │  - 系统是什么：开放、动态、层次                        │    │
+│  │  - 通用规律：等终极性、动态稳态、渐进分化              │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                          ↓                                  │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  工程控制论（反馈调控层）                              │    │
+│  │  - 怎么控制：负反馈、稳定性、最优控制                  │    │
+│  │  - 工程方法：阻尼、振荡检测、收敛判定                  │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                          ↓                                  │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  Zhulong（工程实现层）                                │    │
+│  │  - 环境感知 + 反馈控制 + 动态稳态                     │    │
+│  │  - 等终极性（备选路径）+ 稳定性保障                   │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**互补关系**：
+
+| 一般系统论提供 | 工程控制论提供 | Zhulong 实现 |
+|--------------|--------------|-------------|
+| 开放系统模型 | 反馈控制机制 | 环境感知 + 负反馈修正 |
+| 等终极性（多路径） | 最优控制（选最优路径） | 备选路径 + 路径评估 |
+| 动态稳态 | 稳定性判据 | 目标演化 + 收敛检测 |
+| 层次性 | 系统综合 | 分层规划（未来） |
+
+---
+
 ## 3. 核心模块设计
 
 ### 3.1 Controller — 状态机驱动的循环控制
@@ -2084,11 +2392,12 @@ zhulong/
 │   │   ├── loop.go                 # 主循环 Run()
 │   │   └── session.go              # 会话管理
 │   │
-│   ├── planner/                    # 规划器
+│   ├── planner/                    # 规划器（含等终极性·备选路径）
 │   │   ├── planner.go              # Planner 接口 + LLM 实现
 │   │   ├── prompts.go              # 规划 prompt 模板
 │   │   ├── parser.go               # JSON 计划解析 + 校验
-│   │   └── replan.go               # 重规划逻辑
+│   │   ├── replan.go               # 重规划逻辑
+│   │   └── alternative.go          # 备选路径生成 + 切换
 │   │
 │   ├── executor/                   # 执行器
 │   │   ├── executor.go             # Executor 接口 + 实现
@@ -2106,6 +2415,13 @@ zhulong/
 │   │   ├── oscillation.go          # 振荡检测
 │   │   ├── divergence.go           # 发散检测
 │   │   └── convergence.go          # 收敛判定
+│   │
+│   ├── environment/                # 环境感知器（一般系统论·开放系统）
+│   │   ├── monitor.go              # 环境监控主逻辑
+│   │   ├── watcher.go              # Watcher 接口 + 内置实现
+│   │   ├── file_watcher.go         # 文件变化监控（fsnotify）
+│   │   ├── api_watcher.go          # API 可用性探测
+│   │   └── impact.go               # 环境变化影响评估
 │   │
 │   ├── memory/                     # 三层记忆系统
 │   │   ├── interfaces.go           # MemoryReader / MemoryWriter 接口
