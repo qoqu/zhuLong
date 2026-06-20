@@ -28,10 +28,14 @@ Zhulong（烛龙） 是一个**通用自主循环 Agent 框架**，核心特性�
 
 ### 1.2 参考项目
 
-| 项目 | 借鉴内容 |
+> **原则：学习设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。**
+
+| 项目 | 学习内容 |
 |------|---------|
-| [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) | MCP 工具层、确定性工具结果裁剪、prefix-cache 优化、配置管理 |
-| [Ailoom-Context](https://github.com/EvanLyu-oss/Ailoom-Context) | 骨架压缩策略、焦点模式、增量压缩、无损恢复思路 |
+| [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) | MCP 工具协议规范、确定性工具结果裁剪策略、prefix-cache 稳定性设计思路 |
+| [Ailoom-Context](https://github.com/EvanLyu-oss/Ailoom-Context) | 骨架压缩结构设计（skeleton + restore 分离）、焦点模式语义、增量压缩思路 |
+
+两个项目均为 MIT License（允许商业使用），但 Zhulong 选择完全独立实现，确保零外部依赖。
 
 ---
 
@@ -1511,10 +1515,17 @@ Zhulong（烛龙）（自主循环）:
     - skeleton 保持 prefix 稳定（Ailoom 策略）
     - 裁剪旧循环 tool results（Reasonix 策略）
     - 压缩旧循环为 summary（自摘要）
-  缓存命中率: ~75-90%（略低于纯 Reasonix，因为循环本身会追加新内容）
+  缓存命中率: ≥ Reasonix（80-90%）
 
-  如果循环次数少（< 5 次）: 缓存命中率 ≈ Reasonix 水平
-  如果循环次数多（> 20 次）: 通过压缩，prefix 仍然稳定
+核心原理：
+  Zhulong 的 prefix 布局 = Reasonix 的 prefix 布局
+  [system prompt] [skeleton/tools] 这段永远不变
+  → 缓存命中率不可能低于 Reasonix
+
+Ailoom 骨架压缩的加成效果：
+  - 骨架比原始项目上下文更小、更确定性
+  - prefix 更稳定 → 更多内容落在缓存窗口内
+  - 长循环场景下，缓存命中率可能高于纯 Reasonix
 ```
 
 ---
@@ -1787,22 +1798,26 @@ zhulong/
 
 ---
 
-## 附录 A: 与 Reasonix 的复用清单
+## 附录 A: 与 Reasonix 的学习参考清单
 
-| 模块 | Reasonix 路径 | 复用方式 |
-|------|--------------|---------|
-| MCP 工具协议 | `internal/mcp/` | 直接 fork，适配到 `tools/mcp.go` |
-| 工具结果裁剪逻辑 | `internal/session/pruning/` | 参考实现，重写到 `compressor/prune.go` |
-| Prefix-cache 配置 | `internal/llm/config.go` | 参考结构，扩展到 `provider/` |
-| 配置管理 | `config/` | 参考 YAML 结构 |
-| DeepSeek API 调用 | `internal/llm/deepseek.go` | 参考实现，适配到 `provider/deepseek.go` |
+> **策略：学习设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。**
 
-## 附录 B: 与 Ailoom-Context 的复用清单
+| 模块 | Reasonix 路径 | 学习内容 | Zhulong 实现方式 |
+|------|--------------|---------|-----------------|
+| MCP 工具协议 | `internal/mcp/` | MCP 协议规范和消息格式 | 按 MCP 规范自行实现 `tools/mcp.go` |
+| 工具结果裁剪逻辑 | `internal/session/pruning/` | 裁剪策略：保留调用签名，裁剪可重新获取的输出 | 自行实现 `compressor/prune.go`，思路相同但代码全新 |
+| Prefix-cache 配置 | `internal/llm/config.go` | prefix 稳定性设计思路 | 自行设计 `provider/` 的上下文布局策略 |
+| 配置管理 | `config/` | YAML 配置结构参考 | 自行设计配置 schema |
+| DeepSeek API 调用 | `internal/llm/deepseek.go` | API 调用格式和错误处理 | 按 DeepSeek API 文档自行实现 |
 
-| 模块 | Ailoom 路径 | 复用方式 |
-|------|------------|---------|
-| 骨架生成策略 | `ailoom_core/compress.py` | 参考算法，Go 重写到 `compressor/skeleton.go` |
-| 焦点模式 | `ailoom_core/focus_modes/` | 参考模式定义，Go 实现 |
-| 增量压缩 | `ailoom_core/incremental.py` | 参考 diff 策略 |
-| 项目扫描 | `ailoom_core/scan.py` | 参考扫描逻辑，Go 重写 |
-| 配置预设 | `config/presets/` | 参考预设定义 |
+## 附录 B: 与 Ailoom-Context 的学习参考清单
+
+> **策略：学习算法思路，Go 从零实现。不复制 Python 代码。**
+
+| 模块 | Ailoom 路径 | 学习内容 | Zhulong 实现方式 |
+|------|------------|---------|-----------------|
+| 骨架生成策略 | `ailoom_core/compress.py` | 骨架结构设计思路（skeleton + restore package 分离） | 自行设计骨架格式，Go 实现 `compressor/skeleton.go` |
+| 焦点模式 | `ailoom_core/focus_modes/` | 各焦点模式的语义定义 | 自行定义焦点模式的提取规则 |
+| 增量压缩 | `ailoom_core/incremental.py` | 增量 diff 策略思路 | 自行实现增量更新逻辑 |
+| 项目扫描 | `ailoom_core/scan.py` | 目录扫描和过滤策略 | Go 标准库实现文件扫描 |
+| 配置预设 | `config/presets/` | 预设场景的参数设计 | 自行设计预设配置 |
