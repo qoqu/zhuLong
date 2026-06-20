@@ -84,6 +84,421 @@ Zhulong（烛龙） 是一个**通用自主循环 Agent 框架**，核心特性�
 
 ---
 
+## 2.5 工程控制论基础
+
+> 钱学森《工程控制论》(1954) 的核心思想应用于 Agent 系统设计
+
+### 2.5.1 控制论视角下的 Agent 系统
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              Agent 作为闭环控制系统                                │
+│                                                                 │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐      │
+│  │  Goal   │───→│Planner  │───→│Executor │───→│  Plant  │      │
+│  │ (目标)   │    │(控制器)  │    │(执行器)  │    │(被控对象)│      │
+│  └─────────┘    └─────────┘    └─────────┘    └────┬────┘      │
+│       ↑                                            │           │
+│       │            ┌─────────┐    ┌─────────┐      │           │
+│       └────────────│Reflector│◄───│ Sensor  │◄─────┘           │
+│                    │(反馈器)  │    │(传感器)  │                   │
+│                    └─────────┘    └─────────┘                   │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  稳定性保障层                                            │    │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐              │    │
+│  │  │ 振荡检测  │  │ 发散检测  │  │ 收敛判定  │              │    │
+│  │  │ (阻尼器)  │  │ (安全阀)  │  │ (终止器)  │              │    │
+│  │  └──────────┘  └──────────┘  └──────────┘              │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 2.5.2 三大控制论原理在 Zhulong 中的应用
+
+#### 原理一：负反馈控制
+
+**工程控制论原话**：负反馈是稳定、抗干扰、高精度控制的根本机制。
+
+**在 Zhulong 中的体现**：
+
+```
+传统 Agent（开环控制）：
+  Goal → Plan → Execute → Output（无反馈，无法纠正偏差）
+
+Zhulong（闭环负反馈）：
+  Goal → Plan → Execute → Output
+    ↑                         │
+    │      ┌─────────────────┘
+    │      ▼
+    │   Reflector（计算误差信号）
+    │      │
+    │      ▼
+    └── RePlanner（根据误差纠正）
+```
+
+**误差信号定义**：
+
+```go
+// 误差 = 目标状态 - 当前状态
+type ErrorSignal struct {
+    GoalProgress    float64  // 目标完成度 0-1
+    QualityDelta    float64  // 质量偏差（预期 vs 实际）
+    CostDelta       float64  // 成本偏差（预期 vs 实际）
+    DirectionError  string   // 方向性错误（如用错了工具）
+}
+
+// 误差信号驱动修正行为
+func (r *Reflector) ComputeError(goal string, currentState State) *ErrorSignal {
+    return &ErrorSignal{
+        GoalProgress:   r.assessProgress(goal, currentState),
+        QualityDelta:   r.expectedQuality - r.actualQuality,
+        CostDelta:      r.expectedCost - r.actualCost,
+        DirectionError: r.detectDirectionError(goal, currentState),
+    }
+}
+```
+
+**阻尼机制**（防止振荡）：
+
+```go
+// 阻尼器：限制修正幅度，防止过度修正导致振荡
+type Damper struct {
+    MaxCorrectionMagnitude float64  // 最大修正幅度（0-1）
+    CorrectionHistory      []Correction
+    OscillationDetector    *OscillationDetector
+}
+
+// 如果检测到振荡（连续3次相似的失败），增大阻尼
+func (d *Damper) ApplyCorrection(err *ErrorSignal) *Correction {
+    if d.OscillationDetector.IsOscillating() {
+        // 振荡检测：增大阻尼，减小修正幅度
+        d.MaxCorrectionMagnitude *= 0.5
+        return &Correction{
+            Magnitude: d.MaxCorrectionMagnitude,
+            Strategy:  "conservative",  // 保守策略
+        }
+    }
+    return &Correction{
+        Magnitude: math.Min(err.Magnitude(), d.MaxCorrectionMagnitude),
+        Strategy:  "normal",
+    }
+}
+```
+
+#### 原理二：系统稳定性理论
+
+**工程控制论原话**：系统稳定性是全书重中之重，区分绝对稳定与相对稳定。
+
+**在 Zhulong 中的体现**：
+
+| 稳定性类型 | 控制论含义 | Zhulong 实现 |
+|-----------|-----------|-------------|
+| **绝对稳定** | 系统不会发散 | 最大循环次数 + 成本上限 + 超时机制 |
+| **相对稳定** | 振荡强弱、响应快慢 | 收敛速度指标 + 振荡检测 + 阻尼控制 |
+
+**稳定性判据**：
+
+```go
+// 稳定性分析器
+type StabilityAnalyzer struct {
+    history []LoopSnapshot
+}
+
+// 绝对稳定性：系统是否在安全边界内
+func (s *StabilityAnalyzer) IsAbsolutelyStable() bool {
+    if len(s.history) < 2 {
+        return true
+    }
+    latest := s.history[len(s.history)-1]
+
+    // 发散检测：连续N次循环进度不增反降
+    if s.isDiverging() {
+        return false
+    }
+
+    // 振荡检测：连续N次循环在相同状态附近摆动
+    if s.isOscillating() {
+        return false
+    }
+
+    // 资源耗尽检测
+    if latest.CostUsed >= latest.CostLimit * 0.95 {
+        return false
+    }
+
+    return true
+}
+
+// 相对稳定性：系统收敛速度和振荡程度
+func (s *StabilityAnalyzer) RelativeStability() StabilityMetrics {
+    return StabilityMetrics{
+        ConvergenceRate:  s.convergenceRate(),      // 收敛速率
+        OvershootAmount:  s.maxOvershoot(),          // 超调量
+        OscillationFreq:  s.oscillationFrequency(),  // 振荡频率
+        SettlingTime:     s.settlingTime(),           // 稳定时间
+    }
+}
+
+// 发散检测：进度是否在倒退
+func (s *StabilityAnalyzer) isDiverging() bool {
+    if len(s.history) < 3 {
+        return false
+    }
+    // 最近3次循环的完成度递减
+    n := len(s.history)
+    return s.history[n-3].Progress > s.history[n-2].Progress &&
+           s.history[n-2].Progress > s.history[n-1].Progress
+}
+
+// 振荡检测：是否在重复相同的失败模式
+func (s *StabilityAnalyzer) isOscillating() bool {
+    if len(s.history) < 4 {
+        return false
+    }
+    // 检测 A→B→A→B 模式
+    n := len(s.history)
+    return s.history[n-4].State == s.history[n-2].State &&
+           s.history[n-3].State == s.history[n-1].State
+}
+```
+
+#### 原理三：最优控制与系统综合
+
+**工程控制论原话**：先给定性能指标，再反推控制器结构参数。
+
+**在 Zhulong 中的体现**：
+
+```
+传统思路（分析式）：
+  已有系统 → 观察行为 → 分析性能
+
+控制论思路（综合式）：
+  定义性能指标 → 设计控制器 → 实现目标
+```
+
+**性能指标定义**：
+
+```go
+// 性能指标（用户可配置）
+type PerformanceIndex struct {
+    // 动态品质
+    MaxCompletionTime  time.Duration  // 最大完成时间
+    MinQualityScore    float64        // 最低质量分数
+
+    // 资源约束
+    MaxTokenBudget     int            // 最大 token 消耗
+    MaxCostBudget      float64        // 最大费用（元）
+
+    // 优先级权重（多目标优化）
+    WeightSpeed        float64        // 速度权重
+    WeightQuality      float64        // 质量权重
+    WeightCost         float64        // 成本权重
+
+    // 约束条件
+    HardConstraints    []Constraint   // 硬约束（不可违反）
+    SoftConstraints    []Constraint   // 软约束（尽量满足）
+}
+
+// 系统综合：根据性能指标反推控制器参数
+func SynthesizeController(index PerformanceIndex) ControllerConfig {
+    config := ControllerConfig{}
+
+    // 根据速度权重调整并行度
+    if index.WeightSpeed > 0.7 {
+        config.MaxParallel = 5
+    } else if index.WeightSpeed > 0.4 {
+        config.MaxParallel = 3
+    } else {
+        config.MaxParallel = 1
+    }
+
+    // 根据成本权重调整阻尼
+    if index.WeightCost > 0.7 {
+        config.DamperLevel = "aggressive"  // 积极阻尼，减少浪费
+    } else {
+        config.DamperLevel = "normal"
+    }
+
+    // 根据质量权重调整反省频率
+    if index.WeightQuality > 0.7 {
+        config.ReflectEveryStep = true
+    } else {
+        config.ReflectEveryNSteps = 3
+    }
+
+    return config
+}
+```
+
+### 2.5.3 时滞、非线性与耦合处理
+
+**工程控制论原话**：专门研究工程普遍存在的滞后环节、饱和摩擦非线性、多变量互相耦合问题。
+
+**在 Zhulong 中的体现**：
+
+| 工程问题 | Agent 对应问题 | 解决方案 |
+|---------|---------------|---------|
+| **时滞** | LLM 推理延迟、工具调用延迟 | 异步执行 + 超时机制 + 延迟补偿 |
+| **非线性** | LLM 输出不确定性、工具结果不可预测 | 置信度评估 + 降级策略 |
+| **耦合** | 行动影响未来上下文，上下文影响未来决策 | 耦合度评估 + 解耦策略 |
+
+**时滞处理**：
+
+```go
+// 时滞补偿器
+type DelayCompensator struct {
+    AvgLLMLatency    time.Duration
+    AvgToolLatency   time.Duration
+    TimeoutBudget    time.Duration
+}
+
+// 预估步骤执行时间，决定是否并行
+func (d *DelayCompensator) EstimateStepDuration(step Step) time.Duration {
+    switch step.Action.Type {
+    case "llm_generate":
+        return d.AvgLLMLatency
+    case "tool_call":
+        return d.AvgToolLatency
+    default:
+        return 0
+    }
+}
+
+// 如果单步超时风险高，拆分为更小的步骤
+func (d *DelayCompensator) ShouldSplit(step Step) bool {
+    return d.EstimateStepDuration(step) > d.TimeoutBudget * 0.8
+}
+```
+
+**非线性处理**：
+
+```go
+// 非线性补偿：LLM 输出不确定性处理
+type NonlinearCompensator struct {
+    ConfidenceThreshold float64
+    FallbackStrategy    string
+}
+
+// 当 LLM 输出置信度低时，启用降级策略
+func (n *NonlinearCompensator) HandleUncertainty(output LLMOutput) *Action {
+    if output.Confidence < n.ConfidenceThreshold {
+        switch n.FallbackStrategy {
+        case "retry":
+            // 重试，降低 temperature
+            return &Action{Type: "retry", Temperature: output.Temperature * 0.5}
+        case "simplify":
+            // 简化任务，拆分为更小步骤
+            return &Action{Type: "split", Steps: n.splitTask(output.Task)}
+        case "human":
+            // 请求人工介入
+            return &Action{Type: "human_input", Question: output.Ambiguity}
+        }
+    }
+    return &Action{Type: "proceed"}
+}
+```
+
+**耦合处理**：
+
+```go
+// 耦合度评估：评估当前行动对未来状态的影响
+type CouplingAnalyzer struct {
+    StateHistory []StateSnapshot
+}
+
+// 评估行动的耦合影响
+func (c *CouplingAnalyzer) AssessCoupling(action Action, currentState State) CouplingReport {
+    return CouplingReport{
+        // 上下文耦合：此行动会改变多少上下文
+        ContextImpact: c.estimateContextChange(action),
+
+        // 工具耦合：此行动是否会影响后续工具调用
+        ToolImpact: c.estimateToolDependency(action),
+
+        // 目标耦合：此行动是否会影响其他目标
+        GoalImpact: c.estimateGoalDependency(action),
+
+        // 建议：是否需要先执行其他行动来解耦
+        Recommendation: c.suggestDecoupling(action, currentState),
+    }
+}
+```
+
+### 2.5.4 整体性系统思维
+
+**工程控制论原话**：反对孤立看待元件，强调系统整体性能优先于单个零部件。
+
+**在 Zhulong 中的体现**：
+
+```
+错误思路（孤立优化）：
+  - 优化 Planner prompt → 规划更好
+  - 优化 Executor → 执行更快
+  - 优化 Reflector → 反省更准
+  （各模块独立优化，可能互相冲突）
+
+正确思路（系统整体优化）：
+  - 定义系统级性能指标
+  - 评估闭环整体响应
+  - 模块间协调优化
+```
+
+**系统级评估**：
+
+```go
+// 系统级性能评估（不是单模块评估）
+type SystemPerformance struct {
+    // 端到端指标
+    TotalTime       time.Duration  // 总耗时
+    TotalCost       float64        // 总成本
+    GoalAchievement float64        // 目标达成度
+
+    // 效率指标
+    TokenEfficiency  float64  // 有效 token / 总 token
+    LoopEfficiency   float64  // 有效循环 / 总循环
+    ToolEfficiency   float64  // 有效工具调用 / 总工具调用
+
+    // 稳定性指标
+    OscillationCount int      // 振荡次数
+    ReplanCount      int      // 重规划次数
+    ErrorCount       int      // 错误次数
+}
+
+// 系统级优化建议
+func (s *SystemPerformance) OptimizationSuggestions() []Suggestion {
+    var suggestions []Suggestion
+
+    if s.TokenEfficiency < 0.6 {
+        suggestions = append(suggestions, Suggestion{
+            Module:  "compressor",
+            Issue:   "token 效率低",
+            Action:  "增强压缩策略，裁剪更多冗余上下文",
+        })
+    }
+
+    if s.OscillationCount > 3 {
+        suggestions = append(suggestions, Suggestion{
+            Module:  "damper",
+            Issue:   "振荡频繁",
+            Action:  "增大阻尼系数，减少修正幅度",
+        })
+    }
+
+    if s.ReplanCount > 5 {
+        suggestions = append(suggestions, Suggestion{
+            Module:  "planner",
+            Issue:   "重规划过多",
+            Action:  "提高初始规划质量，或降低触发重规划的阈值",
+        })
+    }
+
+    return suggestions
+}
+```
+
+---
+
 ## 3. 核心模块设计
 
 ### 3.1 Controller — 状态机驱动的循环控制
@@ -687,9 +1102,10 @@ func (s *Scheduler) Schedule(plan *Plan) [][]Step {
 
 ---
 
-### 3.4 Reflector — 反省器
+### 3.4 Reflector — 反省器（含负反馈控制）
 
-负责评估执行结果，决定循环的下一步走向。
+负责评估执行结果，计算误差信号，决定循环的下一步走向。
+基于工程控制论的负反馈原理：Reflector 不仅评估，还生成误差信号驱动修正。
 
 #### 3.4.1 接口定义
 
@@ -703,7 +1119,7 @@ import (
 )
 
 type Reflector interface {
-    // Reflect 评估当前状态，返回决策
+    // Reflect 评估当前状态，返回决策和误差信号
     Reflect(ctx context.Context, goal string, plan *Plan, memory MemoryReader) (*Assessment, error)
 }
 
@@ -722,6 +1138,27 @@ type Assessment struct {
     Confidence  float64  // 置信度 0-1
     Findings    []string // 本轮发现的新信息
     Suggestions []string // 给 Replanner 的建议
+
+    // 负反馈控制新增字段
+    ErrorSignal   *ErrorSignal   // 误差信号（驱动修正）
+    StabilityInfo *StabilityInfo // 稳定性信息
+}
+
+// 误差信号：目标状态与当前状态的偏差
+type ErrorSignal struct {
+    GoalProgress   float64 // 目标完成度 0-1
+    QualityDelta   float64 // 质量偏差（预期 - 实际）
+    CostDelta      float64 // 成本偏差（预期 - 实际）
+    DirectionError string  // 方向性错误描述
+    Magnitude      float64 // 误差总幅度 0-1
+}
+
+// 稳定性信息：系统运行状态
+type StabilityInfo struct {
+    IsOscillating     bool    // 是否在振荡
+    IsDiverging       bool    // 是否在发散
+    ConvergenceRate   float64 // 收敛速率
+    LoopsWithoutProgress int  // 无进展的循环数
 }
 ```
 
@@ -1658,10 +2095,17 @@ zhulong/
 │   │   ├── scheduler.go            # 并行调度（拓扑排序）
 │   │   └── retry.go                # 工具调用重试策略
 │   │
-│   ├── reflector/                  # 反省器
+│   ├── reflector/                  # 反省器（含负反馈控制）
 │   │   ├── reflector.go            # Reflector 接口 + 实现
 │   │   ├── prompts.go              # 反省 prompt 模板
-│   │   └── assessment.go           # 评估结果解析
+│   │   ├── assessment.go           # 评估结果解析 + 误差信号
+│   │   └── damper.go               # 阻尼器（防振荡）
+│   │
+│   ├── stability/                  # 稳定性分析器（工程控制论）
+│   │   ├── analyzer.go             # 稳定性分析主逻辑
+│   │   ├── oscillation.go          # 振荡检测
+│   │   ├── divergence.go           # 发散检测
+│   │   └── convergence.go          # 收敛判定
 │   │
 │   ├── memory/                     # 三层记忆系统
 │   │   ├── interfaces.go           # MemoryReader / MemoryWriter 接口
