@@ -1456,6 +1456,244 @@ func (pm *ProgressMonitor) estimateConsumption(snapshot ProgressSnapshot) float6
 
 ---
 
+## 2.9 协同学基础
+
+> 哈肯《协同学》(1977) 的核心思想应用于 Agent 系统设计
+> "新三论"之一，与耗散结构理论互补：耗散解释"有序为何存在"，协同解释"有序如何形成"
+
+### 2.9.1 核心洞察：序参量支配系统行为
+
+**哈肯原话**：系统变量分两类——快变量（局部波动，衰减极快）和慢变量（序参量，变化缓慢，支配所有快变量）。宏观秩序完全由少数序参量决定。
+
+**Agent 映射**：
+
+| 协同学概念 | Agent 对应 | 实际意义 |
+|-----------|-----------|---------|
+| 序参量（慢变量） | 目标/策略 | 变化慢，支配所有行动 |
+| 快变量 | 具体工具调用 | 变化快，被目标支配 |
+| 役使原理 | 目标控制行动 | 行动必须服务于目标 |
+| 自组织 | 工具协调 | 工具间自发配合 |
+
+### 2.9.2 序参量识别（目标/策略层级）
+
+**哈肯原话**：不用求解海量微观方程，仅分析少数序参量，就能描述系统整体演化。
+
+**Agent 映射**：识别真正驱动系统的目标/策略（序参量），确保所有行动都服务于它。
+
+```go
+// internal/controller/order_parameter.go
+
+package controller
+
+// OrderParameter 序参量
+// 核心思想：识别真正驱动系统的目标/策略（慢变量）
+type OrderParameter struct {
+    Goal        string    // 核心目标（最慢的变量）
+    Strategy    string    // 当前策略（次慢的变量）
+    Priority    float64   // 优先级（0-1）
+    Stability   float64   // 稳定性（变化频率的倒数）
+    CreatedAt   time.Time
+    UpdatedAt   time.Time
+}
+
+// IdentifyOrderParameter 识别序参量
+// 从当前状态中提取真正驱动系统的目标/策略
+func IdentifyOrderParameter(session *Session) *OrderParameter {
+    // 1. 核心目标是最慢的变量（几乎不变）
+    goal := session.Goal
+
+    // 2. 策略是次慢的变量（偶尔变化）
+    strategy := session.CurrentStrategy
+
+    // 3. 计算稳定性（变化频率的倒数）
+    stability := 1.0 / (float64(session.StrategyChanges) + 1.0)
+
+    return &OrderParameter{
+        Goal:      goal,
+        Strategy:  strategy,
+        Priority:  1.0, // 目标优先级最高
+        Stability: stability,
+        CreatedAt: session.StartTime,
+        UpdatedAt: time.Now(),
+    }
+}
+```
+
+### 2.9.3 役使原理（目标控制行动）
+
+**哈肯原话**：慢变量"役使、支配"所有快变量的运动。宏观秩序完全由少数序参量决定。
+
+**Agent 映射**：目标/策略（慢变量）应该支配所有工具调用（快变量）。行动必须服务于目标。
+
+```go
+// internal/controller/slaving.go
+
+package controller
+
+// SlavingPrinciple 役使原理实现
+// 核心思想：目标/策略（慢变量）支配所有行动（快变量）
+type SlavingPrinciple struct {
+    orderParameter *OrderParameter
+}
+
+// EnforceSlaving 强制役使：确保行动服务于目标
+func (sp *SlavingPrinciple) EnforceSlaving(action Action) (*EnforcedAction, error) {
+    // 1. 检查行动是否服务于目标
+    relevance := sp.assessRelevance(action, sp.orderParameter.Goal)
+
+    if relevance < 0.3 {
+        // 行动与目标无关，拒绝执行
+        return nil, fmt.Errorf("行动 '%s' 与目标 '%s' 无关（相关度 %.2f）",
+            action.Description, sp.orderParameter.Goal, relevance)
+    }
+
+    // 2. 调整行动优先级（根据与目标的相关度）
+    enforced := &EnforcedAction{
+        Action:    action,
+        Priority:  action.Priority * relevance,
+        Aligned:   relevance >= 0.7,
+    }
+
+    return enforced, nil
+}
+
+// assessRelevance 评估行动与目标的相关度
+func (sp *SlavingPrinciple) assessRelevance(action Action, goal string) float64 {
+    // 使用 LLM 评估行动与目标的相关度
+    // 或使用简单的关键词匹配
+    return 0.8 // 简化实现
+}
+```
+
+### 2.9.4 自组织协调（工具间协同）
+
+**哈肯原话**：不需要顶层指挥，局部简单相互作用即可诞生全局秩序。
+
+**Agent 映射**：工具之间可以自发协调，不需要显式的中央调度。
+
+```go
+// internal/executor/coordination.go
+
+package executor
+
+// ToolCoordinator 工具协调器
+// 核心思想：工具间自发协调，不需要显式中央调度
+type ToolCoordinator struct {
+    toolRegistry *Registry
+    history      []ToolCallRecord
+}
+
+// SuggestCoordination 建议工具协调
+// 基于历史记录，发现工具间的协同模式
+func (tc *ToolCoordinator) SuggestCoordination(currentTool Tool) []ToolSuggestion {
+    suggestions := make([]ToolSuggestion, 0)
+
+    // 1. 查找经常与当前工具配合的工具
+    frequentPartners := tc.findFrequentPartners(currentTool)
+    for _, partner := range frequentPartners {
+        suggestions = append(suggestions, ToolSuggestion{
+            Tool:       partner.Tool,
+            Reason:     fmt.Sprintf("与 %s 经常配合使用", currentTool.Name()),
+            Confidence: partner.Confidence,
+        })
+    }
+
+    // 2. 查找能补充当前工具输出的工具
+    complementary := tc.findComplementary(currentTool)
+    for _, tool := range complementary {
+        suggestions = append(suggestions, ToolSuggestion{
+            Tool:       tool,
+            Reason:     fmt.Sprintf("能补充 %s 的输出", currentTool.Name()),
+            Confidence: 0.6,
+        })
+    }
+
+    return suggestions
+}
+
+// findFrequentPartners 查找经常配合的工具
+func (tc *ToolCoordinator) findFrequentPartners(tool Tool) []PartnerInfo {
+    partners := make(map[string]int)
+    total := 0
+
+    // 统计工具组合出现频率
+    for i, record := range tc.history {
+        if record.ToolName == tool.Name() && i+1 < len(tc.history) {
+            nextTool := tc.history[i+1].ToolName
+            partners[nextTool]++
+            total++
+        }
+    }
+
+    // 转换为置信度
+    result := make([]PartnerInfo, 0)
+    for toolName, count := range partners {
+        confidence := float64(count) / float64(total)
+        if confidence > 0.3 { // 只返回置信度 > 30% 的
+            result = append(result, PartnerInfo{
+                Tool:       tc.toolRegistry.Get(toolName),
+                Confidence: confidence,
+            })
+        }
+    }
+
+    return result
+}
+```
+
+### 2.9.5 五论融合：完整理论框架
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                Zhulong 理论基础（五论融合）                        │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  一般系统论（贝塔朗菲）—— 系统是什么                      │    │
+│  │  - 开放系统：Agent 与环境持续交互                         │    │
+│  │  - 等终极性：多路径达成目标                               │    │
+│  │  - 动态稳态：目标可演化，核心稳定                         │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  工程控制论（钱学森）—— 系统怎么控                        │    │
+│  │  - 负反馈：误差驱动修正                                   │    │
+│  │  - 稳定性：振荡/发散检测                                  │    │
+│  │  - 最优控制：性能指标驱动                                 │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  信息论（香农）—— 信息怎么传                              │    │
+│  │  - 信息增益：工具选择优化                                 │    │
+│  │  - 信息密度：上下文压缩优化                               │    │
+│  │  - 噪声处理：LLM 不确定性应对                             │    │
+│  │  - 冗余管理：区分可压缩 vs 必要冗余                       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  耗散结构理论（普利高津）—— 系统怎么活                    │    │
+│  │  - 负熵流：持续信息输入维持进展                           │    │
+│  │  - 涨落探索：停滞时增加随机性突破                         │    │
+│  │  - 动态有序：进展需要持续"能量"维持                       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  协同学（哈肯）—— 系统怎么协同                           │    │
+│  │  - 序参量：识别驱动系统的慢变量（目标/策略）               │    │
+│  │  - 役使原理：目标/策略支配所有行动                        │    │
+│  │  - 自组织协调：工具间自发配合                             │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                          ↓                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Zhulong（工程实现）                                      │    │
+│  │  - 环境感知 + 反馈控制 + 信息优化 + 停滞突破 + 目标支配   │    │
+│  │  - 备选路径 + 稳定性保障 + 噪声对抗 + 探索触发 + 工具协同 │    │
+│  │  - 信息密度驱动的上下文管理 + 进展监控 + 序参量识别       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 3. 核心模块设计
 
 ### 3.1 Controller — 状态机驱动的循环控制
@@ -3089,6 +3327,11 @@ zhulong/
 │   │   ├── trigger.go              # 探索触发逻辑
 │   │   ├── temperature.go          # 动态 temperature 调整
 │   │   └── tool_roulette.go        # 工具轮盘赌选择
+│   │
+│   ├── synergetics/                # 协同学模块（哈肯）
+│   │   ├── order_parameter.go      # 序参量识别（目标/策略层级）
+│   │   ├── slaving.go              # 役使原理（目标支配行动）
+│   │   └── coordination.go         # 工具间自组织协调
 │   │
 │   ├── memory/                     # 三层记忆系统
 │   │   ├── interfaces.go           # MemoryReader / MemoryWriter 接口
