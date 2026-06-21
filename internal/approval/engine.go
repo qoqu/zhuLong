@@ -58,23 +58,60 @@ type Rule struct {
 	Description string
 }
 
+// DynamicRule represents a dynamic approval rule (NB-Agent style)
+// Dynamic rules can evaluate tool name and parameters to make decisions
+type DynamicRule struct {
+	// Name is the rule name
+	Name string
+
+	// Description describes what the rule does
+	Description string
+
+	// Evaluator evaluates the tool call and returns (matches, permission)
+	// matches=true means this rule applies
+	// permission is the permission to grant if matches=true
+	Evaluator func(toolName string, params map[string]interface{}) (matches bool, permission Permission)
+}
+
 // ApprovalCallback is called when approval is needed
 type ApprovalCallback func(toolName string, params map[string]interface{}) bool
 
 // ApprovalEngine manages tool execution approval
 type ApprovalEngine struct {
-	mode     ExecutionMode
-	rules    []Rule
-	callback ApprovalCallback
+	mode         ExecutionMode
+	rules        []Rule
+	dynamicRules []DynamicRule
+	callback     ApprovalCallback
 }
 
 // NewApprovalEngine creates a new approval engine
 func NewApprovalEngine(mode ExecutionMode, callback ApprovalCallback) *ApprovalEngine {
 	return &ApprovalEngine{
-		mode:     mode,
-		rules:    DefaultRules(),
-		callback: callback,
+		mode:         mode,
+		rules:        DefaultRules(),
+		dynamicRules: make([]DynamicRule, 0),
+		callback:     callback,
 	}
+}
+
+// AddDynamicRule adds a dynamic rule
+func (ae *ApprovalEngine) AddDynamicRule(rule DynamicRule) {
+	ae.dynamicRules = append(ae.dynamicRules, rule)
+}
+
+// RemoveDynamicRule removes a dynamic rule by name
+func (ae *ApprovalEngine) RemoveDynamicRule(name string) {
+	for i, rule := range ae.dynamicRules {
+		if rule.Name == name {
+			ae.dynamicRules = append(ae.dynamicRules[:i], ae.dynamicRules[i+1:]...)
+			return
+		}
+	}
+}
+
+// GetDynamicRules returns all dynamic rules
+func (ae *ApprovalEngine) GetDynamicRules() []DynamicRule {
+	return ae.dynamicRules
 }
 
 // SetMode changes the execution mode
@@ -109,7 +146,14 @@ func (ae *ApprovalEngine) CheckPermission(toolName string, params map[string]int
 		return PermissionAllow
 	}
 
-	// Find matching rule
+	// Check dynamic rules first (NB-Agent style)
+	for _, rule := range ae.dynamicRules {
+		if matches, permission := rule.Evaluator(toolName, params); matches {
+			return permission
+		}
+	}
+
+	// Find matching static rule
 	for _, rule := range ae.rules {
 		if matchPattern(rule.ToolPattern, toolName) {
 			// Ask mode: follow rule exactly
