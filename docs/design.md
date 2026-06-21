@@ -586,27 +586,93 @@ func (sm *SkillManager) Discover() error { ... }
 func (sm *SkillManager) ViewSkill(name string) (*Skill, error) { ... }
 ```
 
-#### 3.3.2 审批引擎（借鉴 NB-Agent）
+#### 3.3.2 审批引擎（借鉴 NB-Agent + Reasonix）
 
-**问题**：某些工具调用可能有风险，需要人工确认。
+**问题**：某些工具调用可能有风险，需要人工确认。但有些场景用户完全信任 Agent，不想被打断。
 
-**解决方案**：审批引擎，支持三级权限和通配符匹配。
+**解决方案**：审批引擎 + 三种执行模式。
 
-**可行性**：✅ 只控制工具执行，不修改上下文。
+**可行性**：✅ 只控制工具执行，不修改上下文。与 Human 模块整合。
+
+**三种执行模式**（参考 Reasonix）：
+
+| 模式 | 说明 | 适用场景 |
+|------|------|---------|
+| **ask** | 每次风险操作都询问用户 | 调试、学习、不熟悉的任务 |
+| **auto** | 低风险自动执行，高风险才询问 | 日常使用、半信任场景 |
+| **yolo** | 全部自动执行，不询问 | 完全信任、自动化任务 |
 
 ```go
 // internal/approval/engine.go
 
+package approval
+
+// ExecutionMode 执行模式
+type ExecutionMode int
+
+const (
+    ModeAsk  ExecutionMode = iota // 询问模式：每次风险操作都询问
+    ModeAuto                       // 自动模式：低风险自动，高风险询问
+    ModeYolo                       // YOLO 模式：全部自动，不询问
+)
+
+// ApprovalEngine 审批引擎
 type ApprovalEngine struct {
+    mode     ExecutionMode
     rules    []Rule
     callback func(toolName string, params map[string]interface{}) bool
 }
 
 // CheckPermission checks the permission for a tool
-func (ae *ApprovalEngine) CheckPermission(toolName string, params map[string]interface{}) Permission { ... }
+func (ae *ApprovalEngine) CheckPermission(toolName string, params map[string]interface{}) Permission {
+    // YOLO 模式：全部允许
+    if ae.mode == ModeYolo {
+        return PermissionAllow
+    }
 
-// RequestApproval requests approval for a tool call
-func (ae *ApprovalEngine) RequestApproval(toolName string, params map[string]interface{}) (bool, error) { ... }
+    // 查找规则
+    for _, rule := range ae.rules {
+        if matchPattern(rule.ToolPattern, toolName) {
+            // Ask 模式：严格按照规则
+            if ae.mode == ModeAsk {
+                return rule.Permission
+            }
+
+            // Auto 模式：deny 保持 deny，ask 变为 allow（除了危险操作）
+            if ae.mode == ModeAuto {
+                if rule.Permission == PermissionDeny {
+                    return PermissionDeny
+                }
+                return PermissionAllow
+            }
+        }
+    }
+
+    // 默认：ask 模式询问，auto/yolo 模式允许
+    if ae.mode == ModeAsk {
+        return PermissionAsk
+    }
+    return PermissionAllow
+}
+```
+
+**与循环的集成**：
+
+```
+Executor 收到工具调用
+    │
+    ▼
+审批引擎检查权限
+    │
+    ├── allow → 正常执行，循环继续
+    │
+    ├── ask → Controller 进入 WaitingHuman 状态
+    │         │
+    │         ├── 用户批准 → 执行，循环继续
+    │         └── 用户拒绝 → 步骤失败，进入 Reflector
+    │
+    └── deny → 步骤直接失败，进入 Reflector
+               Reflector 决定：重规划 / 放弃
 ```
 
 **默认规则**：
@@ -614,9 +680,12 @@ func (ae *ApprovalEngine) RequestApproval(toolName string, params map[string]int
 | 工具 | 权限 | 说明 |
 |------|------|------|
 | read_file | allow | 读取文件 |
-| write_file | ask | 写入文件 |
-| execute_command | ask | 执行命令 |
-| rm -rf | deny | 危险操作 |
+| write_file | ask | 写入文件（auto 模式自动允许） |
+| search_file | allow | 搜索文件 |
+| execute_command | ask | 执行命令（auto 模式自动允许） |
+| web_search | allow | 搜索网络 |
+| rm -rf | deny | 危险操作（所有模式都拒绝） |
+| format | deny | 危险操作（所有模式都拒绝） |
 
 #### 3.3.3 环境感知器（一般系统论）
 
@@ -821,7 +890,7 @@ learning:
 
 # 审批
 approval:
-  enabled: true
+  mode: "auto"  # ask | auto | yolo
   rules:
     - tool: "read_file"
       permission: "allow"
@@ -830,6 +899,8 @@ approval:
     - tool: "execute_command"
       permission: "ask"
     - tool: "rm -rf"
+      permission: "deny"
+    - tool: "format"
       permission: "deny"
 
 # 人机协作
