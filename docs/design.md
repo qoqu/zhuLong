@@ -55,8 +55,9 @@ Zhulong（烛龙）是一个**基于 DeepSeek 的通用自主循环 Agent 框架
 |------|---------|
 | [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) | MCP 工具协议规范、确定性工具结果裁剪策略、prefix-cache 稳定性设计思路 |
 | [Ailoom-Context](https://github.com/EvanLyu-oss/Ailoom-Context) | 骨架压缩结构设计（skeleton + restore 分离）、焦点模式语义、增量压缩思路 |
+| [OK (NB-Agent)](https://github.com/NB-Agent/ok) | 自我进化机制、ProofChain 审计、安全沙盒、DAG 推理规划 |
 
-两个项目均为 MIT License（允许商业使用），但 Zhulong 选择完全独立实现，确保零外部依赖。
+所有参考项目均选择独立实现，确保零外部依赖。
 
 ### 1.4 理论基础
 
@@ -1271,6 +1272,356 @@ func ClassifyRedundancy(msg Message) RedundancyType {
 }
 ```
 
+#### 3.3.5 自我进化机制（借鉴 OK 项目）
+
+**问题**：Agent 应该能从对话中自动学习，而不是只依赖预设的积木块。
+
+**解决方案**：
+
+```go
+// internal/learning/self_evolution.go
+
+package learning
+
+// SelfEvolution 自我进化引擎
+// 借鉴 OK 项目的自我进化机制：
+// - 每 N 次对话检测工作流模式
+// - 每 M 次生成并验证新的技能候选
+// - 每 K 次修剪无用内容
+type SelfEvolution struct {
+    patternDetector  *PatternDetector
+    skillGenerator   *SkillGenerator
+    skillValidator   *SkillValidator
+    config           *EvolutionConfig
+}
+
+// EvolutionConfig 自我进化配置
+type EvolutionConfig struct {
+    PatternDetectionInterval int  // 每 N 次对话检测模式
+    SkillGenerationInterval  int  // 每 M 次生成技能
+    PruningInterval          int  // 每 K 次修剪
+    MinConfidence            float64 // 最低置信度
+}
+
+// DefaultEvolutionConfig 默认配置
+func DefaultEvolutionConfig() *EvolutionConfig {
+    return &EvolutionConfig{
+        PatternDetectionInterval: 3,
+        SkillGenerationInterval:  6,
+        PruningInterval:          10,
+        MinConfidence:            0.7,
+    }
+}
+
+// Evolve 执行一次进化
+func (se *SelfEvolution) Evolve(history []Conversation) {
+    // 1. 检测工作流模式
+    if len(history)%se.config.PatternDetectionInterval == 0 {
+        patterns := se.patternDetector.Detect(history)
+        se.patternDetector.UpdatePatterns(patterns)
+    }
+
+    // 2. 生成技能候选
+    if len(history)%se.config.SkillGenerationInterval == 0 {
+        candidates := se.skillGenerator.Generate(history)
+        for _, candidate := range candidates {
+            if se.skillValidator.Validate(candidate) {
+                se.skillGenerator.SaveSkill(candidate)
+            }
+        }
+    }
+
+    // 3. 修剪无用内容
+    if len(history)%se.config.PruningInterval == 0 {
+        se.skillGenerator.Prune(se.config.MinConfidence)
+    }
+}
+
+// PatternDetector 模式检测器
+type PatternDetector struct {
+    patterns []WorkflowPattern
+}
+
+// WorkflowPattern 工作流模式
+type WorkflowPattern struct {
+    Name       string
+    Steps      []string
+    Frequency  int
+    Confidence float64
+}
+
+// Detect 从历史中检测模式
+func (pd *PatternDetector) Detect(history []Conversation) []WorkflowPattern {
+    // TODO: 实现模式检测逻辑
+    return nil
+}
+
+// UpdatePatterns 更新模式库
+func (pd *PatternDetector) UpdatePatterns(patterns []WorkflowPattern) {
+    // TODO: 实现模式更新逻辑
+}
+
+// SkillGenerator 技能生成器
+type SkillGenerator struct {
+    skills map[string]*Skill
+}
+
+// Skill 技能
+type Skill struct {
+    Name       string
+    Description string
+    Steps      []string
+    Confidence float64
+    UsageCount int
+}
+
+// Generate 从历史中生成技能候选
+func (sg *SkillGenerator) Generate(history []Conversation) []*Skill {
+    // TODO: 实现技能生成逻辑
+    return nil
+}
+
+// SaveSkill 保存技能
+func (sg *SkillGenerator) SaveSkill(skill *Skill) {
+    sg.skills[skill.Name] = skill
+}
+
+// Prune 修剪低置信度技能
+func (sg *SkillGenerator) Prune(minConfidence float64) {
+    for name, skill := range sg.skills {
+        if skill.Confidence < minConfidence {
+            delete(sg.skills, name)
+        }
+    }
+}
+
+// SkillValidator 技能验证器
+type SkillValidator struct{}
+
+// Validate 验证技能是否有效
+func (sv *SkillValidator) Validate(skill *Skill) bool {
+    // TODO: 实现技能验证逻辑
+    return skill.Confidence >= 0.7
+}
+
+// Conversation 对话记录
+type Conversation struct {
+    Messages []Message
+    Result   Result
+}
+
+// Result 对话结果
+type Result struct {
+    Success    bool
+    TokensUsed int
+    Duration   time.Duration
+}
+```
+
+#### 3.3.6 ProofChain 审计链（借鉴 OK 项目）
+
+**问题**：Agent 执行的操作需要可验证的审计记录。
+
+**解决方案**：
+
+```go
+// internal/audit/proof_chain.go
+
+package audit
+
+import (
+    "crypto/sha256"
+    "encoding/hex"
+    "time"
+)
+
+// ProofChain 审计链
+// 借鉴 OK 项目的 ProofChain 机制：
+// - 每个工具调用记录在 SHA-256 哈希链中
+// - 执行结果密码学可验证
+// - 提供透明且不可否认的审计跟踪
+type ProofChain struct {
+    blocks []Block
+}
+
+// Block 审计块
+type Block struct {
+    Index     int
+    Timestamp time.Time
+    ToolName  string
+    Input     string
+    Output    string
+    Hash      string
+    PrevHash  string
+}
+
+// NewProofChain 创建新的审计链
+func NewProofChain() *ProofChain {
+    genesis := Block{
+        Index:     0,
+        Timestamp: time.Now(),
+        ToolName:  "genesis",
+        Input:     "",
+        Output:    "",
+        Hash:      calculateHash("", "", ""),
+        PrevHash:  "",
+    }
+
+    return &ProofChain{
+        blocks: []Block{genesis},
+    }
+}
+
+// AddBlock 添加审计块
+func (pc *ProofChain) AddBlock(toolName string, input string, output string) Block {
+    prevBlock := pc.blocks[len(pc.blocks)-1]
+
+    newBlock := Block{
+        Index:     len(pc.blocks),
+        Timestamp: time.Now(),
+        ToolName:  toolName,
+        Input:     input,
+        Output:    output,
+        Hash:      calculateHash(toolName, input, output),
+        PrevHash:  prevBlock.Hash,
+    }
+
+    pc.blocks = append(pc.blocks, newBlock)
+    return newBlock
+}
+
+// Verify 验证审计链完整性
+func (pc *ProofChain) Verify() bool {
+    for i := 1; i < len(pc.blocks); i++ {
+        current := pc.blocks[i]
+        prev := pc.blocks[i-1]
+
+        // 验证哈希
+        expectedHash := calculateHash(current.ToolName, current.Input, current.Output)
+        if current.Hash != expectedHash {
+            return false
+        }
+
+        // 验证前向链接
+        if current.PrevHash != prev.Hash {
+            return false
+        }
+    }
+
+    return true
+}
+
+// GetBlocks 获取所有审计块
+func (pc *ProofChain) GetBlocks() []Block {
+    return pc.blocks
+}
+
+// GetBlock 获取指定索引的审计块
+func (pc *ProofChain) GetBlock(index int) (Block, bool) {
+    if index < 0 || index >= len(pc.blocks) {
+        return Block{}, false
+    }
+    return pc.blocks[index], true
+}
+
+// calculateHash 计算哈希
+func calculateHash(toolName string, input string, output string) string {
+    data := toolName + input + output
+    hash := sha256.Sum256([]byte(data))
+    return hex.EncodeToString(hash[:])
+}
+```
+
+#### 3.3.7 安全沙盒（借鉴 OK 项目）
+
+**问题**：工具执行需要安全隔离，防止危险操作。
+
+**解决方案**：
+
+```go
+// internal/sandbox/sandbox.go
+
+package sandbox
+
+import (
+    "context"
+    "fmt"
+    "os/exec"
+)
+
+// Permission 权限级别
+type Permission int
+
+const (
+    PermissionDeny Permission = iota
+    PermissionAsk
+    PermissionAllow
+)
+
+// SandboxRule 沙盒规则
+type SandboxRule struct {
+    ToolPattern string     // 工具模式（支持通配符）
+    Permission  Permission
+    Description string
+}
+
+// Sandbox 安全沙盒
+// 借鉴 OK 项目的三层权限系统：
+// - deny > ask > allow
+// - 支持按工具进行通配符匹配
+type Sandbox struct {
+    rules []SandboxRule
+}
+
+// NewSandbox 创建新的沙盒
+func NewSandbox() *Sandbox {
+    return &Sandbox{
+        rules: make([]SandboxRule, 0),
+    }
+}
+
+// AddRule 添加规则
+func (s *Sandbox) AddRule(rule SandboxRule) {
+    s.rules = append(s.rules, rule)
+}
+
+// CheckPermission 检查权限
+func (s *Sandbox) CheckPermission(toolName string, params map[string]interface{}) Permission {
+    // 从最具体的规则开始匹配
+    for _, rule := range s.rules {
+        if matchPattern(rule.ToolPattern, toolName) {
+            return rule.Permission
+        }
+    }
+
+    // 默认需要询问
+    return PermissionAsk
+}
+
+// Execute 执行工具（带沙盒保护）
+func (s *Sandbox) Execute(ctx context.Context, toolName string, params map[string]interface{}, executor func() (string, error)) (string, error) {
+    permission := s.CheckPermission(toolName, params)
+
+    switch permission {
+    case PermissionDeny:
+        return "", fmt.Errorf("tool %s is denied by sandbox", toolName)
+    case PermissionAsk:
+        // TODO: 实现人工确认逻辑
+        return "", fmt.Errorf("tool %s requires human approval", toolName)
+    case PermissionAllow:
+        return executor()
+    }
+
+    return "", fmt.Errorf("unknown permission level")
+}
+
+// matchPattern 匹配工具模式（支持通配符）
+func matchPattern(pattern string, toolName string) bool {
+    // TODO: 实现通配符匹配逻辑
+    return pattern == toolName
+}
+```
+
 ---
 
 ## 4. 缓存命中率保障机制
@@ -1320,10 +1671,11 @@ func ClassifyRedundancy(msg Message) RedundancyType {
 | **历史只压缩不重排** | 旧循环压缩为 summary，追加到稳定区间 | 🔴 最高 |
 | **裁剪只在动态区间** | 工具结果裁剪只发生在当前循环 | 🔴 最高 |
 
-### 4.3 P1 模块的缓存兼容性分析
+### 4.3 模块缓存兼容性分析
 
-| P1 模块 | 对缓存的影响 | 兼容性 |
-|---------|-------------|--------|
+| 模块 | 对缓存的影响 | 兼容性 |
+|------|-------------|--------|
+| **P1 模块** | | |
 | 振荡/发散检测 | 只读取历史，不修改上下文 | ✅ 完全兼容 |
 | 系统级性能指标 | 只读取统计，不修改上下文 | ✅ 完全兼容 |
 | 信息增益工具选择 | 只影响工具选择，不修改上下文 | ✅ 完全兼容 |
@@ -1336,6 +1688,14 @@ func ClassifyRedundancy(msg Message) RedundancyType {
 | 内部模型 | 存储在独立存储，不修改上下文 | ✅ 完全兼容 |
 | 多样性管理 | 只读取统计，不修改上下文 | ✅ 完全兼容 |
 | 混沌边缘 | 只影响 temperature，不修改上下文 | ✅ 完全兼容 |
+| **P2 模块** | | |
+| 环境感知器 | 只监控外部变化，不修改上下文 | ✅ 完全兼容 |
+| 备选路径 | 存储在 Plan 结构中，不修改 prefix | ✅ 完全兼容 |
+| 噪声处理 | 验证结果存动态区间，不修改 prefix | ✅ 完全兼容 |
+| 冗余管理 | 只影响动态区间压缩，不修改 prefix | ✅ 完全兼容 |
+| 自我进化 | 存储在独立存储，不修改上下文 | ✅ 完全兼容 |
+| ProofChain 审计 | 独立审计链，不修改上下文 | ✅ 完全兼容 |
+| 安全沙盒 | 只控制工具执行，不修改上下文 | ✅ 完全兼容 |
 
 ### 4.4 缓存命中率
 
@@ -1527,6 +1887,12 @@ zhulong/
 │   │   ├── monitor.go
 │   │   ├── watcher.go
 │   │   └── file_watcher.go
+│   │
+│   ├── audit/                      # P2: ProofChain 审计链（借鉴 OK）
+│   │   └── proof_chain.go
+│   │
+│   ├── sandbox/                    # P2: 安全沙盒（借鉴 OK）
+│   │   └── sandbox.go
 │   │
 │   ├── memory/                     # P0: 三层记忆系统
 │   │   ├── interfaces.go
