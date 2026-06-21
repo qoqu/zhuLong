@@ -1,4 +1,5 @@
-import type { RightPanelTab, RuntimeStats, Language, FileChange } from '../types'
+import { useState, useEffect } from 'react'
+import type { RightPanelTab, RuntimeStats, Language, FileChange, TreeNode } from '../types'
 import { useT } from '../i18n'
 
 interface RightPanelProps {
@@ -9,6 +10,8 @@ interface RightPanelProps {
   files: string[]
   changes: FileChange[]
 }
+
+const backend = typeof window !== 'undefined' && (window as any).go ? (window as any).go.main.App : null
 
 export function RightPanel(props: RightPanelProps) {
   const t = useT(props.language)
@@ -181,23 +184,119 @@ function Donut(props: { percent: number; used: number; total: number }) {
 
 function FilesTab(props: { language: Language; files: string[] }) {
   const t = useT(props.language)
-  if (props.files.length === 0) {
+  const [tree, setTree] = useState<TreeNode | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        if (backend) {
+          const result = await backend.ListWorkspaceTree('.', 4)
+          if (!cancelled) setTree(result)
+        }
+      } catch {}
+      setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  if (loading) {
     return (
       <div className="panel-placeholder">
-        <p>📄</p>
-        <p>{t.noFiles}</p>
+        <p>⏳</p>
+        <p>{props.language === 'zh' ? '加载中...' : 'Loading...'}</p>
       </div>
     )
   }
+
+  if (!tree) {
+    // Browser fallback
+    if (props.files.length === 0) {
+      return (
+        <div className="panel-placeholder">
+          <p>📄</p>
+          <p>{t.noFiles}</p>
+        </div>
+      )
+    }
+    return (
+      <ul className="file-list">
+        {props.files.map((f, i) => (
+          <li key={i} className="file-list__item">📄 {f}</li>
+        ))}
+      </ul>
+    )
+  }
+
   return (
-    <ul className="file-list">
-      {props.files.map((f, i) => (
-        <li key={i} className="file-list__item">
-          📄 {f}
-        </li>
-      ))}
-    </ul>
+    <div className="file-tree">
+      <FileTreeNode node={tree} depth={0} />
+    </div>
   )
+}
+
+function FileTreeNode(props: { node: TreeNode; depth: number }) {
+  const { node, depth } = props
+  const [expanded, setExpanded] = useState(depth < 2)
+
+  if (node.isDir) {
+    return (
+      <div className="file-tree__node">
+        <button
+          className="file-tree__dir"
+          style={{ paddingLeft: depth * 16 }}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className="file-tree__arrow">{expanded ? '▾' : '▸'}</span>
+          <span className="file-tree__icon">📁</span>
+          <span className="file-tree__name">{node.name}</span>
+        </button>
+        {expanded && node.children?.map((child, i) => (
+          <FileTreeNode key={child.path || i} node={child} depth={depth + 1} />
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="file-tree__node">
+      <div className="file-tree__file" style={{ paddingLeft: depth * 16 + 18 }}>
+        <span className="file-tree__icon">{fileIcon(node.name)}</span>
+        <span className="file-tree__name">{node.name}</span>
+        {node.size !== undefined && node.size > 0 && (
+          <span className="file-tree__size">{formatSize(node.size)}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function fileIcon(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() || ''
+  switch (ext) {
+    case 'go': return '🐹'
+    case 'ts': case 'tsx': return '🔷'
+    case 'js': case 'jsx': return '🟡'
+    case 'json': return '📋'
+    case 'md': return '📝'
+    case 'css': return '🎨'
+    case 'html': return '🌐'
+    case 'yaml': case 'yml': return '⚙️'
+    case 'toml': return '⚙️'
+    case 'gitignore': return '🔒'
+    case 'mod': case 'sum': return '📦'
+    case 'png': case 'jpg': case 'svg': return '🖼️'
+    default: return '📄'
+  }
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return bytes + 'B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'K'
+  return (bytes / (1024 * 1024)).toFixed(1) + 'M'
 }
 
 function ChangesTab(props: { language: Language; changes: FileChange[] }) {

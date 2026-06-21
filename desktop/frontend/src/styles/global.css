@@ -1139,6 +1139,57 @@ select {
 .change-list__path { flex: 1; }
 .change-list__time { color: var(--fg-faint); font-size: var(--text-xs); }
 
+/* File tree */
+.file-tree {
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+}
+.file-tree__node {
+  line-height: 1.5;
+}
+.file-tree__dir,
+.file-tree__file {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 0;
+  border-radius: var(--radius-sm);
+  cursor: default;
+  width: 100%;
+  text-align: left;
+}
+.file-tree__dir {
+  cursor: pointer;
+}
+.file-tree__dir:hover,
+.file-tree__file:hover {
+  background: var(--bg-hover);
+}
+.file-tree__arrow {
+  width: 12px;
+  text-align: center;
+  color: var(--fg-faint);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.file-tree__icon {
+  font-size: var(--text-base);
+  flex-shrink: 0;
+}
+.file-tree__name {
+  color: var(--fg-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-tree__size {
+  color: var(--fg-faint);
+  font-size: var(--text-xs);
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-left: 8px;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }

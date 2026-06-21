@@ -8,6 +8,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -407,6 +410,97 @@ func (a *App) SetModel(model string) {
 		s.Stats.Model = model
 		a.emitSession(s)
 	}
+}
+
+// === File tree ===
+
+// TreeNode is a single entry in the workspace file tree sent to the frontend.
+type TreeNode struct {
+	Name     string     `json:"name"`
+	Path     string     `json:"path"`
+	IsDir    bool       `json:"isDir"`
+	Children []TreeNode `json:"children,omitempty"`
+	Size     int64      `json:"size,omitempty"`
+}
+
+// ListWorkspaceTree returns the directory tree rooted at the given path,
+// pruned to maxDepth levels and skipping common directories that clutter
+// the view (node_modules, .git, dist, build, vendor, .idea, .vscode).
+func (a *App) ListWorkspaceTree(root string, maxDepth int) TreeNode {
+	if maxDepth <= 0 {
+		maxDepth = 4
+	}
+	if root == "" {
+		root = "."
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return TreeNode{Name: filepath.Base(root), Path: root, IsDir: true}
+	}
+	if !info.IsDir() {
+		return TreeNode{Name: info.Name(), Path: root, Size: info.Size()}
+	}
+	return buildTree(root, "", 0, maxDepth)
+}
+
+var skipDirs = map[string]bool{
+	".git":       true,
+	"node_modules": true,
+	"dist":       true,
+	"build":      true,
+	"vendor":     true,
+	".idea":      true,
+	".vscode":    true,
+	"__pycache__": true,
+	".workbuddy": true,
+}
+
+func buildTree(abs, rel string, depth, maxDepth int) TreeNode {
+	name := filepath.Base(abs)
+	if rel == "" {
+		name = "."
+	}
+	node := TreeNode{Name: name, Path: rel, IsDir: true}
+	if depth >= maxDepth {
+		return node
+	}
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return node
+	}
+	// Sort: dirs first, then files
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].IsDir() != entries[j].IsDir() {
+			return entries[i].IsDir()
+		}
+		return entries[i].Name() < entries[j].Name()
+	})
+	for _, e := range entries {
+		if skipDirs[e.Name()] {
+			continue
+		}
+		childRel := e.Name()
+		if rel != "" {
+			childRel = rel + "/" + e.Name()
+		}
+		childAbs := filepath.Join(abs, e.Name())
+		if e.IsDir() {
+			node.Children = append(node.Children, buildTree(childAbs, childRel, depth+1, maxDepth))
+		} else {
+			info, _ := e.Info()
+			var size int64
+			if info != nil {
+				size = info.Size()
+			}
+			node.Children = append(node.Children, TreeNode{
+				Name:  e.Name(),
+				Path:  childRel,
+				IsDir: false,
+				Size:  size,
+			})
+		}
+	}
+	return node
 }
 
 // === Approval ===

@@ -148,9 +148,18 @@ declare global {
           SetExecutionMode(mode: string): Promise<void>
           SetModel(model: string): Promise<void>
           RespondApproval(id: string, approved: boolean): Promise<void>
+          ListWorkspaceTree(root: string, maxDepth: number): Promise<TreeNode>
         }
       }
     }
     runtime?: WailsRuntime
   }
+}
+
+export interface TreeNode {
+  name: string
+  path: string
+  isDir: boolean
+  children?: TreeNode[]
+  size?: number
 }
