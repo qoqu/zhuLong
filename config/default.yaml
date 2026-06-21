@@ -1,0 +1,98 @@
+# config/default.yaml
+# Zhulong（烛龙）默认配置
+
+# DeepSeek 配置
+deepseek:
+  model: "deepseek-chat"
+  api_key: "${DEEPSEEK_API_KEY}"
+  base_url: "https://api.deepseek.com"
+  temperature: 0.7
+  max_tokens: 4096
+
+# 循环控制
+loop:
+  max_loops: 50
+  max_wall_time: "30m"
+  checkpoint_every: 3
+  checkpoint_dir: ".zhulong/checkpoints"
+
+# 成本控制
+budget:
+  max_tokens: 500000
+  max_cost: 10.0
+  warn_at: 0.8
+
+# 规划器
+planner:
+  max_steps: 15
+  allow_replan: true
+  max_replans: 5
+
+# 执行器
+executor:
+  tool_timeout: "30s"
+
+# 反省器
+reflector:
+  confidence_threshold: 0.7
+  auto_fail_threshold: 0.3
+
+# 压缩
+compressor:
+  prune:
+    enabled: true
+    max_age: 2
+    keep_signature: true
+  skeleton:
+    enabled: true
+    focus_mode: "auto"
+    density: "adaptive"
+    max_tokens: 2000
+
+# 停滞检测
+stagnation:
+  window_size: 3
+  entropy_threshold: 0.2
+
+# 探索
+exploration:
+  base_temperature: 0.7
+  max_temperature: 1.5
+
+# 学习
+learning:
+  building_blocks:
+    enabled: true
+    min_similarity: 0.7
+  internal_model:
+    enabled: true
+    update_frequency: "per_loop"
+  diversity:
+    enabled: true
+    threshold: 1.0
+  edge_of_chaos:
+    enabled: true
+
+# 工具配置
+tools:
+  read_file:
+    enabled: true
+  write_file:
+    enabled: true
+  search_file:
+    enabled: true
+  execute_command:
+    enabled: true
+    timeout: "30s"
+
+# 可观测性
+trace:
+  enabled: true
+  format: "jsonl"
+  verbose: false
+  output_dir: ".zhulong/traces"
+
+# 日志
+logging:
+  level: "info"
+  format: "json"
