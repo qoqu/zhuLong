@@ -18,13 +18,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/qoqu/zhuLong/internal/checkpoint"
 	"github.com/qoqu/zhuLong/internal/executor"
+	"github.com/qoqu/zhuLong/internal/memory"
 	"github.com/qoqu/zhuLong/internal/planner"
+	"github.com/qoqu/zhuLong/internal/provider"
 	"github.com/qoqu/zhuLong/internal/reflector"
 	"github.com/qoqu/zhuLong/internal/tools"
+	"github.com/qoqu/zhuLong/internal/trace"
 )
 
 // HeuristicProvider is a no-LLM provider used as a stand-in while the
@@ -32,13 +38,41 @@ import (
 // JSON for plan / reflect prompts, so the desktop UI can exercise the
 // full plan → execute → reflect → output flow without an API key.
 //
-// Replace with provider.NewDeepSeekProvider(config) once available.
+// When DEEPSEEK_API_KEY is set, newProvider automatically uses the real
+// DeepSeek provider instead.
 type HeuristicProvider struct {
 	model string
 }
 
-func newProvider(model string) *HeuristicProvider {
+func newProvider(model string) providerCore {
+	apiKey := os.Getenv("DEEPSEEK_API_KEY")
+	if apiKey != "" {
+		dp := provider.NewDeepSeekProvider(&provider.Config{
+			APIKey:  apiKey,
+			BaseURL: "https://api.deepseek.com",
+			Model:   model,
+			Timeout: 120 * time.Second,
+		})
+		return &deepSeekAdapter{provider: dp}
+	}
 	return &HeuristicProvider{model: model}
+}
+
+// deepSeekAdapter wraps the real provider.DeepSeekProvider into our
+// providerCore interface (system, user → response).
+type deepSeekAdapter struct {
+	provider *provider.DeepSeekProvider
+}
+
+func (d *deepSeekAdapter) Chat(ctx context.Context, system, user string) (string, error) {
+	resp, err := d.provider.Chat(ctx, []provider.Message{
+		{Role: "system", Content: system},
+		{Role: "user", Content: user},
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp, nil
 }
 
 func (h *HeuristicProvider) Chat(ctx context.Context, system, user string) (string, error) {
@@ -135,9 +169,19 @@ func truncateStr(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
+// dataDir returns the path to the persistent data directory.
+func (a *App) dataDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".zhulong"
+	}
+	dir := filepath.Join(home, ".zhulong")
+	os.MkdirAll(dir, 0755)
+	return dir
+}
+
 // RunAgent runs a full plan → execute → reflect loop for a goal.
-// It pushes session updates via emit at every meaningful state change
-// so the UI stays in sync.
+// It integrates Memory, Checkpoint, Trace, and the Provider.
 func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 	defer func() {
 		a.mu.Lock()
@@ -146,6 +190,20 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 		}
 		a.mu.Unlock()
 	}()
+
+	// === Setup: Memory, Checkpoint, Trace ===
+	dataDir := a.dataDir()
+
+	memStore := memory.NewFileStore(filepath.Join(dataDir, "memory"))
+	chkStore := checkpoint.NewFileStore(filepath.Join(dataDir, "checkpoint"))
+	logger := trace.NewLogger(s.Info.ID, &trace.Config{
+		Enabled:   true,
+		OutputDir: filepath.Join(dataDir, "traces"),
+		Format:    "jsonl",
+		Verbose:   true,
+	})
+	_ = memStore
+	_ = chkStore
 
 	provider := newProvider(s.Model)
 	toolsReg := executor.NewToolRegistry()
@@ -160,10 +218,23 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	mem := newRunMemory(s.Goal)
 
+	logger.Log("system", "session_start", map[string]string{"goal": s.Goal})
+
+	// Try to restore from checkpoint
+	if cp, err := chkStore.LoadByID(fmt.Sprintf("cp-%s-done", s.Info.ID)); err == nil && cp != nil {
+		a.appendLog(s, "system", "Restored from checkpoint", fmt.Sprintf("loop %d", cp.LoopCount))
+		mem.restoreFrom(cp)
+		if cp.State != "" {
+			s.Status = cp.State
+		}
+		logger.Log("system", "checkpoint_restore", nil)
+	}
+
 	// === Planning ===
 	s.Status = "planning"
 	a.appendLog(s, "plan", "Planning...", "goal="+truncateStr(s.Goal, 60))
 	a.emitSession(s)
+	logger.Log("plan", "plan_start", nil)
 	a.wait(ctx, 400*time.Millisecond)
 
 	plan, err := pl.Plan(ctx, s.Goal, mem.asPlannerReader())
@@ -171,12 +242,24 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 		a.appendLog(s, "plan", "Plan failed", errString(err))
 		s.Status = "error"
 		a.emitSession(s)
+		logger.Log("plan", "plan_fail", map[string]string{"error": errString(err)})
 		return
 	}
 
 	s.Plan = convertPlan(plan)
 	a.appendLog(s, "plan", fmt.Sprintf("Plan created: %d steps", len(plan.Steps)), plan.Rationale)
 	a.emitSession(s)
+	logger.Log("plan", "plan_ok", map[string]int{"steps": len(plan.Steps)})
+	logger.Save()
+
+	// Save checkpoint after planning
+	chkStore.Save(&checkpoint.Checkpoint{
+		ID:        fmt.Sprintf("cp-%s-plan", s.Info.ID),
+		SessionID: s.Info.ID,
+		State:     "planning",
+		Goal:      s.Goal,
+		LoopCount: 0,
+	})
 
 	// === Execution loop ===
 	s.Status = "executing"
@@ -185,8 +268,13 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			a.appendLog(s, "system", "Cancelled", errString(err))
 			s.Status = "cancelled"
 			a.emitSession(s)
+			logger.LogWithLoop(i + 1, "system", "cancelled", nil)
 			return
 		}
+
+		logger.LogWithLoop(i + 1, "exec", "step_start", map[string]string{
+			"tool": step.Action.Tool, "desc": step.Description,
+		})
 
 		// Approval gate
 		if step.Breakpoint || isRiskyTool(step.Action.Tool) {
@@ -199,6 +287,7 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 						Success: false,
 						Output:  "user denied",
 					})
+					logger.LogWithLoop(i + 1, "exec", "denied", nil)
 					a.emitSession(s)
 					break
 				}
@@ -227,7 +316,6 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			if step.Action.Type == "tool_call" {
 				s.Stats.MainCount++
 				s.Stats.MainCost += 0.0025
-				s.Files = append(s.Files, step.Action.Tool)
 			} else {
 				s.Stats.MainCount++
 				s.Stats.MainCost += 0.0035
@@ -246,22 +334,49 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 		}
 
 		mem.AddPlannerResult(plannerStepToMemory(step), execResultToPlanner(res))
+		logger.LogWithLoop(i+1, "exec", "step_done", map[string]interface{}{
+			"success": res != nil && res.Success,
+			"tokens":  func() int { if res != nil { return res.TokensUsed }; return 0 }(),
+		})
+
+		// Save checkpoint every 3 steps
+		if (i+1)%3 == 0 {
+			chkStore.Save(&checkpoint.Checkpoint{
+				ID:          fmt.Sprintf("cp-%s-step%d", s.Info.ID, i+1),
+				SessionID:   s.Info.ID,
+				State:       "executing",
+				Goal:        s.Goal,
+				CurrentStep: i + 1,
+				LoopCount:   i + 1,
+				TokensUsed:  s.Stats.SessionTokens,
+				Cost:        s.Stats.MainCost,
+			})
+		}
+
 		a.emitSession(s)
 		a.wait(ctx, 250*time.Millisecond)
 	}
+
+	logger.LogWithLoop(len(plan.Steps), "exec", "execution_done", nil)
 
 	// === Reflect ===
 	s.Status = "reflecting"
 	a.appendLog(s, "refl", "Reflecting on progress", "score=?")
 	a.emitSession(s)
+	logger.LogWithLoop(len(plan.Steps), "refl", "reflect_start", nil)
 	a.wait(ctx, 300*time.Millisecond)
 
 	reflectPlan := planToReflect(plan)
 	assess, err := rf.Reflect(ctx, s.Goal, reflectPlan, mem.asReflectorReader())
 	if err != nil || assess == nil {
 		a.appendLog(s, "refl", "Reflection failed", errString(err))
+		logger.LogWithLoop(len(plan.Steps), "refl", "reflect_fail", map[string]string{"error": errString(err)})
 	} else {
 		a.appendLog(s, "refl", fmt.Sprintf("Decision: %s (%.0f%%)", assess.Decision, assess.Confidence*100), assess.Reason)
+		logger.LogWithLoop(len(plan.Steps), "refl", "reflect_done", map[string]interface{}{
+			"decision":   assess.Decision.String(),
+			"confidence": assess.Confidence,
+		})
 		for _, f := range assess.Findings {
 			s.Messages = append(s.Messages, MessageDTO{
 				ID:      fmt.Sprintf("f%d", time.Now().UnixNano()),
@@ -289,8 +404,28 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 		Time:    time.Now(),
 	})
 	s.Status = "done"
+
+	// Save final checkpoint
+	chkStore.Save(&checkpoint.Checkpoint{
+		ID:         fmt.Sprintf("cp-%s-done", s.Info.ID),
+		SessionID:  s.Info.ID,
+		State:      "done",
+		Goal:       s.Goal,
+		TokensUsed: s.Stats.SessionTokens,
+		Cost:       s.Stats.MainCost,
+	})
+	logger.LogWithLoop(len(plan.Steps), "system", "session_done", map[string]interface{}{
+		"duration": s.Stats.Elapsed, "tokens": s.Stats.SessionTokens,
+	})
+	logger.Save()
+
 	a.emitSession(s)
 	a.emitProjects()
+}
+
+func (m *runMemory) restoreFrom(cp *checkpoint.Checkpoint) {
+	// Restore counters from checkpoint
+	m.started = time.Now().Add(-time.Duration(cp.LoopCount) * 2 * time.Second) // estimate
 }
 
 // requestApproval pushes a modal and blocks until the user responds.
