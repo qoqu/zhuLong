@@ -191,6 +191,7 @@ func (a *App) seedDefaults() {
 // startup is called by Wails at app start.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.markWailsReady()
 }
 
 // === Sidebar / agents ===
@@ -361,87 +362,7 @@ func (a *App) SendMessage(sessionID, text string) {
 	a.cancel = cancel
 	a.mu.Unlock()
 
-	go a.simulateRun(runCtx, s)
-}
-
-func (a *App) simulateRun(ctx context.Context, s *SessionState) {
-	a.appendLog(s, "plan", "Plan created", "3 steps")
-	s.Plan = []PlanStepDTO{
-		{ID: "1", Description: "Analyze the task and gather context", Status: "running"},
-		{ID: "2", Description: "Execute the main action", Status: "pending"},
-		{ID: "3", Description: "Verify and summarize results", Status: "pending"},
-	}
-	s.Status = "planning"
-	a.emitSession(s)
-	a.wait(ctx, 600*time.Millisecond)
-
-	s.Status = "executing"
-	a.appendLog(s, "exec", "Step 1/3 done", "read_file")
-	a.wait(ctx, 800*time.Millisecond)
-	s.Plan[0].Status = "completed"
-	s.Plan[1].Status = "running"
-	s.Stats.RequestCount++
-	s.Stats.SessionTokens += 1200
-	s.Stats.TotalUsed = s.Stats.SessionTokens
-	s.Stats.UsagePercent = float64(s.Stats.TotalUsed) / float64(s.Stats.TotalLimit) * 100
-	a.emitSession(s)
-
-	a.appendLog(s, "exec", "Step 2/3 done", "execute_command")
-	a.wait(ctx, 800*time.Millisecond)
-	s.Plan[1].Status = "completed"
-	s.Plan[2].Status = "running"
-	s.Stats.RequestCount++
-	s.Stats.SessionTokens += 900
-	s.Stats.TotalUsed = s.Stats.SessionTokens
-	s.Stats.UsagePercent = float64(s.Stats.TotalUsed) / float64(s.Stats.TotalLimit) * 100
-	s.Stats.MainCount++
-	s.Stats.MainCost += 0.0035
-
-	// Trigger an approval request if the session is in 'ask' mode
-	if s.Mode == "ask" {
-		s.Status = "waiting_human"
-		s.Approval = &ApprovalRequestDTO{
-			ID:        fmt.Sprintf("ap%d", time.Now().UnixNano()),
-			Tool:      "execute_command",
-			Args:      map[string]any{"cmd": "rm -rf ./build"},
-			Risk:      "high",
-			Reason:    "该命令会删除 build 目录及其所有内容，且不可恢复。",
-			CreatedAt: time.Now(),
-		}
-		a.appendLog(s, "system", "Awaiting approval", s.Approval.Tool)
-		a.emitSession(s)
-		// wait until approval cleared
-		for {
-			a.mu.Lock()
-			cleared := s.Approval == nil
-			a.mu.Unlock()
-			if cleared || ctx.Err() != nil {
-				break
-			}
-			time.Sleep(120 * time.Millisecond)
-		}
-		if ctx.Err() != nil {
-			return
-		}
-	}
-	a.emitSession(s)
-
-	s.Status = "reflecting"
-	a.appendLog(s, "refl", "Reflecting on progress", "score=0.85")
-	a.wait(ctx, 500*time.Millisecond)
-
-	assistant := MessageDTO{
-		ID: fmt.Sprintf("m%d", time.Now().UnixNano()), Role: "assistant",
-		Content: "任务完成。我已经分析并执行了你的请求，所有步骤都成功了。",
-		Time:    time.Now(),
-	}
-	s.Messages = append(s.Messages, assistant)
-	s.Info.MessageCount = len(s.Messages)
-	s.Plan[2].Status = "completed"
-	s.Status = "done"
-	s.Stats.Elapsed = "3.2s"
-	a.emitSession(s)
-	a.emitProjects()
+	go a.RunAgent(runCtx, s)
 }
 
 func (a *App) wait(ctx context.Context, d time.Duration) {
@@ -565,6 +486,9 @@ func (a *App) emitSession(s *SessionState) {
 	if a.ctx == nil {
 		return
 	}
+	if !hasWailsEvents(a.ctx) {
+		return
+	}
 	runtime.EventsEmit(a.ctx, "session:update", s)
 }
 
@@ -572,7 +496,39 @@ func (a *App) emitProjects() {
 	if a.ctx == nil {
 		return
 	}
+	if !hasWailsEvents(a.ctx) {
+		return
+	}
 	runtime.EventsEmit(a.ctx, "projects:update", a.projects)
+}
+
+// hasWailsEvents checks whether the context carries a wails Events
+// implementation. We use a type-assertion on the context value via a
+// private sentinel that the wails runtime sets; absent that, we fall
+// back to "not wails" so unit tests do not crash on log.Fatal.
+func hasWailsEvents(ctx context.Context) bool {
+	type wailsCtxKey struct{}
+	// The wails runtime stores a *frontend.events on the context. We
+	// can't import that package without an import cycle, so we
+	// instead use a side-channel: a magic value in a known location
+	// is set by our startup hook. For tests, that value is missing.
+	v := ctx.Value(wailsReadyKey{})
+	if v == nil {
+		return false
+	}
+	if b, ok := v.(bool); ok && b {
+		return true
+	}
+	return false
+}
+
+type wailsReadyKey struct{}
+
+func (a *App) markWailsReady() {
+	if a.ctx == nil {
+		return
+	}
+	a.ctx = context.WithValue(a.ctx, wailsReadyKey{}, true)
 }
 
 func truncate(s string, n int) string {
