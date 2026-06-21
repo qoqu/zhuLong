@@ -1,0 +1,56 @@
+package pkg // import "github.com/qoqu/zhuLong/pkg"
+
+func ErrString(err error) string
+func ExecResultToPlanner(r *executor.StepResult) planner.StepResult
+func PlanToReflect(p *planner.Plan) *reflector.Plan
+func PlannerStepToExec(s planner.Step) executor.Step
+func PlannerStepToMemory(s planner.Step) planner.Step
+func SplitExecMessages(messages []executor.Message) (string, string)
+func SplitMessages(messages []planner.Message) (string, string)
+func SplitReflectMessages(messages []reflector.Message) (string, string)
+func TruncateStr(s string, n int) string
+type Action struct{ ... }
+type AdapterExecuteCommand struct{}
+type AdapterReadFile struct{}
+type AdapterSearchFile struct{}
+type AdapterWriteFile struct{}
+type Agent struct{ ... }
+    func NewAgent(opts ...Option) (*Agent, error)
+type AgentResult struct{ ... }
+type AgentStatus string
+    const StatusCompleted AgentStatus = "completed" ...
+type Assessment struct{ ... }
+type Decision int
+    const DecisionComplete Decision = iota ...
+type DeepSeekProvider struct{ ... }
+    func NewDeepSeekProvider(apiKey, model string) *DeepSeekProvider
+type ExecutorMemoryReader struct{ ... }
+type ExecutorProvider struct{ ... }
+type Goal struct{ ... }
+type HeuristicProvider struct{ ... }
+    func NewHeuristicProvider(model string) *HeuristicProvider
+type LongTermMemory struct{ ... }
+type MemoryReader interface{ ... }
+type Option func(*Options)
+    func WithDataDir(dir string) Option
+    func WithGoal(goal string) Option
+    func WithMaxCost(cost float64) Option
+    func WithMaxLoops(n int) Option
+    func WithMaxTokens(n int) Option
+    func WithMaxWallTime(d time.Duration) Option
+    func WithModel(model string) Option
+    func WithVerbose(verbose bool) Option
+type Options struct{ ... }
+type Plan struct{ ... }
+type PlannerMemoryReader struct{ ... }
+type PlannerProvider struct{ ... }
+type Provider interface{ ... }
+type ReflectorMemoryReader struct{ ... }
+type ReflectorProvider struct{ ... }
+type RunMemory struct{ ... }
+    func NewRunMemory(goal string) *RunMemory
+type Step struct{ ... }
+type StepResult struct{ ... }
+type Tool interface{ ... }
+type TraceEntry struct{ ... }
+type WorkingMemory struct{ ... }

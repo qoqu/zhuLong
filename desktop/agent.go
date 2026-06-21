@@ -357,12 +357,6 @@ func isRiskyTool(tool string) bool {
 	return false
 }
 
-func (a *App) setActiveStep(i int) {
-	for j := range a.activeID {
-		_ = j
-	}
-}
-
 
 
 func convertPlan(p *planner.Plan) []PlanStepDTO {
