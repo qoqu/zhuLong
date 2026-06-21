@@ -464,35 +464,6 @@ function App() {
           </div>
         </header>
 
-        {/* Goal Input */}
-        <div className="goal-section">
-          <div className="goal-input-wrapper">
-            <input
-              type="text"
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              placeholder={t.goal_placeholder}
-              className="goal-input"
-              disabled={status !== 'idle' && status !== 'done' && status !== 'error'}
-              onKeyDown={(e) => e.key === 'Enter' && handleStart()}
-            />
-            <div className="goal-actions">
-              {status === 'idle' || status === 'done' || status === 'error' ? (
-                <button onClick={handleStart} className="btn btn-primary" disabled={!goal.trim()}>
-                  {t.start}
-                </button>
-              ) : (
-                <button onClick={handleStop} className="btn btn-danger">
-                  {t.stop}
-                </button>
-              )}
-              <button onClick={handleReset} className="btn btn-ghost">
-                {t.reset}
-              </button>
-            </div>
-          </div>
-        </div>
-
         {/* Transcript */}
         <div className="transcript" ref={transcriptRef}>
           {messages.length === 0 ? (
@@ -543,8 +514,33 @@ function App() {
           )}
         </div>
 
-        {/* Input Bar - Bottom Center */}
-        {status !== 'idle' && (
+        {/* Bottom Input Bar */}
+        {status === 'idle' || status === 'done' || status === 'error' ? (
+          /* Goal Input - Bottom Center (when idle) */
+          <div className="goal-input-bar">
+            <div className="goal-input-bar__wrapper">
+              <input
+                type="text"
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                placeholder={t.goal_placeholder}
+                className="goal-input-bar__input"
+                onKeyDown={(e) => e.key === 'Enter' && handleStart()}
+              />
+              <div className="goal-input-bar__actions">
+                <button onClick={handleStart} className="goal-input-bar__send" disabled={!goal.trim()}>
+                  →
+                </button>
+              </div>
+            </div>
+            <div className="goal-input-bar__buttons">
+              <button onClick={handleReset} className="btn btn-ghost btn-sm">
+                {t.reset}
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Chat Input - Bottom Center (when running) */
           <div className="input-bar">
             <div>
               <textarea
@@ -567,6 +563,11 @@ function App() {
                 disabled={!inputValue.trim()}
               >
                 →
+              </button>
+            </div>
+            <div className="input-bar__actions">
+              <button onClick={handleStop} className="btn btn-danger btn-sm">
+                {t.stop}
               </button>
             </div>
           </div>

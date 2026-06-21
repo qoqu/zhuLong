@@ -656,6 +656,90 @@ body {
   max-width: 720px;
 }
 
+.input-bar__actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+/* Goal Input Bar - Bottom Center (Idle State) */
+.goal-input-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 20px 24px;
+  background: linear-gradient(to top, var(--bg) 60%, transparent);
+}
+
+.goal-input-bar__wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+}
+
+.goal-input-bar__input {
+  width: 100%;
+  min-height: 52px;
+  padding: 14px 52px 14px 18px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--fg);
+  font-size: var(--text-lg);
+  font-family: var(--font-ui);
+  transition: all 0.15s ease;
+}
+
+.goal-input-bar__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.goal-input-bar__input::placeholder {
+  color: var(--fg-faint);
+}
+
+.goal-input-bar__send {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.goal-input-bar__send:hover {
+  background: var(--accent-hover);
+}
+
+.goal-input-bar__send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.goal-input-bar__buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn-sm {
+  height: 32px;
+  padding: 0 12px;
+  font-size: var(--text-sm);
+}
+
 /* ═══════════════════════════════════════════
    RIGHT PANEL
    ═══════════════════════════════════════════ */
