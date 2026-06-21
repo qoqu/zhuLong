@@ -543,30 +543,32 @@ function App() {
           )}
         </div>
 
-        {/* Input Bar */}
+        {/* Input Bar - Bottom Center */}
         {status !== 'idle' && (
           <div className="input-bar">
-            <textarea
-              ref={inputRef}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder={status === 'waiting_human' ? t.input_placeholder_waiting : t.input_placeholder}
-              className="input-bar__textarea"
-              rows={1}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  handleSendMessage()
-                }
-              }}
-            />
-            <button 
-              className="input-bar__send"
-              onClick={handleSendMessage}
-              disabled={!inputValue.trim()}
-            >
-              →
-            </button>
+            <div>
+              <textarea
+                ref={inputRef}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder={status === 'waiting_human' ? t.input_placeholder_waiting : t.input_placeholder}
+                className="input-bar__textarea"
+                rows={1}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSendMessage()
+                  }
+                }}
+              />
+              <button 
+                className="input-bar__send"
+                onClick={handleSendMessage}
+                disabled={!inputValue.trim()}
+              >
+                →
+              </button>
+            </div>
           </div>
         )}
       </main>

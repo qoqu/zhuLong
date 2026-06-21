@@ -586,32 +586,36 @@ body {
   font-size: var(--text-xs);
 }
 
-/* Input Bar */
+/* Input Bar - Bottom Center (ChatGPT/Claude style) */
 .input-bar {
   display: flex;
-  gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-soft);
+  justify-content: center;
+  padding: 16px 20px 24px;
+  background: linear-gradient(to top, var(--bg) 60%, transparent);
 }
 
 .input-bar__textarea {
-  flex: 1;
-  height: 40px;
-  padding: 8px 14px;
-  background: var(--bg);
+  width: 100%;
+  max-width: 720px;
+  min-height: 48px;
+  max-height: 200px;
+  padding: 12px 16px;
+  padding-right: 48px;
+  background: var(--bg-elev);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   color: var(--fg);
   font-size: var(--text-base);
   font-family: var(--font-ui);
   resize: none;
   transition: all 0.15s ease;
+  line-height: 1.5;
 }
 
 .input-bar__textarea:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
 .input-bar__textarea::placeholder {
@@ -619,14 +623,17 @@ body {
 }
 
 .input-bar__send {
-  width: 40px;
-  height: 40px;
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 32px;
+  height: 32px;
   border: none;
   background: var(--accent);
   color: white;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 18px;
+  font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -640,6 +647,13 @@ body {
 .input-bar__send:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Make the input wrapper relative for send button positioning */
+.input-bar > div {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
 }
 
 /* ═══════════════════════════════════════════
