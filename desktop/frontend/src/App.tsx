@@ -1,21 +1,62 @@
-import { useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { Transcript } from './components/Transcript'
 import { Composer } from './components/Composer'
 import { RightPanel } from './components/RightPanel'
 import { StatusBar } from './components/StatusBar'
-import { mockStats, exampleGoals } from './data/mock'
+import { exampleGoals } from './data/mock'
 import type {
+  AgentInfo,
   AgentStatus,
   ExecutionMode,
   InputMode,
   Language,
+  ProjectInfo,
   RightPanelTab,
+  SessionState,
   SidebarView,
   Message,
+  LogEntry,
+  PlanStep,
+  RuntimeStats,
+  FileChange,
 } from './types'
 import { useT } from './i18n'
+
+// Wails runtime — fall back to a browser-mode stub if not embedded.
+const wails = typeof window !== 'undefined' && (window as any).runtime
+const backend =
+  typeof window !== 'undefined' && (window as any).go ? (window as any).go.main.App : null
+
+const emptyStats = (model: string): RuntimeStats => ({
+  totalUsed: 0,
+  totalLimit: 1_000_000,
+  usagePercent: 0,
+  prompt: 0,
+  completion: 0,
+  reasoning: 0,
+  other: 0,
+  elapsed: '0s',
+  requestCount: 0,
+  sessionTokens: 0,
+  cacheHitRatio: 0.8,
+  mainCost: 0,
+  mainCount: 0,
+  subCost: 0,
+  subCount: 0,
+  balance: '¥73.23',
+  currentSession: 0,
+  sessionCost: '$0.0000',
+  model,
+  cacheHit: '未命中',
+  avgHit: '未命中',
+  thisTokens: 0,
+  thisFee: '$0.0000',
+  contextUsed: 0,
+  compressPct: 0,
+  remaining: '¥73.23',
+})
 
 function App() {
   // Theme
@@ -25,63 +66,282 @@ function App() {
   // Sidebar
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [sidebarView, setSidebarView] = useState<SidebarView>('projects')
+  const [agents, setAgents] = useState<AgentInfo[]>([])
+  const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [activeAgentId, setActiveAgentId] = useState('auto')
-  const [activeSessionId, setActiveSessionId] = useState('s2')
+  const [activeSessionId, setActiveSessionId] = useState<string>('')
 
-  // Right panel
-  const [rightTab, setRightTab] = useState<RightPanelTab>('overview')
-
-  // Agent
+  // Active session runtime state
   const [status, setStatus] = useState<AgentStatus>('idle')
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('auto')
   const [inputMode, setInputMode] = useState<InputMode>('normal')
   const [model, setModel] = useState('deepseek-v4-flash')
   const [temperature, setTemperature] = useState('auto')
   const [messages, setMessages] = useState<Message[]>([])
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [plan, setPlan] = useState<PlanStep[]>([])
+  const [stats, setStats] = useState<RuntimeStats>(emptyStats('deepseek-v4-flash'))
+  const [files, setFiles] = useState<string[]>([])
+  const [changes, setChanges] = useState<FileChange[]>([])
+
+  // Right panel
+  const [rightTab, setRightTab] = useState<RightPanelTab>('overview')
+
+  // Composer input
   const [input, setInput] = useState('')
 
-  const handleSend = (text: string) => {
-    const userMsg: Message = {
-      id: 'u' + Date.now(),
-      role: 'user',
-      content: text,
-      timestamp: new Date(),
+  const t = useT(language)
+
+  // ===== Initial load =====
+  useEffect(() => {
+    if (!backend) {
+      // Browser fallback — load mocks
+      import('./data/mock').then((m) => {
+        setAgents(m.mockAgents)
+        setProjects(m.mockProjects)
+        setActiveSessionId('s2')
+      })
+      return
     }
-    setMessages((m) => [...m, userMsg])
-    setInput('')
-    setStatus('executing')
+    backend
+      .ListAgents()
+      .then((a: AgentInfo[]) => setAgents(a))
+      .catch(() => {})
+    backend
+      .ListProjects()
+      .then((p: ProjectInfo[]) => {
+        setProjects(p)
+        const first =
+          p[0]?.sessions?.[0]?.id || ''
+        if (first) setActiveSessionId(first)
+      })
+      .catch(() => {})
+  }, [])
 
-    // Simulated agent response
-    setTimeout(() => {
-      setStatus('reflecting')
-      setTimeout(() => {
-        setStatus('done')
-        setMessages((m) => [
-          ...m,
-          {
-            id: 'a' + Date.now(),
-            role: 'assistant',
-            content: '任务已完成。我已经处理了你的请求。',
-            timestamp: new Date(),
-          },
-        ])
-      }, 1200)
-    }, 1500)
+  // ===== Subscribe to backend events =====
+  useEffect(() => {
+    if (!wails) return
+    const offSession = wails.EventsOn('session:update', (s: SessionState) => {
+      if (!s || s.info?.id !== activeSessionId) return
+      applySession(s)
+    })
+    const offCreated = wails.EventsOn('session:created', (s: SessionState) => {
+      if (!s) return
+      setActiveSessionId(s.info.id)
+      applySession(s)
+    })
+    const offDeleted = wails.EventsOn('session:deleted', (id: string) => {
+      if (id === activeSessionId) {
+        // Switch to first remaining
+        const first = projects[0]?.sessions?.find((x) => x.id !== id)
+        if (first) setActiveSessionId(first.id)
+      }
+    })
+    const offProjects = wails.EventsOn('projects:update', (p: ProjectInfo[]) => {
+      setProjects(p)
+    })
+    return () => {
+      offSession()
+      offCreated()
+      offDeleted()
+      offProjects()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, projects])
+
+  // ===== When active session changes, pull its state =====
+  useEffect(() => {
+    if (!activeSessionId) return
+    if (!backend) return
+    backend
+      .GetSession(activeSessionId)
+      .then((s: SessionState | null) => {
+        if (s) applySession(s)
+      })
+      .catch(() => {})
+    backend.SetActiveSession(activeSessionId).catch(() => {})
+  }, [activeSessionId])
+
+  const applySession = (s: SessionState) => {
+    setStatus(s.status as AgentStatus)
+    setExecutionMode((s.mode as ExecutionMode) || 'auto')
+    setModel(s.model || 'deepseek-v4-flash')
+    setMessages(s.messages || [])
+    setLogs(s.logs || [])
+    setPlan(s.plan || [])
+    setStats(s.stats || emptyStats(s.model || 'deepseek-v4-flash'))
+    setFiles(s.files || [])
+    setChanges(s.changes || [])
   }
 
-  const handleStop = () => {
+  // ===== Actions =====
+
+  const handleSend = useCallback(
+    async (text: string) => {
+      if (!activeSessionId) return
+      // Optimistic user message
+      const userMsg: Message = {
+        id: 'u' + Date.now(),
+        role: 'user',
+        content: text,
+        time: new Date().toISOString(),
+      }
+      setMessages((m) => [...m, userMsg])
+      setStatus('executing')
+      setInput('')
+      if (backend) {
+        try {
+          await backend.SendMessage(activeSessionId, text)
+        } catch (e) {
+          console.error(e)
+        }
+      } else {
+        // Browser-mode demo: simulate
+        setTimeout(() => {
+          setStatus('reflecting')
+          setPlan([
+            { id: '1', description: '分析任务并收集上下文', status: 'completed' },
+            { id: '2', description: '执行主要操作', status: 'running' },
+            { id: '3', description: '验证并汇总结果', status: 'pending' },
+          ])
+          setLogs((l) => [
+            ...l,
+            { id: 'l1', time: new Date().toLocaleTimeString(), phase: 'plan', event: 'Plan created', detail: '3 steps' },
+          ])
+          setTimeout(() => {
+            setPlan((p) =>
+              p.map((s) =>
+                s.id === '2' ? { ...s, status: 'completed' } : s.id === '3' ? { ...s, status: 'running' } : s
+              )
+            )
+            setMessages((m) => [
+              ...m,
+              {
+                id: 'a' + Date.now(),
+                role: 'assistant',
+                content: '任务完成。我已经分析并执行了你的请求，所有步骤都成功了。',
+                time: new Date().toISOString(),
+              },
+            ])
+            setStatus('done')
+            setStats((s) => ({
+              ...s,
+              sessionTokens: s.sessionTokens + 2100,
+              requestCount: s.requestCount + 2,
+              mainCount: s.mainCount + 2,
+              mainCost: s.mainCost + 0.007,
+              elapsed: '2.4s',
+            }))
+          }, 1200)
+        }, 600)
+      }
+    },
+    [activeSessionId]
+  )
+
+  const handleStop = useCallback(async () => {
+    if (backend) {
+      try {
+        await backend.Stop()
+      } catch {}
+    }
     setStatus('idle')
-  }
+  }, [])
 
-  const handleReset = () => {
+  const handleReset = useCallback(async () => {
+    if (backend) {
+      try {
+        await backend.Reset()
+      } catch {}
+    }
     setMessages([])
+    setLogs([])
+    setPlan([])
+    setStats(emptyStats(model))
     setStatus('idle')
-  }
+  }, [model])
 
-  const handleNewSession = () => {
+  const handleNewSession = useCallback(async () => {
+    if (backend) {
+      try {
+        await backend.NewSession()
+        return
+      } catch {}
+    }
+    // Browser fallback
+    const id = 's' + Date.now()
+    setProjects((p) => {
+      if (!p[0]) return p
+      return [
+        {
+          ...p[0],
+          Sessions: [
+            { id, title: '新会话', agentId: activeAgentId, projectId: 'global', messageCount: 0, toolCount: 0, updatedAt: '刚刚', preview: '新会话' },
+            ...p[0].sessions,
+          ],
+        },
+        ...p.slice(1),
+      ]
+    })
+    setActiveSessionId(id)
     setMessages([])
+    setLogs([])
+    setPlan([])
     setStatus('idle')
-  }
+  }, [activeAgentId])
+
+  const handleDeleteSession = useCallback(
+    async (id: string) => {
+      if (backend) {
+        try {
+          await backend.DeleteSession(id)
+          return
+        } catch {}
+      }
+      setProjects((p) => {
+        if (!p[0]) return p
+        return [
+          { ...p[0], Sessions: p[0].sessions.filter((s) => s.id !== id) },
+          ...p.slice(1),
+        ]
+      })
+      if (id === activeSessionId) {
+        const first = projects[0]?.sessions?.find((x) => x.id !== id)
+        if (first) setActiveSessionId(first.id)
+      }
+    },
+    [activeSessionId, projects]
+  )
+
+  const handleSelectAgent = useCallback(
+    async (id: string) => {
+      setActiveAgentId(id)
+      if (backend) {
+        try {
+          await backend.SetActiveAgent(id)
+        } catch {}
+      }
+    },
+    []
+  )
+
+  const handleChangeMode = useCallback(async (m: ExecutionMode) => {
+    setExecutionMode(m)
+    if (backend) {
+      try {
+        await backend.SetExecutionMode(m)
+      } catch {}
+    }
+  }, [])
+
+  const handleChangeModel = useCallback(async (m: string) => {
+    setModel(m)
+    if (backend) {
+      try {
+        await backend.SetModel(m)
+      } catch {}
+    }
+  }, [])
 
   return (
     <div className={`app ${darkMode ? 'theme--dark' : 'theme--light'}`}>
@@ -92,23 +352,55 @@ function App() {
         onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
         view={sidebarView}
         onChangeView={setSidebarView}
+        agents={agents}
+        projects={projects}
         activeAgentId={activeAgentId}
-        onSelectAgent={setActiveAgentId}
+        onSelectAgent={handleSelectAgent}
         activeSessionId={activeSessionId}
         onSelectSession={setActiveSessionId}
         onNewSession={handleNewSession}
-        onNewAgent={() => {}}
-        onOpenCommandPalette={() => {}}
+        onDeleteSession={handleDeleteSession}
       />
 
       <main className="main">
         <TopBar
           language={language}
-          sessionTitle="mnemonic全笔记2.mcp"
+          sessionTitle={
+            projects
+              .flatMap((p) => p.sessions || [])
+              .find((s) => s.id === activeSessionId)?.title || t.untitled
+          }
           sessionScope="Global"
-          onRename={() => {}}
-          onExport={() => {}}
-          status={status}
+          onRename={() => {
+            const cur = projects
+              .flatMap((p) => p.sessions || [])
+              .find((s) => s.id === activeSessionId)
+            if (!cur) return
+            const next = window.prompt(t.renamePrompt, cur.title)
+            if (next && next.trim()) {
+              if (backend) backend.RenameSession(activeSessionId, next.trim())
+              setProjects((p) =>
+                p.map((proj) => ({
+                  ...proj,
+                  Sessions: proj.sessions.map((s) =>
+                    s.id === activeSessionId ? { ...s, title: next.trim(), preview: next.trim() } : s
+                  ),
+                }))
+              )
+            }
+          }}
+          onExport={() => {
+            const text = messages
+              .map((m) => `[${m.role}] ${m.content}`)
+              .join('\n\n')
+            const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `session-${activeSessionId}.txt`
+            a.click()
+            URL.revokeObjectURL(url)
+          }}
         />
 
         {messages.length === 0 ? (
@@ -117,7 +409,13 @@ function App() {
             onPick={(text) => setInput(text)}
           />
         ) : (
-          <Transcript language={language} messages={messages} />
+          <Transcript
+            language={language}
+            messages={messages}
+            logs={logs}
+            plan={plan}
+            status={status}
+          />
         )}
 
         <div className="main__composer">
@@ -125,11 +423,11 @@ function App() {
             language={language}
             status={status}
             executionMode={executionMode}
-            onChangeExecutionMode={setExecutionMode}
+            onChangeExecutionMode={handleChangeMode}
             inputMode={inputMode}
             onChangeInputMode={setInputMode}
             model={model}
-            onChangeModel={setModel}
+            onChangeModel={handleChangeModel}
             temperature={temperature}
             onChangeTemperature={setTemperature}
             onSend={handleSend}
@@ -146,17 +444,19 @@ function App() {
         language={language}
         tab={rightTab}
         onChangeTab={setRightTab}
-        stats={mockStats}
+        stats={stats}
+        files={files}
+        changes={changes}
       />
 
       <StatusBar
         language={language}
         status={status}
         model={model}
-        stats={mockStats}
+        stats={stats}
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode((v) => !v)}
-        languageToggle={() => setLanguage((l) => (l === 'en' ? 'zh' : 'en'))}
+        onToggleLanguage={() => setLanguage((l) => (l === 'en' ? 'zh' : 'en'))}
       />
     </div>
   )

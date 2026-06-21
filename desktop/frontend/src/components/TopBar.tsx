@@ -1,4 +1,4 @@
-import type { Language, AgentStatus } from '../types'
+import type { Language } from '../types'
 
 interface TopBarProps {
   language: Language
@@ -6,7 +6,6 @@ interface TopBarProps {
   sessionScope: string
   onRename: () => void
   onExport: () => void
-  status: AgentStatus
 }
 
 export function TopBar(props: TopBarProps) {
@@ -21,8 +20,12 @@ export function TopBar(props: TopBarProps) {
       <div className="topbar__scope">{props.sessionScope}</div>
       <div className="topbar__spacer" />
       <div className="topbar__actions">
-        <button className="topbar__icon-btn" title="Copy">⎘</button>
-        <button className="topbar__icon-btn" title="Download" onClick={props.onExport}>⤓</button>
+        <button className="topbar__icon-btn" title="Copy" onClick={() => navigator.clipboard?.writeText(props.sessionTitle)}>
+          ⎘
+        </button>
+        <button className="topbar__icon-btn" title="Download" onClick={props.onExport}>
+          ⤓
+        </button>
         <button className="topbar__icon-btn" title="Branch">⑂</button>
         <button className="topbar__icon-btn" title="Settings">⚙</button>
       </div>

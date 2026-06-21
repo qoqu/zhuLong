@@ -1,241 +1,56 @@
-// Mock data for Zhulong UI prototype
-import type { Agent, Message, LogEntry, PlanStep, RuntimeStats } from '../types'
+// Mock data for Zhulong UI browser fallback
+import type { AgentInfo, ProjectInfo, RuntimeStats } from '../types'
 
-export const mockAgents: Agent[] = [
-  { id: 'auto', name: '自适应游...', model: 'deepseek-v4-flash', yolo: true },
+export const mockAgents: AgentInfo[] = [
+  { id: 'auto', name: '自适应游…', model: 'deepseek-v4-flash', yolo: true },
   { id: 'umit', name: 'umit', model: 'deepseek-v4-flash', yolo: true },
-  { id: 'mnemonic', name: 'mnemon...', model: 'deepseek-v4-flash', yolo: true },
+  { id: 'mnemonic', name: 'mnemon…', model: 'deepseek-v4-flash', yolo: true },
 ]
 
-export const mockProjects = [
+const sessionTitles = [
+  ['自适应游工作室', '24 轮 · 5 工具 · 5天前'],
+  ['mnemonic全笔记2.mcp', '195 轮 · 4 工具 · 4天前'],
+  ['umit', '5 轮 · 6 工具 · 5天前'],
+  ['V2构建', '25 轮 · 6 工具 · 6天前'],
+  ['热点创作工作流—今天有什么…', '41 轮 · 6 工具 · 6天前'],
+  ['2自滚小说工作室', '100 轮 · 5 工具 · 5天前'],
+  ['创世日记引擎', '144 轮 · 6 工具 · 6天前'],
+  ['1自滚小说作家接手', '13 轮 · 6 工具 · 6天前'],
+  ['UUMit 接单工作', '22 轮 · 6 工具 · 6天前'],
+  ['reasonix-buddy', '4 轮 · 6 工具 · 6天前'],
+]
+
+export const mockProjects: ProjectInfo[] = [
   {
     id: 'global',
     name: 'Global',
-    sessions: [
-      {
-        id: 's1',
-        agentId: 'auto',
-        title: '自适应游工作室',
-        messageCount: 24,
-        toolCount: 5,
-        updatedAt: '5天前',
-        preview: '自适应游工作室',
-      },
-      {
-        id: 's2',
-        agentId: 'auto',
-        title: 'mnemonic全笔记2.mcp',
-        messageCount: 195,
-        toolCount: 4,
-        updatedAt: '4天前',
-        preview: 'mnemonic全笔记2.mcp',
-      },
-      {
-        id: 's3',
-        agentId: 'umit',
-        title: 'umit',
-        messageCount: 5,
-        toolCount: 6,
-        updatedAt: '5天前',
-        preview: 'umit',
-      },
-      {
-        id: 's4',
-        agentId: 'auto',
-        title: 'V2构建',
-        messageCount: 25,
-        toolCount: 6,
-        updatedAt: '6天前',
-        preview: 'V2构建',
-      },
-      {
-        id: 's5',
-        agentId: 'auto',
-        title: '热点创作工作流—今天有什么...',
-        messageCount: 41,
-        toolCount: 6,
-        updatedAt: '6天前',
-        preview: '热点创作工作流—今天有什么...',
-      },
-      {
-        id: 's6',
-        agentId: 'auto',
-        title: '2自滚小说工作室',
-        messageCount: 100,
-        toolCount: 5,
-        updatedAt: '5天前',
-        preview: '2自滚小说工作室',
-      },
-      {
-        id: 's7',
-        agentId: 'auto',
-        title: '创世日记引擎',
-        messageCount: 144,
-        toolCount: 6,
-        updatedAt: '6天前',
-        preview: '创世日记引擎',
-      },
-      {
-        id: 's8',
-        agentId: 'auto',
-        title: '1自滚小说作家接手',
-        messageCount: 13,
-        toolCount: 6,
-        updatedAt: '6天前',
-        preview: '1自滚小说作家接手',
-      },
-      {
-        id: 's9',
-        agentId: 'auto',
-        title: 'UUMit 接单工作',
-        messageCount: 22,
-        toolCount: 6,
-        updatedAt: '6天前',
-        preview: 'UUMit 接单工作',
-      },
-      {
-        id: 's10',
-        agentId: 'auto',
-        title: 'reasonix-buddy',
-        messageCount: 4,
-        toolCount: 6,
-        updatedAt: '6天前',
-        preview: 'reasonix-buddy',
-      },
-    ],
+    sessions: sessionTitles.map(([title, meta], i) => {
+      const [mc, tc, u] = meta.split(' · ')
+      return {
+        id: 's' + (i + 1),
+        title: title!,
+        agentId: i === 1 ? 'mnemonic' : i === 2 ? 'umit' : 'auto',
+        projectId: 'global',
+        messageCount: parseInt(mc!),
+        toolCount: parseInt(tc!),
+        updatedAt: u!,
+        preview: title!,
+      }
+    }),
   },
-]
-
-export const mockMessages: Message[] = [
-  {
-    id: 'm0',
-    role: 'system',
-    content: '发现新版本: v1.10.0',
-    timestamp: new Date(),
-  },
-  {
-    id: 'm1',
-    role: 'user',
-    content: '这个项目使用说明？',
-    timestamp: new Date(),
-  },
-  {
-    id: 'm2',
-    role: 'assistant',
-    content: '`mnemonic` 是一个为研究/笔记工作流设计的全功能 mcp 项目。它包含：',
-    timestamp: new Date(),
-  },
-  {
-    id: 'm3',
-    role: 'user',
-    content: '推送了吗？',
-    timestamp: new Date(),
-    toolCount: 4,
-  },
-  {
-    id: 'm4',
-    role: 'user',
-    content: '中文文档同步更新了吗？',
-    timestamp: new Date(),
-    toolCount: 4,
-  },
-  {
-    id: 'm5',
-    role: 'user',
-    content: '现在我要迁移了，怎么使用？',
-    timestamp: new Date(),
-    toolCount: 9,
-  },
-  {
-    id: 'm6',
-    role: 'user',
-    content: '怎么保证不会把同样的内容导入知识库？',
-    timestamp: new Date(),
-    toolCount: 18,
-  },
-  {
-    id: 'm7',
-    role: 'user',
-    content: '之前已经导出的做了记录没？',
-    timestamp: new Date(),
-    toolCount: 2,
-  },
-  {
-    id: 'm8',
-    role: 'user',
-    content: '导出的记录应该也属于迁移的数据库？防止到了新的设备上，恢复对话后又重新导出。',
-    timestamp: new Date(),
-    toolCount: 0,
-  },
-  {
-    id: 'm9',
-    role: 'user',
-    content: '记住这个 The user wants me to remember this research about PlotPilot for future s...',
-    timestamp: new Date(),
-    toolCount: 1,
-  },
-  {
-    id: 'm10',
-    role: 'user',
-    content: '手动记录的触发词是记住这个，但是为什么不是默认mnemonic',
-    timestamp: new Date(),
-    toolCount: 0,
-  },
-  {
-    id: 'm11',
-    role: 'user',
-    content: '这应该是一个研发类的吧，去神经元吧？',
-    timestamp: new Date(),
-    toolCount: 7,
-  },
-  {
-    id: 'm12',
-    role: 'user',
-    content: '原项目地址：https://github.com/thedotmack/claude-mem，仓库下载的资料"D:\\Desktop\\claude-mem-...',
-    timestamp: new Date(),
-    toolCount: 4,
-  },
-  {
-    id: 'm13',
-    role: 'user',
-    content: '不对啊，我现在是在研究项目啊，你到底保存记忆啊。',
-    timestamp: new Date(),
-    toolCount: 0,
-  },
-  {
-    id: 'm14',
-    role: 'user',
-    content: '1秒出来，不要直接抄代码，自己写，实现一致的功能。2秒出来，不要直接抄代码，自己写，实现一致的功能。3...',
-    timestamp: new Date(),
-    toolCount: 14,
-  },
-]
-
-export const mockLogs: LogEntry[] = [
-  { id: 'l1', time: '14:23:01', phase: 'plan', event: 'Plan created', detail: '4 steps' },
-  { id: 'l2', time: '14:23:02', phase: 'exec', event: 'Step 1/4 done', detail: 'read_file' },
-  { id: 'l3', time: '14:23:04', phase: 'exec', event: 'Step 2/4 done', detail: 'grep' },
-  { id: 'l4', time: '14:23:06', phase: 'refl', event: 'Reflecting...', detail: 'progress=0.5' },
-  { id: 'l5', time: '14:23:07', phase: 'exec', event: 'Step 3/4 done', detail: 'write_file' },
-  { id: 'l6', time: '14:23:09', phase: 'exec', event: 'Step 4/4 done', detail: 'execute_command' },
-  { id: 'l7', time: '14:23:10', phase: 'done', event: 'Goal achieved', detail: '4 steps, 6s' },
-]
-
-export const mockPlan: PlanStep[] = [
-  { id: '1', description: 'Analyze the task and gather context', status: 'completed' },
-  { id: '2', description: 'Read main.go to understand structure', status: 'completed' },
-  { id: '3', description: 'Refactor to use approval engine', status: 'running' },
-  { id: '4', description: 'Verify and run tests', status: 'pending' },
 ]
 
 export const mockStats: RuntimeStats = {
   totalUsed: 0,
-  totalLimit: 1000000,
+  totalLimit: 1_000_000,
   usagePercent: 0,
-  breakdown: { prompt: 0, completion: 0, reasoning: 0, other: 0 },
+  prompt: 0,
+  completion: 0,
+  reasoning: 0,
+  other: 0,
   elapsed: '15分52秒',
   requestCount: 147,
-  sessionTokens: 53740187,
+  sessionTokens: 53_740_187,
   cacheHitRatio: 0.8,
   mainCost: 0.4659,
   mainCount: 112,
@@ -243,7 +58,15 @@ export const mockStats: RuntimeStats = {
   subCount: 35,
   balance: '¥73.23',
   currentSession: 193,
-  sessionCost: '¥0.4817',
+  sessionCost: '$0.4817',
+  model: 'deepseek-v4-flash',
+  cacheHit: '未命中',
+  avgHit: '未命中',
+  thisTokens: 0,
+  thisFee: '$0.0000',
+  contextUsed: 53_740_187,
+  compressPct: 80,
+  remaining: '¥73.23',
 }
 
 export const exampleGoals = [

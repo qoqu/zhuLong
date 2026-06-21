@@ -1,4 +1,4 @@
-import type { RightPanelTab, RuntimeStats, Language } from '../types'
+import type { RightPanelTab, RuntimeStats, Language, FileChange } from '../types'
 import { useT } from '../i18n'
 
 interface RightPanelProps {
@@ -6,6 +6,8 @@ interface RightPanelProps {
   tab: RightPanelTab
   onChangeTab: (t: RightPanelTab) => void
   stats: RuntimeStats
+  files: string[]
+  changes: FileChange[]
 }
 
 export function RightPanel(props: RightPanelProps) {
@@ -38,8 +40,8 @@ export function RightPanel(props: RightPanelProps) {
 
       <div className="right-panel__content">
         {props.tab === 'overview' && <OverviewTab language={props.language} stats={props.stats} />}
-        {props.tab === 'files' && <FilesTab language={props.language} />}
-        {props.tab === 'changes' && <ChangesTab language={props.language} />}
+        {props.tab === 'files' && <FilesTab language={props.language} files={props.files} />}
+        {props.tab === 'changes' && <ChangesTab language={props.language} changes={props.changes} />}
       </div>
     </aside>
   )
@@ -48,7 +50,7 @@ export function RightPanel(props: RightPanelProps) {
 function OverviewTab(props: { language: Language; stats: RuntimeStats }) {
   const t = useT(props.language)
   const s = props.stats
-  const formatTokens = (n: number) => n.toLocaleString()
+  const fmt = (n: number) => n.toLocaleString()
   return (
     <div className="overview-tab">
       {/* Context window donut */}
@@ -62,28 +64,28 @@ function OverviewTab(props: { language: Language; stats: RuntimeStats }) {
           <li>
             <span className="dot dot--prompt" />
             <span className="label">{t.prompt}</span>
-            <span className="value">{formatTokens(s.breakdown.prompt)}</span>
+            <span className="value">{fmt(s.prompt)}</span>
           </li>
           <li>
             <span className="dot dot--completion" />
             <span className="label">{t.completion}</span>
-            <span className="value">{formatTokens(s.breakdown.completion)}</span>
+            <span className="value">{fmt(s.completion)}</span>
           </li>
           <li>
             <span className="dot dot--reasoning" />
             <span className="label">{t.reasoning}</span>
-            <span className="value">{formatTokens(s.breakdown.reasoning)}</span>
+            <span className="value">{fmt(s.reasoning)}</span>
           </li>
           <li>
             <span className="dot dot--other" />
             <span className="label">{t.other}</span>
-            <span className="value">{formatTokens(s.breakdown.other)}</span>
+            <span className="value">{fmt(s.other)}</span>
           </li>
         </ul>
         <div className="total-line">
           <span>{t.total}</span>
           <span>
-            {formatTokens(s.totalUsed)} / {formatTokens(s.totalLimit)}
+            {fmt(s.totalUsed)} / {fmt(s.totalLimit)}
           </span>
         </div>
       </section>
@@ -103,7 +105,7 @@ function OverviewTab(props: { language: Language; stats: RuntimeStats }) {
         </div>
         <div className="runtime-row">
           <span>{t.sessionTokens}</span>
-          <span>{formatTokens(s.sessionTokens)}</span>
+          <span>{fmt(s.sessionTokens)}</span>
         </div>
         <div className="runtime-row">
           <span>{t.cacheBalance}</span>
@@ -148,18 +150,11 @@ function Donut(props: { percent: number; used: number; total: number }) {
   const stroke = 12
   const r = (size - stroke) / 2
   const c = 2 * Math.PI * r
-  const offset = c * (1 - props.percent)
+  const offset = c * (1 - Math.min(props.percent, 1))
   return (
     <div className="donut">
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke="var(--bg-soft)"
-          strokeWidth={stroke}
-          fill="none"
-        />
+        <circle cx={size / 2} cy={size / 2} r={r} stroke="var(--bg-soft)" strokeWidth={stroke} fill="none" />
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -172,42 +167,58 @@ function Donut(props: { percent: number; used: number; total: number }) {
           strokeLinecap="round"
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
-        <text
-          x="50%"
-          y="48%"
-          textAnchor="middle"
-          className="donut__big"
-        >
-          0
+        <text x="50%" y="48%" textAnchor="middle" className="donut__big">
+          {props.used >= 1000 ? Math.round(props.used / 1000) + 'k' : props.used}
         </text>
-        <text
-          x="50%"
-          y="62%"
-          textAnchor="middle"
-          className="donut__small"
-        >
+        <text x="50%" y="62%" textAnchor="middle" className="donut__small">
           / {Math.round(props.total / 1000)}k tokens
         </text>
       </svg>
-      <div className="donut__percent">0%</div>
+      <div className="donut__percent">{props.percent.toFixed(1)}%</div>
     </div>
   )
 }
 
-function FilesTab(_: { language: Language }) {
+function FilesTab(props: { language: Language; files: string[] }) {
+  const t = useT(props.language)
+  if (props.files.length === 0) {
+    return (
+      <div className="panel-placeholder">
+        <p>📄</p>
+        <p>{t.noFiles}</p>
+      </div>
+    )
+  }
   return (
-    <div className="panel-placeholder">
-      <p>📄</p>
-      <p>No files in context</p>
-    </div>
+    <ul className="file-list">
+      {props.files.map((f, i) => (
+        <li key={i} className="file-list__item">
+          📄 {f}
+        </li>
+      ))}
+    </ul>
   )
 }
 
-function ChangesTab(_: { language: Language }) {
+function ChangesTab(props: { language: Language; changes: FileChange[] }) {
+  const t = useT(props.language)
+  if (props.changes.length === 0) {
+    return (
+      <div className="panel-placeholder">
+        <p>↻</p>
+        <p>{t.noChanges}</p>
+      </div>
+    )
+  }
   return (
-    <div className="panel-placeholder">
-      <p>↻</p>
-      <p>No changes</p>
-    </div>
+    <ul className="change-list">
+      {props.changes.map((c, i) => (
+        <li key={i} className={`change-list__item change-list__item--${c.kind}`}>
+          <span className="change-list__kind">{c.kind === 'created' ? '+' : c.kind === 'deleted' ? '−' : '✎'}</span>
+          <span className="change-list__path">{c.path}</span>
+          <span className="change-list__time">{c.time}</span>
+        </li>
+      ))}
+    </ul>
   )
 }
