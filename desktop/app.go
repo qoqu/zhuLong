@@ -396,6 +396,34 @@ func (a *App) simulateRun(ctx context.Context, s *SessionState) {
 	s.Stats.UsagePercent = float64(s.Stats.TotalUsed) / float64(s.Stats.TotalLimit) * 100
 	s.Stats.MainCount++
 	s.Stats.MainCost += 0.0035
+
+	// Trigger an approval request if the session is in 'ask' mode
+	if s.Mode == "ask" {
+		s.Status = "waiting_human"
+		s.Approval = &ApprovalRequestDTO{
+			ID:        fmt.Sprintf("ap%d", time.Now().UnixNano()),
+			Tool:      "execute_command",
+			Args:      map[string]any{"cmd": "rm -rf ./build"},
+			Risk:      "high",
+			Reason:    "该命令会删除 build 目录及其所有内容，且不可恢复。",
+			CreatedAt: time.Now(),
+		}
+		a.appendLog(s, "system", "Awaiting approval", s.Approval.Tool)
+		a.emitSession(s)
+		// wait until approval cleared
+		for {
+			a.mu.Lock()
+			cleared := s.Approval == nil
+			a.mu.Unlock()
+			if cleared || ctx.Err() != nil {
+				break
+			}
+			time.Sleep(120 * time.Millisecond)
+		}
+		if ctx.Err() != nil {
+			return
+		}
+	}
 	a.emitSession(s)
 
 	s.Status = "reflecting"
@@ -488,10 +516,19 @@ func (a *App) RespondApproval(id string, approved bool) {
 		a.mu.Unlock()
 		return
 	}
-	s.Approval = nil
 	if !approved {
 		s.Status = "reflecting"
+		s.Plan[2].Status = "failed"
+		s.Messages = append(s.Messages, MessageDTO{
+			ID: fmt.Sprintf("m%d", time.Now().UnixNano()),
+			Role: "system",
+			Content: "用户拒绝了操作：" + s.Approval.Tool,
+			Time: time.Now(),
+		})
+	} else {
+		s.Status = "executing"
 	}
+	s.Approval = nil
 	a.mu.Unlock()
 	a.emitSession(s)
 }

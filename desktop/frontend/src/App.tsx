@@ -5,6 +5,7 @@ import { Transcript } from './components/Transcript'
 import { Composer } from './components/Composer'
 import { RightPanel } from './components/RightPanel'
 import { StatusBar } from './components/StatusBar'
+import { ApprovalModal } from './components/ApprovalModal'
 import { exampleGoals } from './data/mock'
 import type {
   AgentInfo,
@@ -21,6 +22,7 @@ import type {
   PlanStep,
   RuntimeStats,
   FileChange,
+  ApprovalRequest,
 } from './types'
 import { useT } from './i18n'
 
@@ -89,6 +91,9 @@ function App() {
 
   // Composer input
   const [input, setInput] = useState('')
+
+  // Approval modal
+  const [approval, setApproval] = useState<ApprovalRequest | null>(null)
 
   const t = useT(language)
 
@@ -172,6 +177,11 @@ function App() {
     setStats(s.stats || emptyStats(s.model || 'deepseek-v4-flash'))
     setFiles(s.files || [])
     setChanges(s.changes || [])
+    if (s.approval) {
+      setApproval(s.approval)
+    } else {
+      setApproval(null)
+    }
   }
 
   // ===== Actions =====
@@ -198,7 +208,6 @@ function App() {
       } else {
         // Browser-mode demo: simulate
         setTimeout(() => {
-          setStatus('reflecting')
           setPlan([
             { id: '1', description: '分析任务并收集上下文', status: 'completed' },
             { id: '2', description: '执行主要操作', status: 'running' },
@@ -208,6 +217,21 @@ function App() {
             ...l,
             { id: 'l1', time: new Date().toLocaleTimeString(), phase: 'plan', event: 'Plan created', detail: '3 steps' },
           ])
+          // If in 'ask' mode, pop an approval modal mid-run
+          if (executionMode === 'ask') {
+            setTimeout(() => {
+              setStatus('waiting_human')
+              setApproval({
+                id: 'ap' + Date.now(),
+                tool: 'execute_command',
+                args: { cmd: 'rm -rf ./build' },
+                risk: 'high',
+                reason: '该命令会删除 build 目录及其所有内容，且不可恢复。',
+                createdAt: new Date().toISOString(),
+              })
+            }, 600)
+            return
+          }
           setTimeout(() => {
             setPlan((p) =>
               p.map((s) =>
@@ -236,7 +260,7 @@ function App() {
         }, 600)
       }
     },
-    [activeSessionId]
+    [activeSessionId, executionMode]
   )
 
   const handleStop = useCallback(async () => {
@@ -458,6 +482,41 @@ function App() {
         onToggleDarkMode={() => setDarkMode((v) => !v)}
         onToggleLanguage={() => setLanguage((l) => (l === 'en' ? 'zh' : 'en'))}
       />
+
+      {approval && (
+        <ApprovalModal
+          language={language}
+          request={approval}
+          onApprove={async () => {
+            const id = approval.id
+            setApproval(null)
+            if (backend) {
+              try {
+                await backend.RespondApproval(id, true)
+              } catch {}
+            }
+          }}
+          onDeny={async () => {
+            const id = approval.id
+            setApproval(null)
+            if (backend) {
+              try {
+                await backend.RespondApproval(id, false)
+              } catch {}
+            }
+          }}
+          onAlwaysAllow={async () => {
+            const id = approval.id
+            setApproval(null)
+            if (backend) {
+              try {
+                await backend.RespondApproval(id, true)
+              } catch {}
+            }
+            setExecutionMode('yolo')
+          }}
+        />
+      )}
     </div>
   )
 }

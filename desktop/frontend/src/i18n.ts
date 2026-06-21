@@ -72,6 +72,14 @@ const dict = {
     // Empty
     emptyTitle: 'Zhulong',
     emptyDesc: 'Enter a goal to start the autonomous loop agent.',
+    // Approval
+    approvalTitle: 'Approval required',
+    approvalTool: 'Tool',
+    approvalReason: 'Reason',
+    approvalArgs: 'Arguments',
+    approve: 'Approve',
+    deny: 'Deny',
+    alwaysAllow: 'Always allow',
   },
   zh: {
     appName: '烛龙',
@@ -137,6 +145,13 @@ const dict = {
     balance: '余额',
     emptyTitle: '烛龙',
     emptyDesc: '输入目标，开始自主循环 Agent。',
+    approvalTitle: '需要审批',
+    approvalTool: '工具',
+    approvalReason: '原因',
+    approvalArgs: '参数',
+    approve: '批准',
+    deny: '拒绝',
+    alwaysAllow: '始终允许',
   },
 } as const
 
