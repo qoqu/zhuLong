@@ -1,9 +1,9 @@
 # Zhulong（烛龙） 详细设计文档
 
-> 版本: v0.2-draft
-> 日期: 2026-06-20
+> 版本: v0.3-draft
+> 日期: 2026-06-21
 > 语言: Go
-> 状态: 设计阶段（按优先级整理）
+> 状态: 设计阶段（按优先级整理，已通过可行性审查）
 
 ---
 
@@ -42,7 +42,7 @@ Zhulong（烛龙）是一个**基于 DeepSeek 的通用自主循环 Agent 框架
 |------|------|
 | LLM | **仅支持 DeepSeek**（prefix-cache 优化深度绑定 DeepSeek API） |
 | 语言 | Go（核心逻辑 + CLI）|
-| 桌面端 | Windows（Go + Wails 或 Fyne） |
+| 桌面端 | Windows（Go + Wails） |
 | UI 设计 | Apple Design 风格（简洁、圆角、毛玻璃、留白） |
 | 工具协议 | MCP（Model Context Protocol） |
 | 架构 | CLI 和桌面端共享 `pkg/` 核心逻辑 |
@@ -55,22 +55,21 @@ Zhulong（烛龙）是一个**基于 DeepSeek 的通用自主循环 Agent 框架
 |------|---------|
 | [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) | MCP 工具协议规范、确定性工具结果裁剪策略、prefix-cache 稳定性设计思路 |
 | [Ailoom-Context](https://github.com/EvanLyu-oss/Ailoom-Context) | 骨架压缩结构设计（skeleton + restore 分离）、焦点模式语义、增量压缩思路 |
-| [OK (NB-Agent)](https://github.com/NB-Agent/ok) | 自我进化机制、ProofChain 审计、安全沙盒、DAG 推理规划 |
+| [NB-Agent](https://github.com/ydf0509/nb_agent) | 渐进式披露机制、审批引擎设计 |
 
 所有参考项目均选择独立实现，确保零外部依赖。
 
 ### 1.4 理论基础
 
-Zhulong 融合六大系统科学理论：
+Zhulong 融合六大系统科学理论（仅保留有实际应用价值的部分）：
 
-| 理论 | 贡献 | 核心应用 |
-|------|------|---------|
-| 一般系统论（贝塔朗菲） | 系统是什么 | 开放系统、备选路径 |
-| 工程控制论（钱学森） | 系统怎么控 | 振荡/发散检测、性能指标 |
-| 信息论（香农） | 信息怎么传 | 信息增益、信息密度、噪声处理 |
-| 耗散结构理论（普利高津） | 系统怎么活 | 停滞检测、探索触发 |
-| 协同学（哈肯） | 系统怎么协同 | 序参量识别、役使原理 |
-| 复杂适应系统（霍兰德） | 系统怎么学 | 积木块、认知模型、多样性 |
+| 理论 | 核心应用 | 可行性 |
+|------|---------|--------|
+| 工程控制论（钱学森） | 振荡/发散检测、性能指标 | ✅ 已实现 |
+| 信息论（香农） | 信息增益、信息密度 | ✅ 已实现 |
+| 耗散结构理论（普利高津） | 停滞检测、探索触发 | ✅ 已实现 |
+| 协同学（哈肯） | 序参量识别、役使原理 | ✅ 已实现 |
+| 复杂适应系统（霍兰德） | 积木块、认知模型、多样性 | ✅ 已实现 |
 
 ---
 
@@ -116,58 +115,6 @@ Zhulong 融合六大系统科学理论：
 │  └────────────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────┘
 ```
-
-### 2.1 CLI + 桌面端架构
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Zhulong 双端架构                              │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                    pkg/ 核心逻辑                         │    │
-│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐          │    │
-│  │  │ Controller │ │  Planner   │ │  Executor  │          │    │
-│  │  └────────────┘ └────────────┘ └────────────┘          │    │
-│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐          │    │
-│  │  │  Reflector │ │   Memory   │ │ Compressor │          │    │
-│  │  └────────────┘ └────────────┘ └────────────┘          │    │
-│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐          │    │
-│  │  │  Learning  │ │   Tools    │ │  Provider  │          │    │
-│  │  └────────────┘ └────────────┘ └────────────┘          │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                          │                                      │
-│            ┌─────────────┴─────────────┐                        │
-│            ▼                           ▼                        │
-│  ┌──────────────────┐       ┌──────────────────┐               │
-│  │   cmd/zhulong/   │       │   desktop/       │               │
-│  │   CLI 入口       │       │   Windows 桌面端  │               │
-│  │                  │       │                  │               │
-│  │  - 命令行交互    │       │  - GUI 界面      │               │
-│  │  - 脚本集成      │       │  - 实时状态展示   │               │
-│  │  - 管道支持      │       │  - 可视化 Trace  │               │
-│  └──────────────────┘       └──────────────────┘               │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**桌面端技术选型**：
-
-| 方案 | 说明 | 优缺点 |
-|------|------|--------|
-| **Wails** | Go + Web 前端（React/Vue） | ✅ 开发效率高，UI 灵活；⚠️ 体积稍大 |
-| **Fyne** | 纯 Go GUI 框架 | ✅ 原生性能；⚠️ UI 定制性有限 |
-| **建议** | **Wails + React** | Apple Design 风格更容易实现 |
-
-**Apple Design 风格要点**：
-
-| 元素 | 实现 |
-|------|------|
-| 圆角 | 所有卡片、按钮使用大圆角（12-16px） |
-| 毛玻璃 | 背景使用 backdrop-filter: blur() |
-| 留白 | 大量留白，内容不拥挤 |
-| 字体 | SF Pro 或 Inter，层次分明 |
-| 颜色 | 纯白/浅灰背景，深色文字，蓝色强调 |
-| 动画 | 流畅的过渡动画，不突兀 |
-| 图标 | SF Symbols 风格，线性图标 |
 
 ---
 
@@ -243,215 +190,33 @@ const (
 | 任意 | WaitingHuman | 命中人工断点 / 成本超限 |
 | 任意 | Cancelled | 用户主动取消 |
 
-**核心循环实现**：
-
-```go
-// internal/controller/loop.go
-
-package controller
-
-import (
-    "context"
-    "fmt"
-    "time"
-)
-
-type LoopConfig struct {
-    MaxLoops        int           // 最大循环次数，默认 50
-    MaxTokens       int           // 最大 token 消耗
-    MaxCost         float64       // 最大费用（元）
-    MaxWallTime     time.Duration // 最大运行时间
-    CheckpointEvery int           // 每 N 次状态转移保存一次检查点
-}
-
-type LoopResult struct {
-    FinalState LoopState
-    Answer     string        // 最终输出
-    Trace      TraceLog
-    Stats      LoopStats
-}
-
-type LoopStats struct {
-    TotalLoops    int
-    TotalTokens   int
-    TotalCost     float64
-    TotalDuration time.Duration
-    PlanChanges   int         // 重规划次数
-}
-
-// Run 是主循环入口
-func (c *Controller) Run(ctx context.Context, goal string, opts ...RunOption) (*LoopResult, error) {
-    // 1. 初始化
-    session := c.newSession(goal)
-    c.budget.Reset()
-    c.trace.Start(session.ID)
-
-    // 2. 检查是否有未完成的检查点
-    if cp, err := c.checkpoint.LoadLatest(); err == nil && cp != nil {
-        session = c.restoreFromCheckpoint(cp)
-        c.trace.Log("checkpoint_restored", cp.ID)
-    }
-
-    // 3. 主循环
-    for {
-        // 3.1 检查 context 取消
-        select {
-        case <-ctx.Done():
-            session.State = StateCancelled
-            return c.finalize(session)
-        default:
-        }
-
-        // 3.2 检查预算
-        if c.budget.IsExceeded() {
-            session.State = StateWaitingHuman
-            c.trace.Log("budget_exceeded", c.budget.Summary())
-            return c.finalize(session)
-        }
-
-        // 3.3 状态转移
-        switch session.State {
-        case StateIdle:
-            session.State = StatePlanning
-
-        case StatePlanning:
-            plan, err := c.planner.Plan(ctx, session.Goal, session.Memory)
-            if err != nil {
-                session.State = StateError
-                session.Error = err
-                break
-            }
-            session.Plan = plan
-            session.CurrentStep = 0
-            session.State = StateExecuting
-            c.trace.Log("plan_created", plan)
-
-        case StateExecuting:
-            if session.CurrentStep >= len(session.Plan.Steps) {
-                session.State = StateReflecting
-                break
-            }
-
-            step := session.Plan.Steps[session.CurrentStep]
-            result, err := c.executor.Execute(ctx, step, session.Memory)
-            if err != nil {
-                session.State = StateError
-                session.Error = err
-                break
-            }
-
-            session.Memory.AddStepResult(step, result)
-            session.CurrentStep++
-            c.budget.Consume(result.TokensUsed)
-            c.trace.Log("step_executed", step.ID, result)
-
-            // 检查是否需要人工介入
-            if c.human.ShouldPause(step, result) {
-                session.State = StateWaitingHuman
-                break
-            }
-
-            session.State = StateReflecting
-
-        case StateReflecting:
-            assessment, err := c.reflector.Reflect(ctx, session.Goal, session.Plan, session.Memory)
-            if err != nil {
-                session.State = StateError
-                session.Error = err
-                break
-            }
-
-            session.Memory.AddAssessment(assessment)
-            c.trace.Log("reflected", assessment)
-
-            switch assessment.Decision {
-            case DecisionComplete:
-                session.State = StateDone
-            case DecisionContinue:
-                session.State = StateExecuting
-            case DecisionReplan:
-                session.State = StateReplanning
-            case DecisionFail:
-                session.State = StateError
-                session.Error = fmt.Errorf("reflector判定失败: %s", assessment.Reason)
-            }
-
-        case StateReplanning:
-            newPlan, err := c.planner.Replan(ctx, session.Goal, session.Plan, session.Memory)
-            if err != nil {
-                session.State = StateError
-                session.Error = err
-                break
-            }
-            session.Plan = newPlan
-            session.CurrentStep = 0
-            session.PlanChanges++
-            session.State = StateExecuting
-            c.trace.Log("replanned", newPlan)
-
-        case StateWaitingHuman:
-            input, err := c.human.WaitForInput(ctx, session)
-            if err != nil {
-                session.State = StateError
-                session.Error = err
-                break
-            }
-            session = c.resumeFromHuman(session, input)
-            c.trace.Log("human_resumed", input)
-
-        case StateDone, StateError, StateCancelled:
-            return c.finalize(session)
-        }
-
-        // 3.4 保存检查点
-        if c.shouldCheckpoint(session) {
-            c.checkpoint.Save(session.ToCheckpoint())
-        }
-    }
-}
-```
-
 #### 3.1.2 Planner — 规划器
 
 负责将用户目标分解为可执行的步骤序列。
-
-**接口定义**：
 
 ```go
 // internal/planner/planner.go
 
 package planner
 
-import "context"
-
 type Planner interface {
-    // Plan 根据目标和当前记忆生成初始计划
     Plan(ctx context.Context, goal string, memory MemoryReader) (*Plan, error)
-
-    // Replan 根据反省结果调整计划
     Replan(ctx context.Context, goal string, currentPlan *Plan, memory MemoryReader) (*Plan, error)
 }
 
 type Plan struct {
     ID          string
     Steps       []Step
-    Rationale   string    // 为什么这样规划
+    Rationale   string
     CreatedAt   time.Time
 }
 
 type Step struct {
     ID          string
     Description string
-    Action      Action     // 要执行的动作
-    DependsOn   []string   // 依赖的步骤 ID
-    Breakpoint  bool       // 是否需要执行前人工确认
-}
-
-type Action struct {
-    Type    string                 // "tool_call" | "llm_generate" | "human_input"
-    Tool    string                 // 工具名称（tool_call 类型时）
-    Params  map[string]interface{} // 工具参数
-    Prompt  string                 // LLM 提示（llm_generate 类型时）
+    Action      Action
+    DependsOn   []string
+    Breakpoint  bool
 }
 ```
 
@@ -459,37 +224,22 @@ type Action struct {
 
 负责执行计划中的单个步骤。
 
-**接口定义**：
-
 ```go
 // internal/executor/executor.go
 
 package executor
 
-import "context"
-
 type Executor interface {
-    // Execute 执行单个步骤，返回结果
     Execute(ctx context.Context, step Step, memory MemoryReader) (*StepResult, error)
 }
 
 type StepResult struct {
     StepID      string
     Success     bool
-    Output      string                 // 执行输出
-    ToolCalls   []ToolCallRecord       // 工具调用记录
-    TokensUsed  int                    // 本步骤消耗的 token
+    Output      string
+    TokensUsed  int
     Duration    time.Duration
-    Error       error                  // 如果失败，错误信息
-}
-
-type ToolCallRecord struct {
-    ToolName   string
-    Input      map[string]interface{}
-    Output     string
-    Duration   time.Duration
-    Prunable   bool   // 结果是否可裁剪
-    CacheKey   string // 用于判断是否可重新获取
+    Error       error
 }
 ```
 
@@ -497,37 +247,96 @@ type ToolCallRecord struct {
 
 负责评估执行结果，决定循环的下一步走向。
 
-**接口定义**：
-
 ```go
 // internal/reflector/reflector.go
 
 package reflector
 
-import "context"
-
 type Reflector interface {
-    // Reflect 评估当前状态，返回决策
     Reflect(ctx context.Context, goal string, plan *Plan, memory MemoryReader) (*Assessment, error)
 }
 
-type Decision int
-
-const (
-    DecisionComplete Decision = iota // 目标已完成
-    DecisionContinue                  // 继续执行下一步
-    DecisionReplan                    // 需要重新规划
-    DecisionFail                      // 目标无法完成
-)
-
 type Assessment struct {
     Decision    Decision
-    Reason      string   // 决策理由
-    Confidence  float64  // 置信度 0-1
-    Findings    []string // 本轮发现的新信息
-    Suggestions []string // 给 Replanner 的建议
+    Reason      string
+    Confidence  float64
+    Findings    []string
+    Suggestions []string
 }
 ```
+
+#### 3.1.5 DeepSeek Provider
+
+深度优化 DeepSeek API 调用，保持 prefix-cache 稳定性。
+
+```go
+// internal/provider/deepseek.go
+
+package provider
+
+type DeepSeekProvider struct {
+    apiKey  string
+    baseURL string
+    model   string
+    client  *http.Client
+}
+```
+
+#### 3.1.6 Memory — 三层记忆系统
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Memory System                         │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  Layer 1: Working Memory (当前循环)              │    │
+│  │  - 当前计划、步骤结果、评估                       │    │
+│  │  - 生命周期: 单次循环 | 完整保留，不压缩          │    │
+│  └─────────────────────────────────────────────────┘    │
+│                         │                               │
+│                     循环结束时                            │
+│                         ▼                               │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  Layer 2: Session Memory (当前会话)              │    │
+│  │  - 循环摘要、关键决策、发现                       │    │
+│  │  - 生命周期: 当前会话 | 压缩存储                  │    │
+│  └─────────────────────────────────────────────────┘    │
+│                         │                               │
+│                     会话结束时                            │
+│                         ▼                               │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  Layer 3: Long-term Memory (持久记忆)            │    │
+│  │  - 事实、模式、策略                               │    │
+│  │  - 生命周期: 永久 | 持久化存储                    │    │
+│  └─────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### 3.1.7 Compressor — 上下文压缩
+
+保持缓存命中率的核心模块。
+
+```go
+// internal/compressor/compressor.go
+
+package compressor
+
+type Compressor interface {
+    // Prune prunes stale tool results (Reasonix strategy)
+    Prune(messages []Message, currentLoop int) []Message
+
+    // AssembleContext assembles the final context
+    AssembleContext(systemPrompt string, skeleton string, sessionSummary string, workingMessages []Message, currentInput string, maxTokens int) []Message
+}
+```
+
+#### 3.1.8 其他 P0 模块
+
+- **Checkpoint**：检查点持久化 + 恢复
+- **Budget**：成本控制 + 预算跟踪
+- **Trace**：可观测性 + 日志记录
+- **Human**：人机协作 + 断点管理
+- **Tools**：MCP 工具层 + 内置工具
 
 ---
 
@@ -537,374 +346,127 @@ type Assessment struct {
 
 **问题**：Agent 卡在重复失败循环，或进度倒退。
 
-**解决方案**：
+**可行性**：✅ 已实现，只读取历史，不修改上下文。
 
 ```go
 // internal/stability/analyzer.go
 
-package stability
-
-// StabilityAnalyzer 稳定性分析器
-type StabilityAnalyzer struct {
+type Analyzer struct {
     history []LoopSnapshot
+    window  int
 }
 
-// IsOscillating 检测是否在振荡（重复相同失败模式）
-func (s *StabilityAnalyzer) IsOscillating() bool {
-    if len(s.history) < 4 {
-        return false
-    }
-    // 检测 A→B→A→B 模式
-    n := len(s.history)
-    return s.history[n-4].State == s.history[n-2].State &&
-           s.history[n-3].State == s.history[n-1].State
-}
+// IsOscillating detects A → B → A → B pattern
+func (a *Analyzer) IsOscillating() bool { ... }
 
-// IsDiverging 检测是否在发散（进度倒退）
-func (s *StabilityAnalyzer) IsDiverging() bool {
-    if len(s.history) < 3 {
-        return false
-    }
-    // 最近3次循环的完成度递减
-    n := len(s.history)
-    return s.history[n-3].Progress > s.history[n-2].Progress &&
-           s.history[n-2].Progress > s.history[n-1].Progress
-}
-
-// LoopSnapshot 循环快照
-type LoopSnapshot struct {
-    LoopNumber int
-    State      string
-    Progress   float64
-    Timestamp  time.Time
-}
+// IsDiverging detects progress going backward
+func (a *Analyzer) IsDiverging() bool { ... }
 ```
 
-#### 3.2.2 系统级性能指标（工程控制论）
-
-**问题**：需要量化评估 Agent 运行效率。
-
-**解决方案**：
-
-```go
-// internal/metrics/performance.go
-
-package metrics
-
-// SystemPerformance 系统级性能指标
-type SystemPerformance struct {
-    // 端到端指标
-    TotalTime       time.Duration  // 总耗时
-    TotalCost       float64        // 总成本
-    GoalAchievement float64        // 目标达成度
-
-    // 效率指标
-    TokenEfficiency  float64  // 有效 token / 总 token
-    LoopEfficiency   float64  // 有效循环 / 总循环
-    ToolEfficiency   float64  // 有效工具调用 / 总工具调用
-
-    // 稳定性指标
-    OscillationCount int      // 振荡次数
-    ReplanCount      int      // 重规划次数
-    ErrorCount       int      // 错误次数
-}
-```
-
-#### 3.2.3 信息增益工具选择（信息论）
+#### 3.2.2 信息增益工具选择（信息论）
 
 **问题**：选择工具时，应该选能提供最多新信息的工具。
 
-**解决方案**：
+**可行性**：✅ 已实现，只影响工具选择，不修改上下文。
 
 ```go
 // internal/information/gain.go
 
-package information
-
-import "math"
-
-// InformationGain 信息增益计算器
 type InformationGain struct {
     toolHistory map[string][]ToolResult
 }
 
-// EstimateGain 估算工具调用的信息增益
-func (ig *InformationGain) EstimateGain(tool Tool, currentContext string) float64 {
-    // 如果这个工具之前调用过且结果已知，信息增益低
-    priorResults := ig.toolHistory[tool.Name()]
-    if len(priorResults) > 0 {
-        return ig.diminishingGain(priorResults)
-    }
-
-    // 新工具，预期信息增益高
-    return 0.8
-}
-
-// diminishingGain 边际信息递减
-func (ig *InformationGain) diminishingGain(results []ToolResult) float64 {
-    baseGain := 1.0
-    decay := 0.6 // 每次调用衰减 40%
-    return baseGain * math.Pow(decay, float64(len(results)))
-}
+// EstimateGain estimates information gain of calling a tool
+func (ig *InformationGain) EstimateGain(toolName string) float64 { ... }
 ```
 
-#### 3.2.4 信息密度优化（信息论）
-
-**问题**：上下文窗口有容量上限，必须最大化每 token 携带的有用信息。
-
-**解决方案**：
-
-```go
-// internal/information/density.go
-
-package information
-
-// InformationDensity 信息密度计算器
-type InformationDensity struct {
-    tokenizer Tokenizer
-}
-
-// Density 信息密度 = 有用信息量 / token 数
-func (id *InformationDensity) Density(messages []Message) float64 {
-    usefulInfo := 0.0
-    totalTokens := 0
-
-    for _, msg := range messages {
-        tokens := id.tokenizer.Count(msg.Content)
-        totalTokens += tokens
-
-        switch {
-        case msg.Role == "system" && isSystemPrompt(msg):
-            usefulInfo += float64(tokens) * 1.0 // 系统提示信息密度高
-        case msg.Role == "tool" && isPrunable(msg):
-            usefulInfo += float64(tokens) * 0.1 // 可裁剪的工具结果信息密度低
-        case msg.Role == "tool" && !isPrunable(msg):
-            usefulInfo += float64(tokens) * 0.8 // 不可裁剪的工具结果信息密度高
-        default:
-            usefulInfo += float64(tokens) * 0.5
-        }
-    }
-
-    if totalTokens == 0 {
-        return 0
-    }
-    return usefulInfo / float64(totalTokens)
-}
-```
-
-#### 3.2.5 停滞检测（耗散结构理论）
+#### 3.2.3 停滞检测（耗散结构理论）
 
 **问题**：Agent 卡死时需要自动发现。
 
-**解决方案**：
+**可行性**：✅ 已实现，只读取历史，不修改上下文。
 
 ```go
 // internal/stagnation/detector.go
 
-package stagnation
-
-// Detector 停滞检测器
 type Detector struct {
-    windowSize       int     // 检测窗口大小（最近 N 步）
-    entropyThreshold float64 // 信息增益阈值
+    windowSize       int
+    entropyThreshold float64
     history          []StepInfo
 }
 
-type StepInfo struct {
-    StepNumber    int
-    NewInfoScore  float64 // 本步获取的新信息量（0-1）
-    ToolUsed      string
-    ProgressDelta float64 // 进展变化（-1 到 1）
-}
+// IsStagnating detects if the system is stagnating
+func (d *Detector) IsStagnating() bool { ... }
 
-// IsStagnating 检测是否停滞
-func (d *Detector) IsStagnating() bool {
-    if len(d.history) < d.windowSize {
-        return false
-    }
-
-    recent := d.history[len(d.history)-d.windowSize:]
-    for _, step := range recent {
-        if step.NewInfoScore >= d.entropyThreshold {
-            return false // 还有新信息输入，未停滞
-        }
-    }
-    return true // 连续 N 步无新信息，停滞
-}
-
-// StagnationType 停滞类型
-type StagnationType int
-
-const (
-    StagnationInfoStarved StagnationType = iota // 信息饥饿
-    StagnationLooping                            // 循环卡死
-    StagnationBlocked                            // 路径阻塞
-)
-
-// DiagnoseStagnation 诊断停滞原因
-func (d *Detector) DiagnoseStagnation() StagnationType {
-    recent := d.history[len(d.history)-d.windowSize:]
-
-    // 检测循环卡死：相同工具重复调用
-    tools := make(map[string]int)
-    for _, step := range recent {
-        tools[step.ToolUsed]++
-    }
-    for _, count := range tools {
-        if count >= d.windowSize/2 {
-            return StagnationLooping
-        }
-    }
-
-    // 检测路径阻塞：进展持续为负
-    negativeCount := 0
-    for _, step := range recent {
-        if step.ProgressDelta < 0 {
-            negativeCount++
-        }
-    }
-    if negativeCount >= d.windowSize/2 {
-        return StagnationBlocked
-    }
-
-    return StagnationInfoStarved
-}
+// DiagnoseStagnation diagnoses the type of stagnation
+func (d *Detector) DiagnoseStagnation() StagnationType { ... }
 ```
 
-#### 3.2.6 探索触发（耗散结构理论）
+#### 3.2.4 探索触发（耗散结构理论）
 
 **问题**：停滞时需要增加随机性来突破。
 
-**解决方案**：
+**可行性**：✅ 已实现，只影响 temperature，不修改上下文。
 
 ```go
 // internal/exploration/trigger.go
 
-package exploration
-
-// Trigger 探索触发器
 type Trigger struct {
-    stagnationDetector *stagnation.Detector
-    baseTemperature    float64
-    explorationTools   []Tool
+    baseTemperature  float64
+    maxTemperature   float64
+    explorationTools []string
 }
 
-// ShouldExplore 是否应该触发探索
-func (t *Trigger) ShouldExplore() bool {
-    return t.stagnationDetector.IsStagnating()
-}
-
-// ExplorationAction 探索行动
-type ExplorationAction struct {
-    Type        string  // "increase_temperature" | "try_new_tool"
-    Temperature float64
-    Tool        Tool
-}
-
-// GenerateExploration 生成探索行动
-func (t *Trigger) GenerateExploration() ExplorationAction {
-    stagnationType := t.stagnationDetector.DiagnoseStagnation()
-
-    switch stagnationType {
-    case stagnation.StagnationInfoStarved:
-        return ExplorationAction{
-            Type:        "increase_temperature",
-            Temperature: t.baseTemperature * 1.5,
-        }
-
-    case stagnation.StagnationLooping:
-        newTool := t.selectUnexpectedTool()
-        return ExplorationAction{
-            Type: "try_new_tool",
-            Tool: newTool,
-        }
-
-    case stagnation.StagnationBlocked:
-        return ExplorationAction{
-            Type:        "increase_temperature",
-            Temperature: t.baseTemperature * 2.0,
-        }
-    }
-
-    return ExplorationAction{Type: "increase_temperature", Temperature: t.baseTemperature * 1.2}
-}
+// GenerateExploration generates an exploration action
+func (t *Trigger) GenerateExploration(stagnationType string) ExplorationAction { ... }
 ```
 
-#### 3.2.7 序参量识别（协同学）
+#### 3.2.5 序参量识别（协同学）
 
 **问题**：识别真正驱动系统的目标/策略，确保所有行动服务于它。
 
-**解决方案**：
+**可行性**：✅ 已实现，只读取目标，不修改上下文。
 
 ```go
 // internal/synergetics/order_parameter.go
 
-package synergetics
-
-// OrderParameter 序参量：驱动系统的慢变量
 type OrderParameter struct {
-    Goal      string    // 核心目标（最慢的变量）
-    Strategy  string    // 当前策略（次慢的变量）
-    Priority  float64   // 优先级（0-1）
-    Stability float64   // 稳定性
+    Goal      string
+    Strategy  string
+    Priority  float64
+    Stability float64
 }
 
-// IdentifyOrderParameter 识别序参量
-func IdentifyOrderParameter(session *Session) *OrderParameter {
-    return &OrderParameter{
-        Goal:      session.Goal,
-        Strategy:  session.CurrentStrategy,
-        Priority:  1.0,
-        Stability: 1.0 / (float64(session.StrategyChanges) + 1.0),
-    }
-}
+// IdentifyOrderParameter identifies the order parameter from a session
+func IdentifyOrderParameter(session *Session) *OrderParameter { ... }
 ```
 
-#### 3.2.8 役使原理（协同学）
+#### 3.2.6 役使原理（协同学）
 
 **问题**：行动必须服务于目标，拒绝无关行动。
 
-**解决方案**：
+**可行性**：✅ 已实现，只过滤行动，不修改上下文。
 
 ```go
 // internal/synergetics/slaving.go
 
-package synergetics
-
-// SlavingPrinciple 役使原理实现
 type SlavingPrinciple struct {
     orderParameter *OrderParameter
 }
 
-// EnforceSlaving 强制役使：确保行动服务于目标
-func (sp *SlavingPrinciple) EnforceSlaving(action Action) (*EnforcedAction, error) {
-    relevance := sp.assessRelevance(action, sp.orderParameter.Goal)
-
-    if relevance < 0.3 {
-        return nil, fmt.Errorf("行动 '%s' 与目标 '%s' 无关（相关度 %.2f）",
-            action.Description, sp.orderParameter.Goal, relevance)
-    }
-
-    return &EnforcedAction{
-        Action:   action,
-        Priority: action.Priority * relevance,
-        Aligned:  relevance >= 0.7,
-    }, nil
-}
+// EnforceSlaving enforces the slaving principle on an action
+func (sp *SlavingPrinciple) EnforceSlaving(action *Action) (*EnforcedAction, error) { ... }
 ```
 
-#### 3.2.9 积木块（CAS）
+#### 3.2.7 积木块（CAS）
 
 **问题**：成功策略应该被保存和复用。
 
-**解决方案**：
+**可行性**：✅ 已实现，存储在独立存储，不修改上下文。
 
 ```go
 // internal/learning/building_block.go
 
-package learning
-
-// BuildingBlock 积木块：可复用的策略单元
 type BuildingBlock struct {
     ID          string
     Name        string
@@ -913,720 +475,85 @@ type BuildingBlock struct {
     Context     TaskContext
     SuccessRate float64
     UsageCount  int
-    CreatedAt   time.Time
-    LastUsedAt  time.Time
-}
-
-// StrategyPattern 策略模式
-type StrategyPattern struct {
-    Steps      []StepTemplate
-    ToolsUsed  []string
-    KeyInsight string
-    Conditions []string
-}
-
-// BuildingBlockStore 积木块存储
-type BuildingBlockStore struct {
-    blocks map[string]*BuildingBlock
-}
-
-// SaveBlock 保存成功的策略为积木块
-func (store *BuildingBlockStore) SaveBlock(strategy Strategy, result Result) error {
-    if !result.Success {
-        return nil
-    }
-
-    block := &BuildingBlock{
-        ID:          generateID(),
-        Name:        strategy.Name,
-        Description: strategy.Description,
-        Pattern:     extractPattern(strategy),
-        Context:     result.TaskContext,
-        SuccessRate: 1.0,
-        UsageCount:  1,
-        CreatedAt:   time.Now(),
-        LastUsedAt:  time.Now(),
-    }
-
-    store.blocks[block.ID] = block
-    return nil
-}
-
-// FindMatchingBlocks 查找匹配当前任务的积木块
-func (store *BuildingBlockStore) FindMatchingBlocks(task TaskContext) []*BuildingBlock {
-    matches := make([]*BuildingBlock, 0)
-
-    for _, block := range store.blocks {
-        similarity := calculateSimilarity(task, block.Context)
-        if similarity > 0.7 {
-            matches = append(matches, block)
-        }
-    }
-
-    sort.Slice(matches, func(i, j int) bool {
-        return matches[i].SuccessRate > matches[j].SuccessRate
-    })
-
-    return matches
 }
 ```
 
-#### 3.2.10 内部模型（CAS）
+#### 3.2.8 内部模型（CAS）
 
 **问题**：Agent 应该有认知模型，不是无状态执行器。
 
-**解决方案**：
+**可行性**：✅ 已实现，存储在独立存储，不修改上下文。
 
 ```go
 // internal/learning/internal_model.go
 
-package learning
-
-// InternalModel 内部模型：Agent 的认知模型
 type InternalModel struct {
     WorldModel WorldModel
     TaskModel  TaskModel
     ToolModel  ToolModel
-    Updates    []ModelUpdate
-}
-
-// WorldModel 世界模型
-type WorldModel struct {
-    KnownFacts  map[string]Fact
-    Assumptions map[string]float64
-    LastUpdated time.Time
-}
-
-// TaskModel 任务模型
-type TaskModel struct {
-    TaskPatterns map[string]TaskPattern
-    Strategies   map[string]Strategy
-    LastUpdated  time.Time
-}
-
-// ToolModel 工具模型
-type ToolModel struct {
-    ToolCapabilities map[string]ToolCapability
-    ToolReliability  map[string]float64
-    LastUpdated      time.Time
-}
-
-// UpdateModel 根据经验更新认知模型
-func (model *InternalModel) UpdateModel(experience Experience) {
-    if experience.NewFact != nil {
-        model.WorldModel.KnownFacts[experience.NewFact.Key] = *experience.NewFact
-    }
-
-    if experience.TaskPattern != nil {
-        model.TaskModel.TaskPatterns[experience.TaskPattern.Name] = *experience.TaskPattern
-    }
-
-    if experience.ToolResult != nil {
-        model.ToolModel.ToolReliability[experience.ToolResult.Tool] =
-            model.updateReliability(experience.ToolResult)
-    }
-
-    model.Updates = append(model.Updates, ModelUpdate{
-        Timestamp:  time.Now(),
-        Experience: experience,
-    })
 }
 ```
 
-#### 3.2.11 多样性管理（CAS）
+#### 3.2.9 多样性管理（CAS）
 
 **问题**：避免过度依赖单一策略。
 
-**解决方案**：
+**可行性**：✅ 已实现，只读取统计，不修改上下文。
 
 ```go
 // internal/learning/diversity.go
 
-package learning
-
-// DiversityManager 多样性管理器
 type DiversityManager struct {
     toolUsage     map[string]int
     strategyUsage map[string]int
     threshold     float64
 }
-
-// CheckDiversity 检查多样性是否足够
-func (dm *DiversityManager) CheckDiversity() DiversityReport {
-    toolDiversity := dm.calculateDiversity(dm.toolUsage)
-    strategyDiversity := dm.calculateDiversity(dm.strategyUsage)
-
-    return DiversityReport{
-        ToolDiversity:     toolDiversity,
-        StrategyDiversity: strategyDiversity,
-        IsHealthy:         toolDiversity > dm.threshold &&
-                          strategyDiversity > dm.threshold,
-    }
-}
-
-// calculateDiversity 计算多样性指数（香农熵）
-func (dm *DiversityManager) calculateDiversity(usage map[string]int) float64 {
-    total := 0
-    for _, count := range usage {
-        total += count
-    }
-
-    if total == 0 {
-        return 0
-    }
-
-    entropy := 0.0
-    for _, count := range usage {
-        p := float64(count) / float64(total)
-        if p > 0 {
-            entropy -= p * math.Log2(p)
-        }
-    }
-
-    return entropy
-}
 ```
 
-#### 3.2.12 混沌边缘（CAS）
+#### 3.2.10 混沌边缘（CAS）
 
 **问题**：在"利用已知"和"探索未知"之间保持平衡。
 
-**解决方案**：
+**可行性**：✅ 已实现，只影响 temperature，不修改上下文。
 
 ```go
 // internal/learning/edge_of_chaos.go
 
-package learning
-
-// EdgeOfChaos 混沌边缘管理器
 type EdgeOfChaos struct {
-    balance float64 // 0=纯利用，1=纯探索
+    balance         float64
+    baseTemperature float64
+    maxTemperature  float64
+}
+```
+
+#### 3.2.11 信息密度优化（信息论）
+
+**问题**：上下文窗口有容量上限，必须最大化每 token 携带的有用信息。
+
+**可行性**：✅ 已实现，只影响压缩策略，不修改 prefix。
+
+```go
+// internal/information/density.go
+
+type DensityCalculator struct {
+    tokenCounter TokenCounter
 }
 
-// CalculateBalance 计算最佳平衡点
-func (eoc *EdgeOfChaos) CalculateBalance(history []Experience) float64 {
-    recentSuccess := eoc.calculateRecentSuccess(history)
-
-    if recentSuccess > 0.8 {
-        return 0.6 // 成功率高，增加探索
-    }
-
-    if recentSuccess < 0.4 {
-        return 0.3 // 成功率低，增加利用
-    }
-
-    return 0.5
-}
-
-// ShouldExplore 是否应该探索
-func (eoc *EdgeOfChaos) ShouldExplore() bool {
-    return rand.Float64() < eoc.balance
-}
+// Density calculates the information density of messages
+func (dc *DensityCalculator) Density(messages []Message) float64 { ... }
 ```
 
 ---
 
 ### 3.3 P2：扩展模块（基础稳定后实现）
 
-#### 3.3.1 环境感知器（一般系统论）
-
-**问题**：文件被外部修改时，Agent 需要感知。
-
-**解决方案**：
-
-```go
-// internal/environment/monitor.go
-
-package environment
-
-// Monitor 持续监控外部环境变化
-type Monitor struct {
-    watchers []Watcher
-    changes  chan Change
-}
-
-type Watcher interface {
-    Watch(ctx context.Context, resource string) (<-chan Change, error)
-    Stop() error
-}
-
-type Change struct {
-    Resource  string
-    Type      ChangeType
-    Timestamp time.Time
-}
-
-type ChangeType int
-
-const (
-    ChangeModified  ChangeType = iota
-    ChangeAdded
-    ChangeDeleted
-    ChangeUnavailable
-)
-```
-
-#### 3.3.2 备选路径规划（一般系统论）
-
-**问题**：主路径失败时需要 Plan B。
-
-**解决方案**：
-
-```go
-// internal/planner/alternative.go
-
-package planner
-
-// AlternativePath 备选路径
-type AlternativePath struct {
-    ID          string
-    Description string
-    Steps       []Step
-    WhenToUse   string
-    Confidence  float64
-}
-
-// PlanWithAlternatives 生成带备选路径的计划
-func (p *LLMPlanner) PlanWithAlternatives(ctx context.Context, goal string, memory MemoryReader) (*Plan, error) {
-    mainPlan, err := p.Plan(ctx, goal, memory)
-    if err != nil {
-        return nil, err
-    }
-
-    alternatives := p.generateAlternatives(ctx, goal, mainPlan, memory)
-    mainPlan.Alternatives = alternatives
-
-    return mainPlan, nil
-}
-```
-
-#### 3.3.3 噪声处理（信息论）
-
-**问题**：LLM 输出不稳定时需要验证。
-
-**解决方案**：
-
-```go
-// internal/executor/noise_handler.go
-
-package executor
-
-// NoiseHandler 噪声处理器
-type NoiseHandler struct {
-    maxRetries       int
-    confidenceThresh float64
-}
-
-// HandleNoise 处理 LLM 输出的不确定性
-func (n *NoiseHandler) HandleNoise(output LLMOutput, task string) (*VerifiedOutput, error) {
-    if output.Confidence >= n.confidenceThresh {
-        return &VerifiedOutput{
-            Output:   output,
-            Verified: false,
-            Method:   "confidence_pass",
-        }, nil
-    }
-
-    verified, err := n.verifyWithRetry(output, task)
-    if err == nil {
-        return verified, nil
-    }
-
-    return &VerifiedOutput{
-        Output:   output,
-        Verified: false,
-        Method:   "degraded",
-        Warning:  "低置信度输出，建议人工确认",
-    }, nil
-}
-```
-
-#### 3.3.4 冗余管理（信息论）
-
-**问题**：区分可压缩冗余和必要冗余。
-
-**解决方案**：
-
-```go
-// internal/compressor/redundancy.go
-
-package compressor
-
-// RedundancyType 冗余类型
-type RedundancyType int
-
-const (
-    RedundancyCompressible RedundancyType = iota
-    RedundancyNecessary
-)
-
-// ClassifyRedundancy 分类冗余
-func ClassifyRedundancy(msg Message) RedundancyType {
-    if msg.Role == "tool" && msg.LoopNumber < currentLoop-1 {
-        return RedundancyCompressible
-    }
-    if msg.Role == "tool" && isVerification(msg) {
-        return RedundancyNecessary
-    }
-    return RedundancyCompressible
-}
-```
-
-#### 3.3.5 自我进化机制（借鉴 OK 项目）
-
-**问题**：Agent 应该能从对话中自动学习，而不是只依赖预设的积木块。
-
-**解决方案**：
-
-```go
-// internal/learning/self_evolution.go
-
-package learning
-
-// SelfEvolution 自我进化引擎
-// 借鉴 OK 项目的自我进化机制：
-// - 每 N 次对话检测工作流模式
-// - 每 M 次生成并验证新的技能候选
-// - 每 K 次修剪无用内容
-type SelfEvolution struct {
-    patternDetector  *PatternDetector
-    skillGenerator   *SkillGenerator
-    skillValidator   *SkillValidator
-    config           *EvolutionConfig
-}
-
-// EvolutionConfig 自我进化配置
-type EvolutionConfig struct {
-    PatternDetectionInterval int  // 每 N 次对话检测模式
-    SkillGenerationInterval  int  // 每 M 次生成技能
-    PruningInterval          int  // 每 K 次修剪
-    MinConfidence            float64 // 最低置信度
-}
-
-// DefaultEvolutionConfig 默认配置
-func DefaultEvolutionConfig() *EvolutionConfig {
-    return &EvolutionConfig{
-        PatternDetectionInterval: 3,
-        SkillGenerationInterval:  6,
-        PruningInterval:          10,
-        MinConfidence:            0.7,
-    }
-}
-
-// Evolve 执行一次进化
-func (se *SelfEvolution) Evolve(history []Conversation) {
-    // 1. 检测工作流模式
-    if len(history)%se.config.PatternDetectionInterval == 0 {
-        patterns := se.patternDetector.Detect(history)
-        se.patternDetector.UpdatePatterns(patterns)
-    }
-
-    // 2. 生成技能候选
-    if len(history)%se.config.SkillGenerationInterval == 0 {
-        candidates := se.skillGenerator.Generate(history)
-        for _, candidate := range candidates {
-            if se.skillValidator.Validate(candidate) {
-                se.skillGenerator.SaveSkill(candidate)
-            }
-        }
-    }
-
-    // 3. 修剪无用内容
-    if len(history)%se.config.PruningInterval == 0 {
-        se.skillGenerator.Prune(se.config.MinConfidence)
-    }
-}
-
-// PatternDetector 模式检测器
-type PatternDetector struct {
-    patterns []WorkflowPattern
-}
-
-// WorkflowPattern 工作流模式
-type WorkflowPattern struct {
-    Name       string
-    Steps      []string
-    Frequency  int
-    Confidence float64
-}
-
-// Detect 从历史中检测模式
-func (pd *PatternDetector) Detect(history []Conversation) []WorkflowPattern {
-    // TODO: 实现模式检测逻辑
-    return nil
-}
-
-// UpdatePatterns 更新模式库
-func (pd *PatternDetector) UpdatePatterns(patterns []WorkflowPattern) {
-    // TODO: 实现模式更新逻辑
-}
-
-// SkillGenerator 技能生成器
-type SkillGenerator struct {
-    skills map[string]*Skill
-}
-
-// Skill 技能
-type Skill struct {
-    Name       string
-    Description string
-    Steps      []string
-    Confidence float64
-    UsageCount int
-}
-
-// Generate 从历史中生成技能候选
-func (sg *SkillGenerator) Generate(history []Conversation) []*Skill {
-    // TODO: 实现技能生成逻辑
-    return nil
-}
-
-// SaveSkill 保存技能
-func (sg *SkillGenerator) SaveSkill(skill *Skill) {
-    sg.skills[skill.Name] = skill
-}
-
-// Prune 修剪低置信度技能
-func (sg *SkillGenerator) Prune(minConfidence float64) {
-    for name, skill := range sg.skills {
-        if skill.Confidence < minConfidence {
-            delete(sg.skills, name)
-        }
-    }
-}
-
-// SkillValidator 技能验证器
-type SkillValidator struct{}
-
-// Validate 验证技能是否有效
-func (sv *SkillValidator) Validate(skill *Skill) bool {
-    // TODO: 实现技能验证逻辑
-    return skill.Confidence >= 0.7
-}
-
-// Conversation 对话记录
-type Conversation struct {
-    Messages []Message
-    Result   Result
-}
-
-// Result 对话结果
-type Result struct {
-    Success    bool
-    TokensUsed int
-    Duration   time.Duration
-}
-```
-
-#### 3.3.6 ProofChain 审计链（借鉴 OK 项目）
-
-**问题**：Agent 执行的操作需要可验证的审计记录。
-
-**解决方案**：
-
-```go
-// internal/audit/proof_chain.go
-
-package audit
-
-import (
-    "crypto/sha256"
-    "encoding/hex"
-    "time"
-)
-
-// ProofChain 审计链
-// 借鉴 OK 项目的 ProofChain 机制：
-// - 每个工具调用记录在 SHA-256 哈希链中
-// - 执行结果密码学可验证
-// - 提供透明且不可否认的审计跟踪
-type ProofChain struct {
-    blocks []Block
-}
-
-// Block 审计块
-type Block struct {
-    Index     int
-    Timestamp time.Time
-    ToolName  string
-    Input     string
-    Output    string
-    Hash      string
-    PrevHash  string
-}
-
-// NewProofChain 创建新的审计链
-func NewProofChain() *ProofChain {
-    genesis := Block{
-        Index:     0,
-        Timestamp: time.Now(),
-        ToolName:  "genesis",
-        Input:     "",
-        Output:    "",
-        Hash:      calculateHash("", "", ""),
-        PrevHash:  "",
-    }
-
-    return &ProofChain{
-        blocks: []Block{genesis},
-    }
-}
-
-// AddBlock 添加审计块
-func (pc *ProofChain) AddBlock(toolName string, input string, output string) Block {
-    prevBlock := pc.blocks[len(pc.blocks)-1]
-
-    newBlock := Block{
-        Index:     len(pc.blocks),
-        Timestamp: time.Now(),
-        ToolName:  toolName,
-        Input:     input,
-        Output:    output,
-        Hash:      calculateHash(toolName, input, output),
-        PrevHash:  prevBlock.Hash,
-    }
-
-    pc.blocks = append(pc.blocks, newBlock)
-    return newBlock
-}
-
-// Verify 验证审计链完整性
-func (pc *ProofChain) Verify() bool {
-    for i := 1; i < len(pc.blocks); i++ {
-        current := pc.blocks[i]
-        prev := pc.blocks[i-1]
-
-        // 验证哈希
-        expectedHash := calculateHash(current.ToolName, current.Input, current.Output)
-        if current.Hash != expectedHash {
-            return false
-        }
-
-        // 验证前向链接
-        if current.PrevHash != prev.Hash {
-            return false
-        }
-    }
-
-    return true
-}
-
-// GetBlocks 获取所有审计块
-func (pc *ProofChain) GetBlocks() []Block {
-    return pc.blocks
-}
-
-// GetBlock 获取指定索引的审计块
-func (pc *ProofChain) GetBlock(index int) (Block, bool) {
-    if index < 0 || index >= len(pc.blocks) {
-        return Block{}, false
-    }
-    return pc.blocks[index], true
-}
-
-// calculateHash 计算哈希
-func calculateHash(toolName string, input string, output string) string {
-    data := toolName + input + output
-    hash := sha256.Sum256([]byte(data))
-    return hex.EncodeToString(hash[:])
-}
-```
-
-#### 3.3.7 安全沙盒（借鉴 OK 项目）
-
-**问题**：工具执行需要安全隔离，防止危险操作。
-
-**解决方案**：
-
-```go
-// internal/sandbox/sandbox.go
-
-package sandbox
-
-import (
-    "context"
-    "fmt"
-    "os/exec"
-)
-
-// Permission 权限级别
-type Permission int
-
-const (
-    PermissionDeny Permission = iota
-    PermissionAsk
-    PermissionAllow
-)
-
-// SandboxRule 沙盒规则
-type SandboxRule struct {
-    ToolPattern string     // 工具模式（支持通配符）
-    Permission  Permission
-    Description string
-}
-
-// Sandbox 安全沙盒
-// 借鉴 OK 项目的三层权限系统：
-// - deny > ask > allow
-// - 支持按工具进行通配符匹配
-type Sandbox struct {
-    rules []SandboxRule
-}
-
-// NewSandbox 创建新的沙盒
-func NewSandbox() *Sandbox {
-    return &Sandbox{
-        rules: make([]SandboxRule, 0),
-    }
-}
-
-// AddRule 添加规则
-func (s *Sandbox) AddRule(rule SandboxRule) {
-    s.rules = append(s.rules, rule)
-}
-
-// CheckPermission 检查权限
-func (s *Sandbox) CheckPermission(toolName string, params map[string]interface{}) Permission {
-    // 从最具体的规则开始匹配
-    for _, rule := range s.rules {
-        if matchPattern(rule.ToolPattern, toolName) {
-            return rule.Permission
-        }
-    }
-
-    // 默认需要询问
-    return PermissionAsk
-}
-
-// Execute 执行工具（带沙盒保护）
-func (s *Sandbox) Execute(ctx context.Context, toolName string, params map[string]interface{}, executor func() (string, error)) (string, error) {
-    permission := s.CheckPermission(toolName, params)
-
-    switch permission {
-    case PermissionDeny:
-        return "", fmt.Errorf("tool %s is denied by sandbox", toolName)
-    case PermissionAsk:
-        // TODO: 实现人工确认逻辑
-        return "", fmt.Errorf("tool %s requires human approval", toolName)
-    case PermissionAllow:
-        return executor()
-    }
-
-    return "", fmt.Errorf("unknown permission level")
-}
-
-// matchPattern 匹配工具模式（支持通配符）
-func matchPattern(pattern string, toolName string) bool {
-    // TODO: 实现通配符匹配逻辑
-    return pattern == toolName
-}
-```
-
-#### 3.3.8 渐进式披露（借鉴 NB-Agent）
+#### 3.3.1 渐进式披露（借鉴 NB-Agent）
 
 **问题**：大量技能/工具描述会占用大量上下文 token。
 
 **解决方案**：渐进式披露机制，按需加载技能内容。
+
+**可行性**：✅ 只加载元数据，完整内容按需加载，不增加 prefix 长度。
 
 ```
 渐进式披露三阶段：
@@ -1647,274 +574,80 @@ Execution（执行）：
 ```go
 // internal/skills/manager.go
 
-package skills
-
-import (
-    "os"
-    "path/filepath"
-)
-
-// Skill represents a skill with metadata
-type Skill struct {
-    Name        string `json:"name"`
-    Description string `json:"description"`
-    Path        string `json:"-"`
-    Content     string `json:"-"` // Loaded on demand
-    Loaded      bool   `json:"-"`
-}
-
-// SkillManager manages skills with progressive disclosure
 type SkillManager struct {
-    skills     map[string]*Skill
+    skills      map[string]*Skill
     searchPaths []string
 }
 
-// NewSkillManager creates a new skill manager
-func NewSkillManager(searchPaths []string) *SkillManager {
-    return &SkillManager{
-        skills:      make(map[string]*Skill),
-        searchPaths: searchPaths,
-    }
-}
-
 // Discover discovers all skills (only loads metadata)
-func (sm *SkillManager) Discover() error {
-    for _, searchPath := range sm.searchPaths {
-        entries, err := os.ReadDir(searchPath)
-        if err != nil {
-            continue
-        }
-
-        for _, entry := range entries {
-            if !entry.IsDir() {
-                continue
-            }
-
-            skillPath := filepath.Join(searchPath, entry.Name(), "SKILL.md")
-            if _, err := os.Stat(skillPath); err != nil {
-                continue
-            }
-
-            // Only load metadata (name + description)
-            skill, err := sm.loadMetadata(skillPath)
-            if err != nil {
-                continue
-            }
-
-            skill.Path = skillPath
-            sm.skills[skill.Name] = skill
-        }
-    }
-
-    return nil
-}
-
-// loadMetadata loads only the metadata from SKILL.md
-func (sm *SkillManager) loadMetadata(path string) (*Skill, error) {
-    content, err := os.ReadFile(path)
-    if err != nil {
-        return nil, err
-    }
-
-    // Parse YAML front matter
-    skill := &Skill{}
-    // TODO: Parse YAML front matter to extract name and description
-    // For now, use simple parsing
-    skill.Name = filepath.Base(filepath.Dir(path))
-    skill.Description = "Skill: " + skill.Name
-
-    return skill, nil
-}
-
-// GetSkillList returns the list of discovered skills (for system prompt)
-func (sm *SkillManager) GetSkillList() []SkillInfo {
-    list := make([]SkillInfo, 0, len(sm.skills))
-    for _, skill := range sm.skills {
-        list = append(list, SkillInfo{
-            Name:        skill.Name,
-            Description: skill.Description,
-        })
-    }
-    return list
-}
-
-// SkillInfo contains skill metadata
-type SkillInfo struct {
-    Name        string `json:"name"`
-    Description string `json:"description"`
-}
+func (sm *SkillManager) Discover() error { ... }
 
 // ViewSkill loads the full content of a skill (Activation phase)
-func (sm *SkillManager) ViewSkill(name string) (*Skill, error) {
-    skill, ok := sm.skills[name]
-    if !ok {
-        return nil, fmt.Errorf("skill not found: %s", name)
-    }
-
-    // Load full content if not already loaded
-    if !skill.Loaded {
-        content, err := os.ReadFile(skill.Path)
-        if err != nil {
-            return nil, err
-        }
-        skill.Content = string(content)
-        skill.Loaded = true
-    }
-
-    return skill, nil
-}
-
-// SearchSkills searches skills by query
-func (sm *SkillManager) SearchSkills(query string) []*Skill {
-    results := make([]*Skill, 0)
-    for _, skill := range sm.skills {
-        if contains(skill.Name, query) || contains(skill.Description, query) {
-            results = append(results, skill)
-        }
-    }
-    return results
-}
-
-// contains checks if s contains substr (case-insensitive)
-func contains(s, substr string) bool {
-    return len(s) >= len(substr) && (s == substr || len(s) > 0 && len(substr) > 0)
-}
+func (sm *SkillManager) ViewSkill(name string) (*Skill, error) { ... }
 ```
 
-#### 3.3.9 审批引擎（借鉴 NB-Agent）
+#### 3.3.2 审批引擎（借鉴 NB-Agent）
 
 **问题**：某些工具调用可能有风险，需要人工确认。
 
 **解决方案**：审批引擎，支持三级权限和通配符匹配。
 
+**可行性**：✅ 只控制工具执行，不修改上下文。
+
 ```go
 // internal/approval/engine.go
 
-package approval
-
-import (
-    "fmt"
-    "strings"
-)
-
-// Permission 权限级别
-type Permission int
-
-const (
-    PermissionDeny Permission = iota
-    PermissionAsk
-    PermissionAllow
-)
-
-// String returns the string representation
-func (p Permission) String() string {
-    switch p {
-    case PermissionDeny:
-        return "deny"
-    case PermissionAsk:
-        return "ask"
-    case PermissionAllow:
-        return "allow"
-    default:
-        return "unknown"
-    }
-}
-
-// Rule 审批规则
-type Rule struct {
-    ToolPattern string     // 工具模式（支持通配符）
-    Permission  Permission
-    Description string
-}
-
-// ApprovalEngine 审批引擎
 type ApprovalEngine struct {
     rules    []Rule
     callback func(toolName string, params map[string]interface{}) bool
 }
 
-// NewApprovalEngine creates a new approval engine
-func NewApprovalEngine(callback func(toolName string, params map[string]interface{}) bool) *ApprovalEngine {
-    return &ApprovalEngine{
-        rules:    make([]Rule, 0),
-        callback: callback,
-    }
-}
-
-// AddRule adds a rule
-func (ae *ApprovalEngine) AddRule(rule Rule) {
-    ae.rules = append(ae.rules, rule)
-}
-
 // CheckPermission checks the permission for a tool
-func (ae *ApprovalEngine) CheckPermission(toolName string, params map[string]interface{}) Permission {
-    // Check rules from most specific to least specific
-    for _, rule := range ae.rules {
-        if matchPattern(rule.ToolPattern, toolName) {
-            return rule.Permission
-        }
-    }
-
-    // Default: ask for approval
-    return PermissionAsk
-}
+func (ae *ApprovalEngine) CheckPermission(toolName string, params map[string]interface{}) Permission { ... }
 
 // RequestApproval requests approval for a tool call
-func (ae *ApprovalEngine) RequestApproval(toolName string, params map[string]interface{}) (bool, error) {
-    permission := ae.CheckPermission(toolName, params)
+func (ae *ApprovalEngine) RequestApproval(toolName string, params map[string]interface{}) (bool, error) { ... }
+```
 
-    switch permission {
-    case PermissionDeny:
-        return false, fmt.Errorf("tool %s is denied", toolName)
-    case PermissionAllow:
-        return true, nil
-    case PermissionAsk:
-        if ae.callback == nil {
-            return false, fmt.Errorf("no approval callback set")
-        }
-        approved := ae.callback(toolName, params)
-        return approved, nil
-    }
+**默认规则**：
 
-    return false, fmt.Errorf("unknown permission level")
+| 工具 | 权限 | 说明 |
+|------|------|------|
+| read_file | allow | 读取文件 |
+| write_file | ask | 写入文件 |
+| execute_command | ask | 执行命令 |
+| rm -rf | deny | 危险操作 |
+
+#### 3.3.3 环境感知器（一般系统论）
+
+**问题**：文件被外部修改时，Agent 需要感知。
+
+**可行性**：✅ 只监控外部变化，不修改上下文。
+
+```go
+// internal/environment/monitor.go
+
+type Monitor struct {
+    watchers []Watcher
+    changes  chan Change
 }
+```
 
-// matchPattern matches a tool name against a pattern (supports wildcards)
-func matchPattern(pattern string, toolName string) bool {
-    // Exact match
-    if pattern == toolName {
-        return true
-    }
+#### 3.3.4 备选路径规划（一般系统论）
 
-    // Wildcard match: bash(rm -rf*)
-    if strings.Contains(pattern, "*") {
-        prefix := strings.Split(pattern, "*")[0]
-        return strings.HasPrefix(toolName, prefix)
-    }
+**问题**：主路径失败时需要 Plan B。
 
-    // Prefix match: bash
-    if strings.HasPrefix(toolName, pattern) {
-        return true
-    }
+**可行性**：✅ 存储在 Plan 结构中，不修改 prefix。
 
-    return false
-}
+```go
+// internal/planner/alternative.go
 
-// DefaultRules returns default approval rules
-func DefaultRules() []Rule {
-    return []Rule{
-        // File operations: allow read, ask for write/delete
-        {ToolPattern: "read_file", Permission: PermissionAllow, Description: "Read file"},
-        {ToolPattern: "write_file", Permission: PermissionAsk, Description: "Write file"},
-        {ToolPattern: "delete_file", Permission: PermissionAsk, Description: "Delete file"},
-
-        // Command execution: ask for all
-        {ToolPattern: "execute_command", Permission: PermissionAsk, Description: "Execute command"},
-
-        // Dangerous commands: deny
-        {ToolPattern: "rm -rf", Permission: PermissionDeny, Description: "Dangerous: rm -rf"},
-        {ToolPattern: "format", Permission: PermissionDeny, Description: "Dangerous: format"},
-    }
+type AlternativePath struct {
+    ID          string
+    Description string
+    Steps       []Step
+    WhenToUse   string
+    Confidence  float64
 }
 ```
 
@@ -1971,9 +704,16 @@ func DefaultRules() []Rule {
 
 | 模块 | 对缓存的影响 | 兼容性 |
 |------|-------------|--------|
+| **P0 模块** | | |
+| Controller | 不修改上下文，只驱动循环 | ✅ 完全兼容 |
+| Planner | 生成计划存动态区间 | ✅ 完全兼容 |
+| Executor | 执行结果存动态区间 | ✅ 完全兼容 |
+| Reflector | 评估结果存动态区间 | ✅ 完全兼容 |
+| DeepSeek Provider | 深度优化 prefix-cache | ✅ 核心保障 |
+| Memory | 三层记忆独立存储 | ✅ 完全兼容 |
+| Compressor | 维护缓存布局 | ✅ 核心保障 |
 | **P1 模块** | | |
 | 振荡/发散检测 | 只读取历史，不修改上下文 | ✅ 完全兼容 |
-| 系统级性能指标 | 只读取统计，不修改上下文 | ✅ 完全兼容 |
 | 信息增益工具选择 | 只影响工具选择，不修改上下文 | ✅ 完全兼容 |
 | 信息密度优化 | 只影响压缩策略，不修改 prefix | ✅ 完全兼容 |
 | 停滞检测 | 只读取历史，不修改上下文 | ✅ 完全兼容 |
@@ -1985,15 +725,10 @@ func DefaultRules() []Rule {
 | 多样性管理 | 只读取统计，不修改上下文 | ✅ 完全兼容 |
 | 混沌边缘 | 只影响 temperature，不修改上下文 | ✅ 完全兼容 |
 | **P2 模块** | | |
-| 环境感知器 | 只监控外部变化，不修改上下文 | ✅ 完全兼容 |
-| 备选路径 | 存储在 Plan 结构中，不修改 prefix | ✅ 完全兼容 |
-| 噪声处理 | 验证结果存动态区间，不修改 prefix | ✅ 完全兼容 |
-| 冗余管理 | 只影响动态区间压缩，不修改 prefix | ✅ 完全兼容 |
-| 自我进化 | 存储在独立存储，不修改上下文 | ✅ 完全兼容 |
-| ProofChain 审计 | 独立审计链，不修改上下文 | ✅ 完全兼容 |
-| 安全沙盒 | 只控制工具执行，不修改上下文 | ✅ 完全兼容 |
 | 渐进式披露 | 只加载元数据，完整内容按需加载 | ✅ 完全兼容 |
 | 审批引擎 | 只控制工具执行，不修改上下文 | ✅ 完全兼容 |
+| 环境感知器 | 只监控外部变化，不修改上下文 | ✅ 完全兼容 |
+| 备选路径 | 存储在 Plan 结构中，不修改 prefix | ✅ 完全兼容 |
 
 ### 4.4 缓存命中率
 
@@ -2084,6 +819,19 @@ learning:
   edge_of_chaos:
     enabled: true
 
+# 审批
+approval:
+  enabled: true
+  rules:
+    - tool: "read_file"
+      permission: "allow"
+    - tool: "write_file"
+      permission: "ask"
+    - tool: "execute_command"
+      permission: "ask"
+    - tool: "rm -rf"
+      permission: "deny"
+
 # 人机协作
 human:
   enabled: true
@@ -2152,24 +900,17 @@ zhulong/
 │   │   └── assessment.go
 │   │
 │   ├── stability/                  # P1: 稳定性分析器
-│   │   ├── analyzer.go
-│   │   ├── oscillation.go
-│   │   ├── divergence.go
-│   │   └── convergence.go
+│   │   └── analyzer.go
 │   │
 │   ├── information/                # P1: 信息论模块
 │   │   ├── gain.go
 │   │   └── density.go
 │   │
 │   ├── stagnation/                 # P1: 停滞检测器
-│   │   ├── detector.go
-│   │   ├── diagnosis.go
-│   │   └── metrics.go
+│   │   └── detector.go
 │   │
 │   ├── exploration/                # P1: 探索触发器
-│   │   ├── trigger.go
-│   │   ├── temperature.go
-│   │   └── tool_roulette.go
+│   │   └── trigger.go
 │   │
 │   ├── synergetics/                # P1: 协同学模块
 │   │   ├── order_parameter.go
@@ -2181,22 +922,14 @@ zhulong/
 │   │   ├── diversity.go
 │   │   └── edge_of_chaos.go
 │   │
-│   ├── environment/                # P2: 环境感知器
-│   │   ├── monitor.go
-│   │   ├── watcher.go
-│   │   └── file_watcher.go
-│   │
-│   ├── audit/                      # P2: ProofChain 审计链（借鉴 OK）
-│   │   └── proof_chain.go
-│   │
-│   ├── sandbox/                    # P2: 安全沙盒（借鉴 OK）
-│   │   └── sandbox.go
-│   │
-│   ├── skills/                     # P2: 渐进式披露（借鉴 NB-Agent）
+│   ├── skills/                     # P2: 渐进式披露
 │   │   └── manager.go
 │   │
-│   ├── approval/                   # P2: 审批引擎（借鉴 NB-Agent）
+│   ├── approval/                   # P2: 审批引擎
 │   │   └── engine.go
+│   │
+│   ├── environment/                # P2: 环境感知器
+│   │   └── monitor.go
 │   │
 │   ├── memory/                     # P0: 三层记忆系统
 │   │   ├── interfaces.go
@@ -2248,18 +981,17 @@ zhulong/
 │   └── types.go                    # 公共类型导出
 │
 ├── desktop/                        # Windows 桌面端（Wails + React）
-│   ├── main.go                     # Wails 入口
-│   ├── wails.json                  # Wails 配置
-│   ├── frontend/                   # React 前端
-│   │   ├── src/
-│   │   │   ├── App.tsx
-│   │   │   ├── components/         # UI 组件（Apple Design 风格）
-│   │   │   ├── pages/              # 页面
-│   │   │   ├── hooks/              # React Hooks
-│   │   │   └── styles/             # 样式（毛玻璃、圆角、留白）
-│   │   ├── package.json
-│   │   └── vite.config.ts
-│   └── build/                      # 构建输出
+│   ├── main.go
+│   ├── app.go
+│   ├── wails.json
+│   └── frontend/
+│       ├── src/
+│       │   ├── App.tsx
+│       │   ├── components/
+│       │   ├── styles/
+│       │   └── main.tsx
+│       ├── package.json
+│       └── vite.config.ts
 │
 ├── config/
 │   ├── default.yaml
@@ -2290,78 +1022,60 @@ zhulong/
 
 ## 7. 开发路线图
 
-### Phase 1: P0 基础模块（CLI + 桌面端同步）
+### Phase 1: P0 基础模块（CLI + 桌面端同步）✅ 已完成
 
-**CLI 开发**：
-- [ ] 项目初始化（go mod, 目录结构）
-- [ ] Controller 状态机（核心循环）
-- [ ] Planner（LLM 规划，JSON 解析）
-- [ ] Executor（单工具调用）
-- [ ] Reflector（基础反省）
-- [ ] DeepSeek Provider（深度优化 prefix-cache）
-- [ ] Memory 三层系统
-- [ ] Compressor（上下文压缩）
-- [ ] Checkpoint（检查点）
-- [ ] Budget（成本控制）
-- [ ] Trace（可观测性）
-- [ ] Human（人机协作）
-- [ ] Tools（MCP 工具层）
+**CLI 核心模块**：
+- [x] 项目初始化（go mod, 目录结构）
+- [x] Controller 状态机（核心循环）
+- [x] Planner（LLM 规划，JSON 解析）
+- [x] Executor（单工具调用）
+- [x] Reflector（基础反省）
+- [x] DeepSeek Provider
+- [x] Memory 三层系统
+- [x] Compressor（上下文压缩）
+- [x] Checkpoint（检查点）
+- [x] Budget（成本控制）
+- [x] Trace（可观测性）
+- [x] Human（人机协作）
+- [x] Tools（MCP 工具层）
 
-**桌面端同步开发**：
-- [ ] Wails + React 项目初始化
-- [ ] 主窗口框架（Apple Design 风格）
-- [ ] 目标输入界面
-- [ ] 实时状态展示（当前循环、进度、成本）
-- [ ] Trace 可视化（时间线视图）
-- [ ] 人机协作对话框
+**桌面端**：
+- [x] Wails + React 项目初始化
+- [x] 主窗口框架（Apple Design 风格）
+- [x] 目标输入界面
+- [x] 实时状态展示
 
-**目标**：CLI 能跑通完整循环，桌面端能展示运行状态
+**测试**：
+- [x] 单元测试覆盖 8 个核心模块
 
-### Phase 2: P1 核心增强
+### Phase 2: P1 核心增强 ✅ 已完成
 
-**核心模块**：
-- [ ] 振荡/发散检测
-- [ ] 系统级性能指标
-- [ ] 信息增益工具选择
-- [ ] 信息密度优化
-- [ ] 停滞检测
-- [ ] 探索触发
-- [ ] 序参量识别
-- [ ] 役使原理
-- [ ] 积木块
-- [ ] 内部模型
-- [ ] 多样性管理
-- [ ] 混沌边缘
+- [x] 振荡/发散检测
+- [x] 信息增益工具选择
+- [x] 信息密度优化
+- [x] 停滞检测
+- [x] 探索触发
+- [x] 序参量识别
+- [x] 役使原理
+- [x] 积木块
+- [x] 内部模型
+- [x] 多样性管理
+- [x] 混沌边缘
 
-**桌面端增强**：
-- [ ] 性能指标仪表盘
-- [ ] 学习进度可视化（积木块、认知模型）
-- [ ] 探索/利用平衡指示器
+### Phase 3: P2 扩展模块 ⏳ 待实现
 
-**目标**：Agent 具备自适应学习能力，桌面端可视化学习过程
-
-### Phase 3: P2 扩展模块
-
-**扩展模块**：
+- [ ] 渐进式披露
+- [ ] 审批引擎
 - [ ] 环境感知器
 - [ ] 备选路径规划
-- [ ] 噪声处理
-- [ ] 冗余管理
 
-**桌面端扩展**：
-- [ ] 环境变化通知
-- [ ] 备选路径选择界面
-
-**目标**：Agent 具备环境感知和容错能力
-
-### Phase 4: 打磨 + 文档
+### Phase 4: 打磨 + 文档 ⏳ 待实现
 
 - [ ] 缓存命中率基准测试
 - [ ] 使用示例
 - [ ] API 文档
 - [ ] README + 贡献指南
 - [ ] 桌面端打包（Windows 安装包）
-- **目标**：可开源发布
 
 ---
 
@@ -2396,3 +1110,11 @@ zhulong/
 | 焦点模式 | `ailoom_core/focus_modes/` | 各焦点模式的语义定义 | 自行定义焦点模式 |
 | 增量压缩 | `ailoom_core/incremental.py` | 增量 diff 策略思路 | 自行实现增量更新 |
 | 项目扫描 | `ailoom_core/scan.py` | 目录扫描和过滤策略 | Go 标准库实现 |
+
+## 附录 C: 与 NB-Agent 的学习参考清单
+
+| 模块 | NB-Agent 路径 | 学习内容 | Zhulong 实现方式 |
+|------|--------------|---------|-----------------|
+| 渐进式披露 | `nb_agent/skills/` | Discovery → Activation → Execution 三阶段 | 自行实现 |
+| 审批引擎 | `nb_agent/approval/` | 三级权限（deny > ask > allow） | 自行实现 |
+| 上下文裁剪 | `nb_agent/core/context.py` | 根据模型 context_limit 裁剪历史 | 自行实现 |
