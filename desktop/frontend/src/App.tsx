@@ -299,7 +299,7 @@ function App() {
       return [
         {
           ...p[0],
-          Sessions: [
+          sessions: [
             { id, title: '新会话', agentId: activeAgentId, projectId: 'global', messageCount: 0, toolCount: 0, updatedAt: '刚刚', preview: '新会话' },
             ...p[0].sessions,
           ],
@@ -325,7 +325,7 @@ function App() {
       setProjects((p) => {
         if (!p[0]) return p
         return [
-          { ...p[0], Sessions: p[0].sessions.filter((s) => s.id !== id) },
+          { ...p[0], sessions: p[0].sessions.filter((s) => s.id !== id) },
           ...p.slice(1),
         ]
       })
@@ -406,7 +406,7 @@ function App() {
               setProjects((p) =>
                 p.map((proj) => ({
                   ...proj,
-                  Sessions: proj.sessions.map((s) =>
+                  sessions: proj.sessions.map((s) =>
                     s.id === activeSessionId ? { ...s, title: next.trim(), preview: next.trim() } : s
                   ),
                 }))
