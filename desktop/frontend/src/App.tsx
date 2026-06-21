@@ -6,6 +6,7 @@ import { Composer } from './components/Composer'
 import { RightPanel } from './components/RightPanel'
 import { StatusBar } from './components/StatusBar'
 import { ApprovalModal } from './components/ApprovalModal'
+import { Canvas } from './components/Canvas/Canvas'
 import { exampleGoals } from './data/mock'
 import type {
   AgentInfo,
@@ -25,6 +26,7 @@ import type {
   ApprovalRequest,
 } from './types'
 import { useT } from './i18n'
+import './styles/canvas.css'
 
 // Wails runtime — fall back to a browser-mode stub if not embedded.
 const wails = typeof window !== 'undefined' && (window as any).runtime
@@ -64,6 +66,9 @@ function App() {
   // Theme
   const [darkMode, setDarkMode] = useState(true)
   const [language, setLanguage] = useState<Language>('zh')
+
+  // View mode
+  const [viewMode, setViewMode] = useState<'chat' | 'canvas'>('chat')
 
   // Sidebar
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -427,41 +432,94 @@ function App() {
           }}
         />
 
-        {messages.length === 0 ? (
-          <EmptyState
-            language={language}
-            onPick={(text) => setInput(text)}
-          />
-        ) : (
-          <Transcript
-            language={language}
-            messages={messages}
-            logs={logs}
-            plan={plan}
-            status={status}
-          />
-        )}
-
-        <div className="main__composer">
-          <Composer
-            language={language}
-            status={status}
-            executionMode={executionMode}
-            onChangeExecutionMode={handleChangeMode}
-            inputMode={inputMode}
-            onChangeInputMode={setInputMode}
-            model={model}
-            onChangeModel={handleChangeModel}
-            temperature={temperature}
-            onChangeTemperature={setTemperature}
-            onSend={handleSend}
-            onStop={handleStop}
-            onReset={handleReset}
-            value={input}
-            onChange={setInput}
-            waitingHuman={status === 'waiting_human'}
-          />
+        {/* 视图切换按钮 */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 'var(--space-2)',
+            padding: 'var(--space-2) var(--space-4)',
+            borderBottom: '1px solid var(--border)',
+            background: 'var(--bg-soft)',
+          }}
+        >
+          <button
+            onClick={() => setViewMode('chat')}
+            style={{
+              padding: 'var(--space-2) var(--space-3)',
+              background: viewMode === 'chat' ? 'var(--accent-soft)' : 'transparent',
+              color: viewMode === 'chat' ? 'var(--accent)' : 'var(--fg-faint)',
+              border: 'none',
+              borderRadius: 'var(--radius)',
+              fontSize: 'var(--text-sm)',
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            💬 Chat
+          </button>
+          <button
+            onClick={() => setViewMode('canvas')}
+            style={{
+              padding: 'var(--space-2) var(--space-3)',
+              background: viewMode === 'canvas' ? 'var(--accent-soft)' : 'transparent',
+              color: viewMode === 'canvas' ? 'var(--accent)' : 'var(--fg-faint)',
+              border: 'none',
+              borderRadius: 'var(--radius)',
+              fontSize: 'var(--text-sm)',
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            🎨 Canvas
+          </button>
         </div>
+
+        {/* 根据视图模式显示不同内容 */}
+        {viewMode === 'chat' ? (
+          <>
+            {messages.length === 0 ? (
+              <EmptyState
+                language={language}
+                onPick={(text) => setInput(text)}
+              />
+            ) : (
+              <Transcript
+                language={language}
+                messages={messages}
+                logs={logs}
+                plan={plan}
+                status={status}
+              />
+            )}
+
+            <div className="main__composer">
+              <Composer
+                language={language}
+                status={status}
+                executionMode={executionMode}
+                onChangeExecutionMode={handleChangeMode}
+                inputMode={inputMode}
+                onChangeInputMode={setInputMode}
+                model={model}
+                onChangeModel={handleChangeModel}
+                temperature={temperature}
+                onChangeTemperature={setTemperature}
+                onSend={handleSend}
+                onStop={handleStop}
+                onReset={handleReset}
+                value={input}
+                onChange={setInput}
+                waitingHuman={status === 'waiting_human'}
+              />
+            </div>
+          </>
+        ) : (
+          <div style={{ flex: 1, position: 'relative' }}>
+            <Canvas />
+          </div>
+        )}
       </main>
 
       <RightPanel

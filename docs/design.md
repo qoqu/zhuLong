@@ -65,6 +65,7 @@ Zhulong 融合六大系统科学理论（仅保留有实际应用价值的部分
 
 | 理论 | 核心应用 | 可行性 |
 |------|---------|--------|
+| 一般系统论（贝塔朗菲） | 开放系统、备选路径 | ✅ 已实现 |
 | 工程控制论（钱学森） | 振荡/发散检测、性能指标 | ✅ 已实现 |
 | 信息论（香农） | 信息增益、信息密度 | ✅ 已实现 |
 | 耗散结构理论（普利高津） | 停滞检测、探索触发 | ✅ 已实现 |
@@ -1150,7 +1151,2307 @@ zhulong/
 
 ---
 
-## 8. 风险与缓解
+## 8. 无限画布可视化设计
+
+### 8.1 设计目标
+
+为烛龙 Agent 的 Plan → Execute → Reflect 循环提供可视化展示，让用户能够直观地看到：
+- 任务规划的步骤和依赖关系
+- 每个步骤的执行状态和结果
+- 工具调用的详细信息
+- 反省和重规划的过程
+
+### 8.2 技术选型
+
+| 组件 | 技术 | 说明 |
+|------|------|------|
+| **画布引擎** | React Flow | 成熟的无限画布库，MIT协议，可商用 |
+| **状态管理** | Zustand | 轻量级状态管理，与React Flow兼容 |
+| **UI组件** | 自研 | 保持Apple Design风格一致性 |
+
+> **设计策略**：学习 TapCanvas 和 Toonflow 的设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。
+
+### 8.3 节点类型设计
+
+#### 8.3.1 Plan节点
+
+```typescript
+interface PlanNode {
+  id: string;
+  type: 'plan';
+  data: {
+    goal: string;           // 用户目标
+    steps: number;          // 总步骤数
+    status: 'planning' | 'executing' | 'reflecting' | 'done';
+    createdAt: string;
+  };
+  position: { x: number; y: number };
+}
+```
+
+**视觉设计**：
+- 顶部大节点，显示用户目标
+- 连线向下指向各个Step节点
+- 状态颜色：蓝色(planning)、黄色(executing)、紫色(reflecting)、绿色(done)
+
+#### 8.3.2 Step节点
+
+```typescript
+interface StepNode {
+  id: string;
+  type: 'step';
+  data: {
+    stepId: string;         // 步骤ID
+    description: string;    // 步骤描述
+    tool: string;           // 使用的工具
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    result?: string;        // 执行结果
+    tokensUsed?: number;    // 使用的token数
+    duration?: string;      // 执行时长
+  };
+  position: { x: number; y: number };
+}
+```
+
+**视觉设计**：
+- 矩形节点，显示步骤描述和工具名称
+- 状态颜色：灰色(pending)、蓝色(running)、绿色(completed)、红色(failed)
+- 点击展开显示详细结果
+
+#### 8.3.3 Tool节点
+
+```typescript
+interface ToolNode {
+  id: string;
+  type: 'tool';
+  data: {
+    toolName: string;       // 工具名称
+    params: object;         // 工具参数
+    result?: string;        // 执行结果
+    status: 'calling' | 'success' | 'error';
+  };
+  position: { x: number; y: number };
+}
+```
+
+**视觉设计**：
+- 小型节点，显示工具图标和名称
+- 从Step节点连线而来
+- 状态颜色：蓝色(calling)、绿色(success)、红色(error)
+
+#### 8.3.4 Result节点
+
+```typescript
+interface ResultNode {
+  id: string;
+  type: 'result';
+  data: {
+    summary: string;        // 结果摘要
+    findings: string[];     // 发现列表
+    suggestions: string[];  // 建议列表
+    confidence: number;     // 置信度
+  };
+  position: { x: number; y: number };
+}
+```
+
+**视觉设计**：
+- 底部大节点，显示最终结果
+- 从最后一个Step节点连线而来
+- 绿色边框表示成功完成
+
+### 8.4 布局算法
+
+#### 8.4.1 自动布局
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      Plan Node                          │
+│                    (用户目标)                            │
+└─────────────────────────────────────────────────────────┘
+                          │
+        ┌─────────────────┼─────────────────┐
+        ▼                 ▼                 ▼
+┌───────────────┐ ┌───────────────┐ ┌───────────────┐
+│   Step 1      │ │   Step 2      │ │   Step 3      │
+│   (pending)   │ │   (running)   │ │   (pending)   │
+└───────────────┘ └───────────────┘ └───────────────┘
+        │                 │                 │
+        ▼                 ▼                 ▼
+┌───────────────┐ ┌───────────────┐ ┌───────────────┐
+│   Tool 1.1    │ │   Tool 2.1    │ │   Tool 3.1    │
+│   (success)   │ │   (calling)   │ │   (pending)   │
+└───────────────┘ └───────────────┘ └───────────────┘
+                          │
+                          ▼
+                ┌───────────────┐
+                │   Result      │
+                │   (最终结果)  │
+                └───────────────┘
+```
+
+#### 8.4.2 布局参数
+
+```typescript
+const layoutConfig = {
+  nodeWidth: 200,           // 节点宽度
+  nodeHeight: 100,          // 节点高度
+  horizontalSpacing: 50,    // 水平间距
+  verticalSpacing: 80,      // 垂直间距
+  padding: 50,              // 画布内边距
+};
+```
+
+### 8.5 状态同步机制
+
+#### 8.5.1 后端事件
+
+```go
+// internal/trace/events.go
+type CanvasEvent struct {
+    Type      string      `json:"type"`      // node_added, node_updated, edge_added
+    NodeID    string      `json:"nodeId"`
+    Data      interface{} `json:"data"`
+    Timestamp time.Time   `json:"timestamp"`
+}
+```
+
+#### 8.5.2 前端订阅
+
+```typescript
+// 使用Wails事件系统
+wails.EventsOn('canvas:event', (event: CanvasEvent) => {
+  switch (event.type) {
+    case 'node_added':
+      addNode(event.data);
+      break;
+    case 'node_updated':
+      updateNode(event.nodeId, event.data);
+      break;
+    case 'edge_added':
+      addEdge(event.data);
+      break;
+  }
+});
+```
+
+### 8.6 交互设计
+
+#### 8.6.1 基础交互
+
+| 交互 | 说明 |
+|------|------|
+| **拖拽** | 拖拽画布移动视图 |
+| **缩放** | 滚轮缩放画布 |
+| **选择** | 点击选中节点 |
+| **多选** | 框选多个节点 |
+
+#### 8.6.2 节点交互
+
+| 交互 | 说明 |
+|------|------|
+| **点击展开** | 点击节点展开显示详细信息 |
+| **双击编辑** | 双击节点编辑描述（仅pending状态） |
+| **右键菜单** | 右键节点显示操作菜单 |
+| **拖拽调整** | 拖拽pending状态节点调整顺序 |
+
+#### 8.6.3 视图控制
+
+| 控制 | 说明 |
+|------|------|
+| **适应画布** | 自动缩放以显示所有节点 |
+| **聚焦节点** | 缩放到选中节点 |
+| **重置视图** | 恢复到初始视图 |
+| **全屏模式** | 进入全屏画布模式 |
+
+### 8.7 组件架构
+
+```
+desktop/frontend/src/
+├── components/
+│   ├── Canvas/                    # 画布组件目录
+│   │   ├── Canvas.tsx             # 主画布组件
+│   │   ├── nodes/                 # 自定义节点
+│   │   │   ├── PlanNode.tsx       # Plan节点
+│   │   │   ├── StepNode.tsx       # Step节点
+│   │   │   ├── ToolNode.tsx       # Tool节点
+│   │   │   └── ResultNode.tsx     # Result节点
+│   │   ├── edges/                 # 自定义边
+│   │   │   └── AnimatedEdge.tsx   # 动画边
+│   │   └── controls/              # 画布控制
+│   │       ├── LayoutControls.tsx # 布局控制
+│   │       └── ViewControls.tsx   # 视图控制
+│   ├── Sidebar/                   # 侧边栏（已有）
+│   ├── Transcript/                # 对话区域（已有）
+│   └── RightPanel/                # 右侧面板（已有）
+├── stores/
+│   └── canvasStore.ts             # 画布状态管理
+├── types/
+│   └── canvas.ts                  # 画布类型定义
+└── styles/
+    └── canvas.css                 # 画布样式
+```
+
+### 8.8 实现阶段
+
+#### Phase 1: 基础画布（1-2天）
+
+- [ ] 集成React Flow
+- [ ] 创建基础画布组件
+- [ ] 定义节点类型
+- [ ] 基础布局和样式
+
+#### Phase 2: 状态同步（1-2天）
+
+- [ ] 后端暴露Agent状态API
+- [ ] 前端订阅状态变化
+- [ ] 实时更新节点状态
+- [ ] 节点连线显示依赖
+
+#### Phase 3: 交互增强（1天）
+
+- [ ] 点击节点查看详情
+- [ ] 缩放和拖拽
+- [ ] 动画效果
+- [ ] 右键菜单
+
+#### Phase 4: 高级功能（可选）
+
+- [ ] 拖拽调整执行顺序
+- [ ] 节点展开/折叠
+- [ ] 全屏模式
+- [ ] 导出画布为图片
+
+### 8.9 与现有UI的集成
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    烛龙桌面端                            │
+│                                                         │
+│  ┌─────────┐  ┌─────────────────────────┐  ┌─────────┐│
+│  │         │  │      视图切换            │  │         ││
+│  │ Sidebar │  │  ┌─────┐ ┌─────┐        │  │  Right  ││
+│  │         │  │  │Chat │ │Canvas│        │  │  Panel  ││
+│  │         │  │  └─────┘ └─────┘        │  │         ││
+│  │         │  │                         │  │         ││
+│  │         │  │  ┌─────────────────┐    │  │         ││
+│  │         │  │  │                 │    │  │         ││
+│  │         │  │  │   Canvas View   │    │  │         ││
+│  │         │  │  │                 │    │  │         ││
+│  │         │  │  │                 │    │  │         ││
+│  │         │  │  └─────────────────┘    │  │         ││
+│  │         │  │                         │  │         ││
+│  └─────────┘  └─────────────────────────┘  └─────────┘│
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 8.10 MCP协议集成设计
+
+#### 8.10.1 设计理念
+
+参考 infinite-canvas 的本地Agent集成方式，烛龙画布将通过MCP协议与Agent内核通信，实现：
+
+1. **解耦设计** - 画布作为独立的MCP客户端，Agent作为MCP服务器
+2. **标准化通信** - 使用MCP协议规范，便于扩展和维护
+3. **双向交互** - 画布可以调用Agent，Agent也可以推送状态到画布
+
+#### 8.10.2 架构设计
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    画布前端 (React Flow)                 │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  MCP Client                                      │   │
+│  │  - 发送画布操作指令                              │   │
+│  │  - 接收Agent状态推送                             │   │
+│  │  - 管理节点和连线状态                            │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+                          │
+                          │ MCP协议
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│                    Agent内核 (Go)                        │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  MCP Server                                      │   │
+│  │  - 暴露Agent状态查询接口                         │   │
+│  │  - 接收画布操作指令                              │   │
+│  │  - 推送实时状态更新                              │   │
+│  └─────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  Agent核心                                       │   │
+│  │  - Planner / Executor / Reflector                │   │
+│  │  - Memory / Checkpoint / Trace                   │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### 8.10.3 MCP工具定义
+
+```go
+// internal/mcp/canvas_tools.go
+
+// 画布相关的MCP工具
+var CanvasTools = []Tool{
+    {
+        Name:        "canvas_get_plan",
+        Description: "获取当前任务的计划结构",
+        InputSchema: map[string]interface{}{},
+    },
+    {
+        Name:        "canvas_get_step_status",
+        Description: "获取指定步骤的执行状态",
+        InputSchema: map[string]interface{}{
+            "step_id": map[string]string{"type": "string"},
+        },
+    },
+    {
+        Name:        "canvas_update_node",
+        Description: "更新画布节点状态",
+        InputSchema: map[string]interface{}{
+            "node_id": map[string]string{"type": "string"},
+            "status":  map[string]string{"type": "string"},
+            "data":    map[string]string{"type": "object"},
+        },
+    },
+    {
+        Name:        "canvas_add_node",
+        Description: "添加新的画布节点",
+        InputSchema: map[string]interface{}{
+            "type": map[string]string{"type": "string"},
+            "data": map[string]string{"type": "object"},
+            "position": map[string]string{"type": "object"},
+        },
+    },
+    {
+        Name:        "canvas_add_edge",
+        Description: "添加节点连线",
+        InputSchema: map[string]interface{}{
+            "source": map[string]string{"type": "string"},
+            "target": map[string]string{"type": "string"},
+        },
+    },
+}
+```
+
+#### 8.10.4 状态推送机制
+
+```go
+// internal/mcp/canvas_events.go
+
+type CanvasEvent struct {
+    Type      string      `json:"type"`      // node_added, node_updated, edge_added, plan_updated
+    NodeID    string      `json:"nodeId,omitempty"`
+    Data      interface{} `json:"data"`
+    Timestamp time.Time   `json:"timestamp"`
+}
+
+// 事件推送接口
+type CanvasEventBroadcaster interface {
+    Broadcast(event CanvasEvent)
+    Subscribe(handler func(CanvasEvent))
+}
+```
+
+#### 8.10.5 前端MCP客户端
+
+```typescript
+// desktop/frontend/src/services/canvasMcp.ts
+
+interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, any>;
+}
+
+class CanvasMcpClient {
+  private tools: Map<string, McpTool> = new Map();
+  private eventHandlers: Map<string, Function[]> = new Map();
+
+  // 连接到Agent MCP服务器
+  async connect(agentId: string): Promise<void> {
+    // 通过Wails调用Go后端
+    const tools = await window.go.main.App.GetCanvasTools(agentId);
+    tools.forEach(tool => this.tools.set(tool.name, tool));
+  }
+
+  // 调用MCP工具
+  async callTool(name: string, args: Record<string, any>): Promise<any> {
+    return await window.go.main.App.CallCanvasTool(name, args);
+  }
+
+  // 订阅事件
+  on(event: string, handler: Function): void {
+    if (!this.eventHandlers.has(event)) {
+      this.eventHandlers.set(event, []);
+    }
+    this.eventHandlers.get(event)!.push(handler);
+  }
+
+  // 处理来自Agent的事件
+  handleEvent(event: CanvasEvent): void {
+    const handlers = this.eventHandlers.get(event.type) || [];
+    handlers.forEach(handler => handler(event));
+  }
+}
+```
+
+#### 8.10.6 与Chat视图的集成
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    烛龙桌面端                            │
+│                                                         │
+│  ┌─────────┐  ┌─────────────────────────┐  ┌─────────┐│
+│  │         │  │      视图切换            │  │         ││
+│  │ Sidebar │  │  ┌─────┐ ┌─────┐        │  │  Right  ││
+│  │         │  │  │Chat │ │Canvas│        │  │  Panel  ││
+│  │         │  │  └─────┘ └─────┘        │  │         ││
+│  │         │  │                         │  │         ││
+│  │         │  │  ┌─────────────────┐    │  │         ││
+│  │         │  │  │                 │    │  │         ││
+│  │         │  │  │  Chat / Canvas  │    │  │         ││
+│  │         │  │  │  共享Agent状态  │    │  │         ││
+│  │         │  │  │                 │    │  │         ││
+│  │         │  │  └─────────────────┘    │  │         ││
+│  │         │  │                         │  │         ││
+│  └─────────┘  └─────────────────────────┘  └─────────┘│
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+
+Chat视图和Canvas视图共享同一个Agent实例：
+- Chat视图：文本对话形式展示Agent执行过程
+- Canvas视图：可视化节点形式展示Agent执行过程
+- 两个视图实时同步，切换视图不会丢失状态
+```
+
+### 8.11 多媒体节点类型
+
+#### 8.11.1 节点类型定义
+
+参考 TapCanvas 和 infinite-canvas 的节点设计，烛龙画布支持以下多媒体节点类型：
+
+```typescript
+// 节点类型枚举
+enum CanvasNodeType {
+  // Agent循环节点
+  Plan = 'plan',           // 计划节点
+  Step = 'step',           // 步骤节点
+  Tool = 'tool',           // 工具节点
+  Result = 'result',       // 结果节点
+
+  // 多媒体节点
+  Text = 'text',           // 文本节点
+  Image = 'image',         // 图片节点
+  Video = 'video',         // 视频节点
+  Audio = 'audio',         // 音频节点
+  Storyboard = 'storyboard', // 分镜节点
+  Config = 'config',       // 配置节点
+
+  // 资产节点
+  Asset = 'asset',         // 资产节点
+  Reference = 'reference', // 参考节点
+}
+```
+
+#### 8.11.2 多媒体节点特性
+
+| 节点类型 | 特性 | 参考项目 |
+|---------|------|----------|
+| **Text** | 文本生成、提示词输入、多轮对话 | TapCanvas、infinite-canvas |
+| **Image** | 图片生成、图生图、参考图编辑 | TapCanvas、infinite-canvas |
+| **Video** | 视频生成、首帧/尾帧控制、时长设置 | TapCanvas、infinite-canvas |
+| **Audio** | TTS语音生成、语音选择、语速控制 | infinite-canvas |
+| **Storyboard** | 分镜编辑、场景描述、镜头设置 | TapCanvas、Toonflow |
+| **Config** | 生成配置、模型选择、参数设置 | infinite-canvas |
+
+#### 8.11.3 节点数据结构
+
+```typescript
+// 基础节点数据
+interface BaseNodeData {
+  id: string;
+  type: CanvasNodeType;
+  title: string;
+  status: 'idle' | 'loading' | 'success' | 'error';
+  position: { x: number; y: number };
+  size: { width: number; height: number };
+  metadata?: Record<string, any>;
+}
+
+// 文本节点数据
+interface TextNodeData extends BaseNodeData {
+  type: CanvasNodeType.Text;
+  content: string;           // 文本内容
+  prompt?: string;           // 提示词
+  wordCount?: number;        // 字数
+}
+
+// 图片节点数据
+interface ImageNodeData extends BaseNodeData {
+  type: CanvasNodeType.Image;
+  imageUrl?: string;         // 图片URL
+  prompt?: string;           // 生成提示词
+  width?: number;            // 图片宽度
+  height?: number;           // 图片高度
+  model?: string;            // 使用的模型
+  aspect?: string;           // 宽高比
+  referenceIds?: string[];   // 参考图片ID列表
+}
+
+// 视频节点数据
+interface VideoNodeData extends BaseNodeData {
+  type: CanvasNodeType.Video;
+  videoUrl?: string;         // 视频URL
+  prompt?: string;           // 生成提示词
+  duration?: number;         // 时长（秒）
+  orientation?: 'landscape' | 'portrait'; // 方向
+  firstFrame?: string;       // 首帧图片
+  lastFrame?: string;        // 尾帧图片
+  referenceIds?: string[];   // 参考素材ID列表
+}
+
+// 音频节点数据
+interface AudioNodeData extends BaseNodeData {
+  type: CanvasNodeType.Audio;
+  audioUrl?: string;         // 音频URL
+  text?: string;             // TTS文本
+  voice?: string;            // 语音选择
+  speed?: number;            // 语速
+  format?: string;           // 音频格式
+}
+
+// 分镜节点数据
+interface StoryboardNodeData extends BaseNodeData {
+  type: CanvasNodeType.Storyboard;
+  scenes: StoryboardScene[]; // 场景列表
+  script?: string;           // 剧本内容
+}
+
+interface StoryboardScene {
+  id: string;
+  description: string;       // 场景描述
+  imageUrl?: string;         // 场景图片
+  duration?: number;         // 场景时长
+  cameraAngle?: string;      // 镜头角度
+  dialogue?: string;         // 对白
+}
+
+// 配置节点数据
+interface ConfigNodeData extends BaseNodeData {
+  type: CanvasNodeType.Config;
+  generationMode: 'text' | 'image' | 'video' | 'audio'; // 生成模式
+  model: string;             // 模型选择
+  params: Record<string, any>; // 生成参数
+  prompt?: string;           // 组装后的提示词
+  referenceIds?: string[];   // 参考节点ID列表
+}
+```
+
+#### 8.11.4 缓存命中率保障
+
+**铁律**：多媒体节点不影响Agent循环的缓存命中率
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    缓存命中率保障                        │
+│                                                         │
+│  1. Agent循环节点（Plan/Step/Tool/Result）              │
+│     - prefix只追加不修改                                │
+│     - 历史只压缩不重排                                  │
+│     - 裁剪只在动态区间                                  │
+│                                                         │
+│  2. 多媒体节点（Text/Image/Video/Audio）                │
+│     - 独立于Agent循环的缓存体系                         │
+│     - 不影响prefix稳定性                                │
+│     - 资产数据单独存储                                  │
+│                                                         │
+│  3. 配置节点（Config）                                  │
+│     - 生成参数不进入Agent上下文                         │
+│     - 只在生成时使用                                    │
+│     - 不影响缓存命中率                                  │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 8.12 连续工作流模式
+
+#### 8.12.1 三段式生成流程
+
+参考 infinite-canvas 的三段式设计，烛龙画布支持以下工作流模式：
+
+```
+[文本节点(提示词)] --连接--> [Config节点(生成配置)] --生成--> [结果节点(图片/视频/音频)]
+[参考节点] ---连接------/
+```
+
+**工作流示例**：
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    图片生成工作流                        │
+│                                                         │
+│   ┌─────────────┐      ┌─────────────┐                 │
+│   │ Text Node   │      │ Config Node │                 │
+│   │ "提示词"    │─────→│ "生成配置"  │                 │
+│   └─────────────┘      └──────┬──────┘                 │
+│                                │                        │
+│   ┌─────────────┐             │                        │
+│   │ Reference   │─────────────┘                        │
+│   │ Node        │                                       │
+│   │ "参考图片"  │                                       │
+│   └─────────────┘                                       │
+│                                │                        │
+│                                ▼                        │
+│                       ┌─────────────┐                   │
+│                       │ Image Node  │                   │
+│                       │ "生成结果"  │                   │
+│                       └─────────────┘                   │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### 8.12.2 @引用机制
+
+参考 infinite-canvas 的 @引用设计，支持在提示词中引用上游节点内容：
+
+```typescript
+// @引用语法
+const prompt = "根据 @[node:text-1] 的描述，生成一张 @[node:image-2] 风格的图片";
+
+// 运行时解析
+function resolveReferences(prompt: string, nodes: Map<string, Node>): string {
+  let resolved = prompt;
+  for (const match of prompt.matchAll(/@\[node:([^\]]+)\]/g)) {
+    const nodeId = match[1];
+    const node = nodes.get(nodeId);
+    if (node) {
+      // 替换为实际内容
+      resolved = resolved.replace(match[0], node.data.content || node.data.prompt || '');
+    }
+  }
+  return resolved;
+}
+```
+
+#### 8.12.3 连线追踪
+
+```typescript
+// 获取节点的所有上游节点
+function getUpstreamNodes(nodeId: string, edges: Edge[]): string[] {
+  return edges
+    .filter(edge => edge.target === nodeId)
+    .map(edge => edge.source);
+}
+
+// 获取节点的所有下游节点
+function getDownstreamNodes(nodeId: string, edges: Edge[]): string[] {
+  return edges
+    .filter(edge => edge.source === nodeId)
+    .map(edge => edge.target);
+}
+
+// 构建生成上下文
+function buildGenerationContext(nodeId: string, nodes: Map<string, Node>, edges: Edge[]): GenerationContext {
+  const upstreamNodes = getUpstreamNodes(nodeId, edges);
+  const references = upstreamNodes
+    .map(id => nodes.get(id))
+    .filter(node => node && isResourceNode(node));
+
+  return {
+    prompt: resolveReferences(nodes.get(nodeId).data.prompt, nodes),
+    references: references.map(node => ({
+      id: node.id,
+      type: node.type,
+      content: node.data.content || node.data.imageUrl,
+    })),
+  };
+}
+```
+
+#### 8.12.4 缓存命中率保障
+
+**铁律**：连续工作流不影响Agent循环的缓存命中率
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    工作流与缓存分离                      │
+│                                                         │
+│  Agent循环（缓存敏感）：                                │
+│  - system prompt + skeleton 永不改写                    │
+│  - 旧循环压缩为summary追加                              │
+│  - 工具结果裁剪只在当前循环                             │
+│                                                         │
+│  多媒体工作流（缓存无关）：                             │
+│  - 独立的生成上下文                                     │
+│  - 不进入Agent循环的prefix                              │
+│  - 资产数据单独存储和管理                               │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 8.13 资产管理系统
+
+#### 8.13.1 资产类型定义
+
+参考 TapCanvas 和 Toonflow 的资产管理设计：
+
+```typescript
+// 资产类型
+enum AssetType {
+  // 内容资产
+  Text = 'text',             // 文本资产
+  Image = 'image',           // 图片资产
+  Video = 'video',           // 视频资产
+  Audio = 'audio',           // 音频资产
+
+  // 结构资产
+  Script = 'script',         // 剧本资产
+  Storyboard = 'storyboard', // 分镜资产
+  Outline = 'outline',       // 大纲资产
+
+  // 角色资产
+  Character = 'character',   // 角色资产
+  Scene = 'scene',           // 场景资产
+  Prop = 'prop',             // 道具资产
+
+  // 参考资产
+  Reference = 'reference',   // 参考资产
+  Template = 'template',     // 模板资产
+}
+
+// 资产数据结构
+interface Asset {
+  id: string;
+  type: AssetType;
+  name: string;
+  description?: string;
+  content?: string;          // 文本内容
+  url?: string;              // 媒体URL
+  thumbnailUrl?: string;     // 缩略图URL
+  metadata?: Record<string, any>;
+  projectId: string;         // 所属项目ID
+  createdAt: string;
+  updatedAt: string;
+
+  // 衍生资产
+  parentId?: string;         // 父资产ID
+  deriveType?: 'variant' | 'version' | 'branch'; // 衍生类型
+}
+```
+
+#### 8.13.2 项目化资产沉淀
+
+参考 TapCanvas 的项目化资产管理：
+
+```typescript
+// 项目数据结构
+interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  assets: Asset[];           // 项目资产列表
+  nodes: CanvasNode[];       // 画布节点列表
+  edges: Edge[];             // 画布连线列表
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 资产查询
+function listAssets(projectId: string, type?: AssetType): Asset[] {
+  return project.assets
+    .filter(asset => !type || asset.type === type)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
+// 资产创建
+function createAsset(projectId: string, input: CreateAssetInput): Asset {
+  const asset: Asset = {
+    id: generateId(),
+    type: input.type,
+    name: input.name,
+    description: input.description,
+    content: input.content,
+    url: input.url,
+    metadata: input.metadata,
+    projectId,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  project.assets.push(asset);
+  return asset;
+}
+```
+
+#### 8.13.3 衍生资产系统
+
+参考 Toonflow 的衍生资产设计：
+
+```typescript
+// 衍生资产
+interface DeriveAsset extends Asset {
+  parentId: string;          // 父资产ID
+  deriveType: 'variant' | 'version' | 'branch';
+  prompt?: string;           // 生成提示词
+  state: 'pending' | 'generating' | 'completed' | 'failed';
+}
+
+// 创建衍生资产
+function createDeriveAsset(parentId: string, input: CreateDeriveAssetInput): DeriveAsset {
+  const parent = getAsset(parentId);
+  if (!parent) throw new Error('Parent asset not found');
+
+  const derive: DeriveAsset = {
+    id: generateId(),
+    type: parent.type,
+    name: input.name || `${parent.name} - 变体`,
+    description: input.description,
+    parentId,
+    deriveType: input.deriveType || 'variant',
+    prompt: input.prompt,
+    state: 'pending',
+    projectId: parent.projectId,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  project.assets.push(derive);
+  return derive;
+}
+
+// 生成衍生资产
+async function generateDeriveAsset(deriveId: string): Promise<void> {
+  const derive = getAsset(deriveId) as DeriveAsset;
+  if (!derive) throw new Error('Derive asset not found');
+
+  derive.state = 'generating';
+  try {
+    // 调用AI生成
+    const result = await generateAsset(derive.type, derive.prompt);
+    derive.url = result.url;
+    derive.content = result.content;
+    derive.state = 'completed';
+  } catch (error) {
+    derive.state = 'failed';
+    derive.metadata = { ...derive.metadata, error: error.message };
+  }
+  derive.updatedAt = new Date().toISOString();
+}
+```
+
+#### 8.13.4 资产引用机制
+
+```typescript
+// 节点引用资产
+interface AssetReference {
+  nodeId: string;            // 节点ID
+  assetId: string;           // 资产ID
+  referenceType: 'input' | 'output' | 'reference'; // 引用类型
+}
+
+// 获取节点引用的资产
+function getNodeAssets(nodeId: string): Asset[] {
+  const references = assetReferences.filter(ref => ref.nodeId === nodeId);
+  return references.map(ref => getAsset(ref.assetId)).filter(Boolean);
+}
+
+// 获取引用资产的节点
+function getAssetNodes(assetId: string): CanvasNode[] {
+  const references = assetReferences.filter(ref => ref.assetId === assetId);
+  return references.map(ref => getNode(ref.nodeId)).filter(Boolean);
+}
+```
+
+#### 8.13.5 缓存命中率保障
+
+**铁律**：资产管理系统不影响Agent循环的缓存命中率
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    资产与缓存分离                        │
+│                                                         │
+│  Agent循环（缓存敏感）：                                │
+│  - 资产数据不进入Agent上下文                            │
+│  - 只在需要时通过工具调用获取                           │
+│  - 工具结果裁剪只在当前循环                             │
+│                                                         │
+│  资产管理（缓存无关）：                                 │
+│  - 独立的存储体系                                       │
+│  - 支持大文件存储                                       │
+│  - 支持版本管理                                         │
+│  - 支持衍生资产                                         │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 8.14 画布助手
+
+#### 8.14.1 核心功能
+
+参考 infinite-canvas 的画布助手设计：
+
+| 功能 | 说明 | 参考项目 |
+|------|------|----------|
+| **上下文对话** | 围绕选中节点进行对话 | infinite-canvas |
+| **选中节点引用** | 选中节点自动作为上下文 | infinite-canvas |
+| **多轮对话** | 支持多轮对话历史 | infinite-canvas |
+| **画布快照** | 每次请求带上画布JSON快照 | infinite-canvas |
+| **@资源引用** | 对话中@引用画布资源 | infinite-canvas |
+
+#### 8.14.2 上下文构建
+
+```typescript
+// 构建助手上下文
+interface AssistantContext {
+  selectedNodes: CanvasNode[];    // 选中的节点
+  canvasSnapshot: CanvasSnapshot; // 画布快照
+  chatHistory: ChatMessage[];     // 对话历史
+  userMessage: string;            // 用户消息
+}
+
+// 构建上下文消息
+function buildAssistantMessages(context: AssistantContext): Message[] {
+  const messages: Message[] = [];
+
+  // 系统提示词
+  messages.push({
+    role: 'system',
+    content: `你是烛龙画布助手。当前画布包含 ${context.canvasSnapshot.nodes.length} 个节点。
+你可以帮助用户分析画布内容、生成新节点、修改现有节点等。
+使用 @引用画布上的资源节点。`,
+  });
+
+  // 对话历史（最近8条）
+  const recentHistory = context.chatHistory.slice(-8);
+  messages.push(...recentHistory);
+
+  // 用户消息（包含选中节点和画布快照）
+  messages.push({
+    role: 'user',
+    content: buildUserMessage(context),
+  });
+
+  return messages;
+}
+
+// 构建用户消息
+function buildUserMessage(context: AssistantContext): string {
+  let content = '';
+
+  // 选中节点的文本内容
+  if (context.selectedNodes.length > 0) {
+    content += '选中节点：\n';
+    for (const node of context.selectedNodes) {
+      if (node.type === 'text') {
+        content += `- ${node.title}: ${node.data.content}\n`;
+      } else if (node.type === 'image') {
+        content += `- ${node.title}: [图片]\n`;
+      }
+    }
+    content += '\n';
+  }
+
+  // 画布快照（压缩版）
+  content += `当前画布：${JSON.stringify(compressSnapshot(context.canvasSnapshot))}\n\n`;
+
+  // 用户需求
+  content += `用户需求：${context.userMessage}`;
+
+  return content;
+}
+```
+
+#### 8.14.3 @资源引用
+
+```typescript
+// @引用解析
+function parseResourceReferences(message: string): ResourceReference[] {
+  const references: ResourceReference[] = [];
+  const regex = /@\[([^\]]+)\]/g;
+  let match;
+
+  while ((match = regex.exec(message)) !== null) {
+    const ref = match[1];
+    if (ref.startsWith('node:')) {
+      const nodeId = ref.substring(5);
+      references.push({ type: 'node', id: nodeId });
+    } else if (ref.startsWith('asset:')) {
+      const assetId = ref.substring(6);
+      references.push({ type: 'asset', id: assetId });
+    }
+  }
+
+  return references;
+}
+
+// 获取引用的资源内容
+function getReferencedContent(references: ResourceReference[]): ReferencedContent[] {
+  return references.map(ref => {
+    if (ref.type === 'node') {
+      const node = getNode(ref.id);
+      return {
+        id: ref.id,
+        type: node.type,
+        title: node.title,
+        content: node.data.content || node.data.prompt,
+        imageUrl: node.data.imageUrl,
+      };
+    } else if (ref.type === 'asset') {
+      const asset = getAsset(ref.id);
+      return {
+        id: ref.id,
+        type: asset.type,
+        title: asset.name,
+        content: asset.content,
+        imageUrl: asset.url,
+      };
+    }
+    return null;
+  }).filter(Boolean);
+}
+```
+
+#### 8.14.4 画布快照
+
+```typescript
+// 画布快照
+interface CanvasSnapshot {
+  nodes: NodeSnapshot[];
+  edges: EdgeSnapshot[];
+  viewport: Viewport;
+}
+
+interface NodeSnapshot {
+  id: string;
+  type: string;
+  title: string;
+  status: string;
+  content?: string;          // 文本内容
+  imageUrl?: string;         // 图片URL
+  position: { x: number; y: number };
+}
+
+interface EdgeSnapshot {
+  id: string;
+  source: string;
+  target: string;
+}
+
+// 压缩快照（减少token消耗）
+function compressSnapshot(snapshot: CanvasSnapshot): object {
+  return {
+    nodes: snapshot.nodes.map(node => ({
+      id: node.id,
+      type: node.type,
+      title: node.title,
+      status: node.status,
+      content: node.content?.substring(0, 100), // 截断长文本
+    })),
+    edges: snapshot.edges.map(edge => ({
+      source: edge.source,
+      target: edge.target,
+    })),
+  };
+}
+```
+
+#### 8.14.5 缓存命中率保障
+
+**铁律**：画布助手不影响Agent循环的缓存命中率
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    助手与缓存分离                        │
+│                                                         │
+│  Agent循环（缓存敏感）：                                │
+│  - 助手对话不进入Agent上下文                            │
+│  - 助手生成的内容不修改prefix                           │
+│  - 助手操作独立于Agent循环                              │
+│                                                         │
+│  画布助手（缓存无关）：                                 │
+│  - 独立的对话上下文                                     │
+│  - 独立的工具调用                                       │
+│  - 独立的状态管理                                       │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 8.15 Ops操作抽象
+
+#### 8.15.1 操作类型定义
+
+参考 infinite-canvas 的 Ops 抽象设计：
+
+```typescript
+// 画布操作类型
+type CanvasOp =
+  // 节点操作
+  | { type: 'add_node'; nodeType: string; position: Position; metadata?: Record<string, any> }
+  | { type: 'update_node'; id: string; patch?: Partial<NodeData>; metadata?: Record<string, any> }
+  | { type: 'delete_node'; id?: string; ids?: string[]; nodeType?: string }
+  | { type: 'move_node'; id: string; position: Position }
+  | { type: 'resize_node'; id: string; size: Size }
+
+  // 连线操作
+  | { type: 'connect_nodes'; fromNodeId: string; toNodeId: string }
+  | { type: 'disconnect_nodes'; fromNodeId: string; toNodeId: string }
+  | { type: 'delete_connections'; id?: string; ids?: string[]; all?: boolean }
+
+  // 选择操作
+  | { type: 'select_nodes'; ids: string[] }
+  | { type: 'deselect_all' }
+
+  // 视图操作
+  | { type: 'set_viewport'; viewport: Viewport }
+  | { type: 'fit_view' }
+  | { type: 'zoom_in' }
+  | { type: 'zoom_out' }
+
+  // 分组操作
+  | { type: 'group_nodes'; ids: string[]; groupId?: string }
+  | { type: 'ungroup_nodes'; groupId: string }
+
+  // 生成操作
+  | { type: 'run_generation'; nodeId: string; mode?: string; prompt?: string }
+  | { type: 'cancel_generation'; nodeId: string }
+
+  // 资产操作
+  | { type: 'create_asset'; assetType: string; input: CreateAssetInput }
+  | { type: 'update_asset'; id: string; patch: Partial<Asset> }
+  | { type: 'delete_asset'; id: string }
+
+  // 批量操作
+  | { type: 'batch_ops'; ops: CanvasOp[] };
+```
+
+#### 8.15.2 操作执行引擎
+
+```typescript
+// 操作执行结果
+interface OpResult {
+  success: boolean;
+  snapshot: CanvasSnapshot;
+  error?: string;
+}
+
+// 执行操作
+function applyCanvasOp(state: CanvasState, op: CanvasOp): OpResult {
+  switch (op.type) {
+    case 'add_node':
+      return addNode(state, op);
+    case 'update_node':
+      return updateNode(state, op);
+    case 'delete_node':
+      return deleteNode(state, op);
+    case 'connect_nodes':
+      return connectNodes(state, op);
+    case 'disconnect_nodes':
+      return disconnectNodes(state, op);
+    // ... 其他操作
+    default:
+      return { success: false, snapshot: state.snapshot, error: `Unknown op type: ${op.type}` };
+  }
+}
+
+// 批量执行操作
+function applyCanvasOps(state: CanvasState, ops: CanvasOp[]): OpResult {
+  let currentState = state;
+  for (const op of ops) {
+    const result = applyCanvasOp(currentState, op);
+    if (!result.success) {
+      return result;
+    }
+    currentState = { ...currentState, snapshot: result.snapshot };
+  }
+  return { success: true, snapshot: currentState.snapshot };
+}
+```
+
+#### 8.15.3 撤销/重做支持
+
+```typescript
+// 操作历史
+interface OperationHistory {
+  past: CanvasSnapshot[];    // 历史快照
+  present: CanvasSnapshot;   // 当前快照
+  future: CanvasSnapshot[];  // 未来快照（用于重做）
+}
+
+// 执行操作并记录历史
+function executeWithHistory(state: OperationHistory, ops: CanvasOp[]): OperationHistory {
+  const result = applyCanvasOps({ snapshot: state.present }, ops);
+  if (!result.success) {
+    return state;
+  }
+
+  return {
+    past: [...state.past, state.present],
+    present: result.snapshot,
+    future: [], // 执行新操作后清空未来历史
+  };
+}
+
+// 撤销
+function undo(state: OperationHistory): OperationHistory {
+  if (state.past.length === 0) {
+    return state;
+  }
+
+  const previous = state.past[state.past.length - 1];
+  return {
+    past: state.past.slice(0, -1),
+    present: previous,
+    future: [state.present, ...state.future],
+  };
+}
+
+// 重做
+function redo(state: OperationHistory): OperationHistory {
+  if (state.future.length === 0) {
+    return state;
+  }
+
+  const next = state.future[0];
+  return {
+    past: [...state.past, state.present],
+    present: next,
+    future: state.future.slice(1),
+  };
+}
+```
+
+#### 8.15.4 Agent确认机制
+
+```typescript
+// 需要确认的操作类型
+const REQUIRES_CONFIRMATION = new Set([
+  'delete_node',
+  'delete_connections',
+  'delete_asset',
+  'batch_ops',
+]);
+
+// 检查操作是否需要确认
+function requiresConfirmation(op: CanvasOp): boolean {
+  return REQUIRES_CONFIRMATION.has(op.type);
+}
+
+// 执行操作（带确认）
+async function executeWithConfirmation(
+  state: CanvasState,
+  ops: CanvasOp[],
+  confirm: (ops: CanvasOp[]) => Promise<boolean>
+): Promise<OpResult> {
+  // 检查是否需要确认
+  const needsConfirmation = ops.some(op => requiresConfirmation(op));
+
+  if (needsConfirmation) {
+    const approved = await confirm(ops);
+    if (!approved) {
+      return { success: false, snapshot: state.snapshot, error: 'User denied' };
+    }
+  }
+
+  return applyCanvasOps(state, ops);
+}
+```
+
+#### 8.15.5 缓存命中率保障
+
+**铁律**：Ops操作不影响Agent循环的缓存命中率
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Ops与缓存分离                         │
+│                                                         │
+│  Agent循环（缓存敏感）：                                │
+│  - Ops操作不进入Agent上下文                             │
+│  - Ops操作不修改prefix                                  │
+│  - Ops操作独立于Agent循环                               │
+│                                                         │
+│  Ops操作（缓存无关）：                                  │
+│  - 独立的操作历史                                       │
+│  - 独立的撤销/重做                                      │
+│  - 独立的确认机制                                       │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 8.16 协作功能
+
+#### 8.16.1 多Agent协作
+
+参考 TapCanvas 的多Agent协作设计：
+
+```typescript
+// Agent协作管理
+interface AgentCollaboration {
+  agents: AgentInfo[];       // 参与协作的Agent列表
+  tasks: Task[];             // 任务列表
+  messages: AgentMessage[];  // Agent间消息
+  workspace: Workspace;      // 共享工作空间
+}
+
+// Agent信息
+interface AgentInfo {
+  id: string;
+  name: string;
+  role: 'coordinator' | 'worker' | 'reviewer'; // 角色
+  status: 'idle' | 'working' | 'waiting' | 'completed';
+  capabilities: string[];    // 能力列表
+}
+
+// Agent间消息
+interface AgentMessage {
+  id: string;
+  from: string;              // 发送者Agent ID
+  to: string;                // 接收者Agent ID
+  type: 'task' | 'question' | 'answer' | 'feedback';
+  content: string;
+  timestamp: string;
+}
+
+// 任务分配
+interface Task {
+  id: string;
+  description: string;
+  assignedTo: string;        // 分配的Agent ID
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  dependencies: string[];    // 依赖的任务ID列表
+  result?: any;
+}
+```
+
+#### 8.16.2 团队协作
+
+```typescript
+// 协作会话
+interface CollaborationSession {
+  id: string;
+  name: string;
+  participants: Participant[]; // 参与者列表
+  canvas: CanvasSnapshot;      // 共享画布
+  cursors: Cursor[];           // 参与者光标
+  selections: Selection[];     // 参与者选择
+  createdAt: string;
+}
+
+// 参与者
+interface Participant {
+  id: string;
+  name: string;
+  role: 'owner' | 'editor' | 'viewer';
+  color: string;               // 光标颜色
+  isOnline: boolean;
+}
+
+// 实时同步
+interface SyncMessage {
+  type: 'cursor_move' | 'selection_change' | 'op' | 'chat';
+  userId: string;
+  data: any;
+  timestamp: string;
+}
+```
+
+#### 8.16.3 缓存命中率保障
+
+**铁律**：协作功能不影响Agent循环的缓存命中率
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    协作与缓存分离                        │
+│                                                         │
+│  Agent循环（缓存敏感）：                                │
+│  - 协作消息不进入Agent上下文                            │
+│  - 协作操作不修改prefix                                 │
+│  - 协作状态独立于Agent循环                              │
+│                                                         │
+│  协作功能（缓存无关）：                                 │
+│  - 独立的同步机制                                       │
+│  - 独立的权限管理                                       │
+│  - 独立的消息系统                                       │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 8.17 导出与分享
+
+#### 8.17.1 导出功能
+
+```typescript
+// 导出格式
+enum ExportFormat {
+  PNG = 'png',               // 图片格式
+  SVG = 'svg',               // 矢量格式
+  JSON = 'json',             // JSON格式
+  PDF = 'pdf',               // PDF格式
+}
+
+// 导出选项
+interface ExportOptions {
+  format: ExportFormat;
+  includeMetadata: boolean;  // 是否包含元数据
+  quality: number;           // 图片质量（0-100）
+  scale: number;             // 缩放比例
+  background: boolean;       // 是否包含背景
+}
+
+// 导出画布为图片
+async function exportCanvasAsImage(options: ExportOptions): Promise<Blob> {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  // 设置画布尺寸
+  canvas.width = options.scale * canvasWidth;
+  canvas.height = options.scale * canvasHeight;
+
+  // 绘制背景
+  if (options.background) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // 绘制节点和连线
+  for (const node of nodes) {
+    drawNode(ctx, node, options.scale);
+  }
+  for (const edge of edges) {
+    drawEdge(ctx, edge, options.scale);
+  }
+
+  // 导出为Blob
+  return new Promise(resolve => {
+    canvas.toBlob(resolve, `image/${options.format}`, options.quality / 100);
+  });
+}
+
+// 导出工作流为JSON
+function exportWorkflowAsJSON(): string {
+  const workflow = {
+    version: '1.0',
+    name: project.name,
+    nodes: nodes.map(node => ({
+      id: node.id,
+      type: node.type,
+      data: node.data,
+      position: node.position,
+    })),
+    edges: edges.map(edge => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+    })),
+    metadata: {
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  };
+
+  return JSON.stringify(workflow, null, 2);
+}
+```
+
+#### 8.17.2 导入功能
+
+```typescript
+// 导入工作流
+function importWorkflowFromJSON(json: string): ImportResult {
+  try {
+    const workflow = JSON.parse(json);
+
+    // 验证格式
+    if (!workflow.version || !workflow.nodes || !workflow.edges) {
+      return { success: false, error: 'Invalid workflow format' };
+    }
+
+    // 导入节点
+    const importedNodes = workflow.nodes.map(node => ({
+      ...node,
+      id: generateId(), // 生成新ID避免冲突
+    }));
+
+    // 导入连线
+    const nodeIdMap = new Map(workflow.nodes.map((node, i) => [node.id, importedNodes[i].id]));
+    const importedEdges = workflow.edges.map(edge => ({
+      ...edge,
+      id: generateId(),
+      source: nodeIdMap.get(edge.source) || edge.source,
+      target: nodeIdMap.get(edge.target) || edge.target,
+    }));
+
+    return {
+      success: true,
+      nodes: importedNodes,
+      edges: importedEdges,
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+```
+
+#### 8.17.3 分享功能
+
+```typescript
+// 分享链接
+interface ShareLink {
+  id: string;
+  url: string;
+  permissions: 'view' | 'edit';
+  expiresAt?: string;
+  password?: string;
+}
+
+// 创建分享链接
+function createShareLink(options: ShareLinkOptions): ShareLink {
+  const link: ShareLink = {
+    id: generateId(),
+    url: `${baseUrl}/canvas/shared/${id}`,
+    permissions: options.permissions || 'view',
+    expiresAt: options.expiresAt,
+    password: options.password,
+  };
+
+  // 保存到数据库
+  saveShareLink(link);
+
+  return link;
+}
+
+// 访问分享链接
+function accessShareLink(linkId: string, password?: string): AccessResult {
+  const link = getShareLink(linkId);
+  if (!link) {
+    return { success: false, error: 'Link not found' };
+  }
+
+  // 检查是否过期
+  if (link.expiresAt && new Date(link.expiresAt) < new Date()) {
+    return { success: false, error: 'Link expired' };
+  }
+
+  // 检查密码
+  if (link.password && link.password !== password) {
+    return { success: false, error: 'Invalid password' };
+  }
+
+  // 返回画布数据
+  return {
+    success: true,
+    canvas: getCanvasData(),
+    permissions: link.permissions,
+  };
+}
+```
+
+### 8.18 版本管理
+
+#### 8.18.1 版本历史
+
+```typescript
+// 画布版本
+interface CanvasVersion {
+  id: string;
+  name: string;
+  description?: string;
+  snapshot: CanvasSnapshot;
+  createdAt: string;
+  createdBy: string;
+}
+
+// 版本历史管理
+interface VersionHistory {
+  versions: CanvasVersion[];
+  currentVersionId: string;
+}
+
+// 创建版本
+function createVersion(name: string, description?: string): CanvasVersion {
+  const version: CanvasVersion = {
+    id: generateId(),
+    name,
+    description,
+    snapshot: deepClone(currentSnapshot),
+    createdAt: new Date().toISOString(),
+    createdBy: currentUser.id,
+  };
+
+  versionHistory.versions.push(version);
+  versionHistory.currentVersionId = version.id;
+
+  return version;
+}
+
+// 恢复版本
+function restoreVersion(versionId: string): CanvasSnapshot {
+  const version = versionHistory.versions.find(v => v.id === versionId);
+  if (!version) {
+    throw new Error('Version not found');
+  }
+
+  // 保存当前状态为新版本
+  createVersion(`Auto-save before restore`, `Restored from version ${version.name}`);
+
+  // 恢复快照
+  currentSnapshot = deepClone(version.snapshot);
+  versionHistory.currentVersionId = versionId;
+
+  return currentSnapshot;
+}
+```
+
+#### 8.18.2 快照对比
+
+```typescript
+// 快照差异
+interface SnapshotDiff {
+  added: NodeDiff[];         // 新增的节点
+  removed: NodeDiff[];       // 删除的节点
+  modified: NodeDiff[];      // 修改的节点
+  edgesAdded: EdgeDiff[];    // 新增的连线
+  edgesRemoved: EdgeDiff[];  // 删除的连线
+}
+
+interface NodeDiff {
+  id: string;
+  type: string;
+  title: string;
+  before?: Partial<NodeData>;
+  after?: Partial<NodeData>;
+}
+
+interface EdgeDiff {
+  id: string;
+  source: string;
+  target: string;
+}
+
+// 对比两个快照
+function diffSnapshots(before: CanvasSnapshot, after: CanvasSnapshot): SnapshotDiff {
+  const diff: SnapshotDiff = {
+    added: [],
+    removed: [],
+    modified: [],
+    edgesAdded: [],
+    edgesRemoved: [],
+  };
+
+  // 找出新增和修改的节点
+  for (const afterNode of after.nodes) {
+    const beforeNode = before.nodes.find(n => n.id === afterNode.id);
+    if (!beforeNode) {
+      diff.added.push({ id: afterNode.id, type: afterNode.type, title: afterNode.title });
+    } else if (JSON.stringify(beforeNode.data) !== JSON.stringify(afterNode.data)) {
+      diff.modified.push({
+        id: afterNode.id,
+        type: afterNode.type,
+        title: afterNode.title,
+        before: beforeNode.data,
+        after: afterNode.data,
+      });
+    }
+  }
+
+  // 找出删除的节点
+  for (const beforeNode of before.nodes) {
+    const afterNode = after.nodes.find(n => n.id === beforeNode.id);
+    if (!afterNode) {
+      diff.removed.push({ id: beforeNode.id, type: beforeNode.type, title: beforeNode.title });
+    }
+  }
+
+  // 找出新增和删除的连线
+  for (const afterEdge of after.edges) {
+    const beforeEdge = before.edges.find(e => e.id === afterEdge.id);
+    if (!beforeEdge) {
+      diff.edgesAdded.push({ id: afterEdge.id, source: afterEdge.source, target: afterEdge.target });
+    }
+  }
+  for (const beforeEdge of before.edges) {
+    const afterEdge = after.edges.find(e => e.id === beforeEdge.id);
+    if (!afterEdge) {
+      diff.edgesRemoved.push({ id: beforeEdge.id, source: beforeEdge.source, target: beforeEdge.target });
+    }
+  }
+
+  return diff;
+}
+```
+
+### 8.19 性能优化
+
+#### 8.19.1 虚拟化渲染
+
+```typescript
+// 虚拟化配置
+interface VirtualizationConfig {
+  enabled: boolean;
+  overscan: number;          // 额外渲染的节点数量
+  threshold: number;         // 启用虚拟化的节点数量阈值
+}
+
+// 获取可见节点
+function getVisibleNodes(
+  nodes: CanvasNode[],
+  viewport: Viewport,
+  config: VirtualizationConfig
+): CanvasNode[] {
+  if (!config.enabled || nodes.length < config.threshold) {
+    return nodes;
+  }
+
+  // 计算可见区域
+  const visibleArea = {
+    x: viewport.x - config.overscan * viewport.zoom,
+    y: viewport.y - config.overscan * viewport.zoom,
+    width: viewport.width + 2 * config.overscan * viewport.zoom,
+    height: viewport.height + 2 * config.overscan * viewport.zoom,
+  };
+
+  // 过滤可见节点
+  return nodes.filter(node => {
+    const nodeArea = {
+      x: node.position.x,
+      y: node.position.y,
+      width: node.size.width,
+      height: node.size.height,
+    };
+
+    return rectsOverlap(visibleArea, nodeArea);
+  });
+}
+```
+
+#### 8.19.2 批量操作优化
+
+```typescript
+// 批量操作
+function batchOperations(ops: CanvasOp[]): CanvasOp[] {
+  // 合并相同类型的操作
+  const merged = new Map<string, CanvasOp[]>();
+
+  for (const op of ops) {
+    const key = op.type;
+    if (!merged.has(key)) {
+      merged.set(key, []);
+    }
+    merged.get(key).push(op);
+  }
+
+  // 合并后的操作
+  const batched: CanvasOp[] = [];
+
+  for (const [type, typeOps] of merged) {
+    if (type === 'update_node') {
+      // 合并节点更新
+      const nodeUpdates = new Map<string, any>();
+      for (const op of typeOps) {
+        const updateOp = op as { type: 'update_node'; id: string; patch?: any };
+        const existing = nodeUpdates.get(updateOp.id) || {};
+        nodeUpdates.set(updateOp.id, { ...existing, ...updateOp.patch });
+      }
+
+      for (const [id, patch] of nodeUpdates) {
+        batched.push({ type: 'update_node', id, patch });
+      }
+    } else {
+      // 其他操作直接添加
+      batched.push(...typeOps);
+    }
+  }
+
+  return batched;
+}
+```
+
+#### 8.19.3 懒加载
+
+```typescript
+// 懒加载配置
+interface LazyLoadConfig {
+  enabled: boolean;
+  threshold: number;         // 启用懒加载的节点数量阈值
+  preloadDistance: number;   // 预加载距离
+}
+
+// 懒加载节点内容
+async function loadNodeContent(nodeId: string): Promise<NodeContent> {
+  const node = getNode(nodeId);
+  if (!node) {
+    throw new Error('Node not found');
+  }
+
+  // 检查是否已加载
+  if (node.data.content) {
+    return node.data.content;
+  }
+
+  // 加载内容
+  const content = await fetchNodeContent(nodeId);
+
+  // 更新节点
+  updateNode(nodeId, { data: { ...node.data, content } });
+
+  return content;
+}
+
+// 预加载附近节点
+async function preloadNearbyNodes(nodeId: string, distance: number): Promise<void> {
+  const node = getNode(nodeId);
+  if (!node) {
+    return;
+  }
+
+  // 获取附近的节点
+  const nearbyNodes = getNodesInRadius(node.position, distance);
+
+  // 预加载内容
+  await Promise.all(
+    nearbyNodes.map(n => loadNodeContent(n.id).catch(() => {}))
+  );
+}
+```
+
+### 8.20 离线支持
+
+#### 8.20.1 本地存储
+
+```typescript
+// 本地存储配置
+interface LocalStorageConfig {
+  enabled: boolean;
+  maxSize: number;           // 最大存储大小（字段）
+  autoSave: boolean;         // 自动保存
+  autoSaveInterval: number;  // 自动保存间隔（毫秒）
+}
+
+// 本地存储管理
+class LocalStorageManager {
+  private config: LocalStorageConfig;
+  private db: IDBDatabase;
+
+  constructor(config: LocalStorageConfig) {
+    this.config = config;
+  }
+
+  // 初始化数据库
+  async init(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('zhulong-canvas', 1);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        this.db = request.result;
+        resolve();
+      };
+
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+
+        // 创建对象存储
+        if (!db.objectStoreNames.contains('canvases')) {
+          db.createObjectStore('canvases', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('assets')) {
+          db.createObjectStore('assets', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('versions')) {
+          db.createObjectStore('versions', { keyPath: 'id' });
+        }
+      };
+    });
+  }
+
+  // 保存画布
+  async saveCanvas(canvas: CanvasData): Promise<void> {
+    const transaction = this.db.transaction(['canvases'], 'readwrite');
+    const store = transaction.objectStore('canvases');
+    await store.put(canvas);
+  }
+
+  // 加载画布
+  async loadCanvas(id: string): Promise<CanvasData | null> {
+    const transaction = this.db.transaction(['canvases'], 'readonly');
+    const store = transaction.objectStore('canvases');
+    return new Promise((resolve, reject) => {
+      const request = store.get(id);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result || null);
+    });
+  }
+
+  // 保存资产
+  async saveAsset(asset: Asset): Promise<void> {
+    const transaction = this.db.transaction(['assets'], 'readwrite');
+    const store = transaction.objectStore('assets');
+    await store.put(asset);
+  }
+
+  // 加载资产
+  async loadAsset(id: string): Promise<Asset | null> {
+    const transaction = this.db.transaction(['assets'], 'readonly');
+    const store = transaction.objectStore('assets');
+    return new Promise((resolve, reject) => {
+      const request = store.get(id);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result || null);
+    });
+  }
+}
+```
+
+#### 8.20.2 离线工作
+
+```typescript
+// 离线状态
+enum OfflineStatus {
+  Online = 'online',
+  Offline = 'offline',
+  Syncing = 'syncing',
+}
+
+// 离线管理
+class OfflineManager {
+  private status: OfflineStatus = OfflineStatus.Online;
+  private pendingOps: CanvasOp[] = [];
+
+  // 检查网络状态
+  checkNetworkStatus(): OfflineStatus {
+    return navigator.onLine ? OfflineStatus.Online : OfflineStatus.Offline;
+  }
+
+  // 添加待同步操作
+  addPendingOp(op: CanvasOp): void {
+    this.pendingOps.push(op);
+  }
+
+  // 同步待同步操作
+  async syncPendingOps(): Promise<void> {
+    if (this.pendingOps.length === 0) {
+      return;
+    }
+
+    this.status = OfflineStatus.Syncing;
+
+    try {
+      // 批量发送操作
+      await sendOpsToServer(this.pendingOps);
+
+      // 清空待同步操作
+      this.pendingOps = [];
+
+      this.status = OfflineStatus.Online;
+    } catch (error) {
+      console.error('Sync failed:', error);
+      this.status = OfflineStatus.Offline;
+    }
+  }
+}
+```
+
+#### 8.20.3 数据同步
+
+```typescript
+// 同步配置
+interface SyncConfig {
+  enabled: boolean;
+  provider: 'webdav' | 'cloud' | 'custom';
+  interval: number;          // 同步间隔（毫秒）
+  conflictResolution: 'local' | 'remote' | 'merge';
+}
+
+// 同步管理
+class SyncManager {
+  private config: SyncConfig;
+  private lastSyncTime: Date | null = null;
+
+  constructor(config: SyncConfig) {
+    this.config = config;
+  }
+
+  // 同步数据
+  async sync(): Promise<SyncResult> {
+    if (!this.config.enabled) {
+      return { success: true, message: 'Sync disabled' };
+    }
+
+    try {
+      // 获取本地数据
+      const localData = await getLocalData();
+
+      // 获取远程数据
+      const remoteData = await getRemoteData();
+
+      // 合并数据
+      const mergedData = await mergeData(localData, remoteData, this.config.conflictResolution);
+
+      // 保存合并后的数据
+      await saveLocalData(mergedData);
+      await saveRemoteData(mergedData);
+
+      this.lastSyncTime = new Date();
+
+      return { success: true, message: 'Sync completed' };
+    } catch (error) {
+      return { success: false, message: error.message };
+    }
+  }
+}
+```
+
+### 8.21 AI增强
+
+#### 8.21.1 AI自动布局
+
+```typescript
+// AI布局建议
+interface LayoutSuggestion {
+  nodes: { id: string; position: Position }[];
+  confidence: number;
+  reason: string;
+}
+
+// 获取AI布局建议
+async function getAILayoutSuggestion(nodes: CanvasNode[]): Promise<LayoutSuggestion> {
+  // 构建提示词
+  const prompt = `请为以下节点推荐布局：
+${nodes.map(n => `- ${n.title} (${n.type})`).join('\n')}
+
+请返回JSON格式的布局建议，包含每个节点的推荐位置。`;
+
+  // 调用AI
+  const response = await callAI(prompt);
+
+  // 解析响应
+  const suggestion = JSON.parse(response);
+
+  return {
+    nodes: suggestion.nodes,
+    confidence: suggestion.confidence,
+    reason: suggestion.reason,
+  };
+}
+
+// 应用AI布局
+async function applyAILayout(): Promise<void> {
+  const suggestion = await getAILayoutSuggestion(nodes);
+
+  // 应用布局
+  const ops: CanvasOp[] = suggestion.nodes.map(node => ({
+    type: 'move_node' as const,
+    id: node.id,
+    position: node.position,
+  }));
+
+  await applyCanvasOps(state, ops);
+}
+```
+
+#### 8.21.2 AI推荐节点
+
+```typescript
+// 节点推荐
+interface NodeRecommendation {
+  type: string;
+  title: string;
+  description: string;
+  confidence: number;
+  position: Position;
+}
+
+// 获取节点推荐
+async function getNodeRecommendations(context: string): Promise<NodeRecommendation[]> {
+  // 构建提示词
+  const prompt = `基于以下上下文，推荐可能需要的节点：
+上下文：${context}
+
+请返回JSON格式的节点推荐列表。`;
+
+  // 调用AI
+  const response = await callAI(prompt);
+
+  // 解析响应
+  const recommendations = JSON.parse(response);
+
+  return recommendations;
+}
+
+// 应用节点推荐
+async function applyNodeRecommendation(recommendation: NodeRecommendation): Promise<void> {
+  const op: CanvasOp = {
+    type: 'add_node',
+    nodeType: recommendation.type,
+    position: recommendation.position,
+    metadata: {
+      title: recommendation.title,
+      description: recommendation.description,
+    },
+  };
+
+  await applyCanvasOp(state, op);
+}
+```
+
+#### 8.21.3 AI优化工作流
+
+```typescript
+// 工作流优化建议
+interface WorkflowOptimization {
+  suggestions: OptimizationSuggestion[];
+  estimatedImprovement: number; // 预期改进百分比
+}
+
+interface OptimizationSuggestion {
+  type: 'merge' | 'split' | 'reorder' | 'remove';
+  nodeIds: string[];
+  reason: string;
+  impact: 'low' | 'medium' | 'high';
+}
+
+// 获取工作流优化建议
+async function getWorkflowOptimization(): Promise<WorkflowOptimization> {
+  // 构建提示词
+  const prompt = `请分析以下工作流并提供优化建议：
+节点：${nodes.map(n => `${n.title} (${n.type})`).join(', ')}
+连线：${edges.map(e => `${e.source} -> ${e.target}`).join(', ')}
+
+请返回JSON格式的优化建议。`;
+
+  // 调用AI
+  const response = await callAI(prompt);
+
+  // 解析响应
+  const optimization = JSON.parse(response);
+
+  return optimization;
+}
+```
+
+### 8.22 节点扩展
+
+#### 8.22.1 自定义节点类型
+
+```typescript
+// 节点类型定义
+interface NodeTypeDefinition {
+  type: string;
+  name: string;
+  description: string;
+  icon: string;
+  defaultSize: Size;
+  inputs: NodePort[];
+  outputs: NodePort[];
+  component: React.ComponentType<NodeProps>;
+}
+
+// 节点端口
+interface NodePort {
+  id: string;
+  name: string;
+  type: 'text' | 'image' | 'video' | 'audio' | 'any';
+  required: boolean;
+}
+
+// 节点注册
+class NodeRegistry {
+  private types = new Map<string, NodeTypeDefinition>();
+
+  // 注册节点类型
+  register(definition: NodeTypeDefinition): void {
+    this.types.set(definition.type, definition);
+  }
+
+  // 获取节点类型
+  getType(type: string): NodeTypeDefinition | undefined {
+    return this.types.get(type);
+  }
+
+  // 获取所有节点类型
+  getAllTypes(): NodeTypeDefinition[] {
+    return Array.from(this.types.values());
+  }
+}
+```
+
+#### 8.22.2 插件系统
+
+```typescript
+// 插件接口
+interface CanvasPlugin {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+
+  // 生命周期
+  onInstall?: () => Promise<void>;
+  onUninstall?: () => Promise<void>;
+  onActivate?: () => Promise<void>;
+  onDeactivate?: () => Promise<void>;
+
+  // 扩展点
+  nodeTypes?: NodeTypeDefinition[];
+  tools?: ToolDefinition[];
+  panels?: PanelDefinition[];
+}
+
+// 插件管理
+class PluginManager {
+  private plugins = new Map<string, CanvasPlugin>();
+
+  // 安装插件
+  async install(plugin: CanvasPlugin): Promise<void> {
+    // 验证插件
+    if (!this.validatePlugin(plugin)) {
+      throw new Error('Invalid plugin');
+    }
+
+    // 注册节点类型
+    if (plugin.nodeTypes) {
+      for (const nodeType of plugin.nodeTypes) {
+        nodeRegistry.register(nodeType);
+      }
+    }
+
+    // 调用生命周期钩子
+    if (plugin.onInstall) {
+      await plugin.onInstall();
+    }
+
+    this.plugins.set(plugin.id, plugin);
+  }
+
+  // 卸载插件
+  async uninstall(pluginId: string): Promise<void> {
+    const plugin = this.plugins.get(pluginId);
+    if (!plugin) {
+      return;
+    }
+
+    // 调用生命周期钩子
+    if (plugin.onUninstall) {
+      await plugin.onUninstall();
+    }
+
+    this.plugins.delete(pluginId);
+  }
+}
+```
+
+### 8.23 设计参考
+
+| 项目 | 参考内容 | 烛龙实现方式 |
+|------|----------|--------------|
+| **TapCanvas** | React Flow集成、节点设计、布局算法、资产管理、DAG工作流 | 学习设计思路，自行实现 |
+| **Toonflow** | 三层Agent架构、状态同步、可视化调试、衍生资产、章节事件图谱 | 学习架构思路，自行实现 |
+| **infinite-canvas** | MCP协议集成、画布助手、上下文对话、三段式生成、Ops抽象、@引用机制 | 学习设计思路，自行实现 |
+| **React Flow** | API设计、扩展机制、性能优化 | 按官方文档自行实现 |
+
+---
+
+## 9. 风险与缓解
 
 | 风险 | 影响 | 缓解策略 |
 |------|------|---------|
@@ -1189,3 +3490,203 @@ zhulong/
 | 渐进式披露 | `nb_agent/skills/` | Discovery → Activation → Execution 三阶段 | 自行实现 |
 | 审批引擎 | `nb_agent/approval/` | 三级权限（deny > ask > allow） | 自行实现 |
 | 上下文裁剪 | `nb_agent/core/context.py` | 根据模型 context_limit 裁剪历史 | 自行实现 |
+
+## 附录 D: 与无限画布项目的学习参考清单
+
+> **策略：学习设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。**
+> **注意：hero8152/Infinite-Canvas 禁止商用，仅学习设计思路，不使用代码。**
+
+### 深度研究总结
+
+经过对三个项目的深度代码研究，总结以下关键学习点：
+
+| 项目 | 学习内容 | Zhulong 实现方式 |
+|------|----------|------------------|
+| **TapCanvas** | React Flow集成、多媒体节点类型（text/image/video/storyboard）、资产管理系统（项目化资产沉淀）、DAG工作流、多Agent协作 | 学习设计思路，自行实现 |
+| **Toonflow** | 三层Agent架构（决策/执行/监督）、衍生资产系统、章节事件图谱、状态同步、可视化调试 | 学习架构思路，自行实现 |
+| **basketikun/infinite-canvas** | MCP协议集成、画布助手（上下文对话）、三段式生成流程（提示词→配置→结果）、@引用机制、Ops操作抽象、本地Agent集成 | 学习设计思路，自行实现 |
+| **hero8152/Infinite-Canvas** | 多模型支持、扩展功能设计（仅学习思路） | 仅学习思路，不使用代码 |
+
+### 关键学习点
+
+#### 1. 多媒体节点类型（参考 TapCanvas、infinite-canvas）
+
+```typescript
+// TapCanvas 节点类型
+type TaskNodeKind = 'text' | 'video' | 'image' | 'imageEdit' | 'storyboard'
+
+// infinite-canvas 节点类型
+enum CanvasNodeType {
+    Image = "image",
+    Text = "text",
+    Config = "config",
+    Video = "video",
+    Audio = "audio",
+}
+```
+
+**学习要点**：
+- 每种节点类型有独立的数据结构和特性
+- 节点支持多种功能特性（prompt、image、video、storyboard等）
+- 节点通过句柄（handle）进行连线
+
+#### 2. 连续工作流模式（参考 infinite-canvas）
+
+```
+[文本节点(提示词)] --连接--> [Config节点(生成配置)] --生成--> [结果节点(图片/视频/音频)]
+[参考节点] ---连接------/
+```
+
+**学习要点**：
+- 三段式生成流程：提示词→配置→结果
+- `@[node:nodeId]` 语法引用上游节点内容
+- 连线追踪上游节点构建生成上下文
+
+#### 3. 资产管理系统（参考 TapCanvas、Toonflow）
+
+**TapCanvas 资产类型**：
+- generation（AI生成资产）
+- novelDoc（小说文档）
+- scriptDoc（剧本脚本）
+- storyboardScript（分镜脚本）
+
+**Toonflow 衍生资产系统**：
+- role（角色资产）
+- tool（道具资产）
+- scene（场景资产）
+- clip（视频片段）
+
+**学习要点**：
+- 项目化资产沉淀，资产与项目关联
+- 衍生资产系统，每个资产可以有多个变体
+- 资产状态管理：未生成、生成中、已完成、生成失败
+
+#### 4. 画布助手（参考 infinite-canvas）
+
+```typescript
+// 上下文构建
+async function buildToolAgentMessages(snapshot, history, userMessage) {
+    return [
+        { role: "system", content: ONLINE_AGENT_PROMPT },
+        ...history.slice(-8),  // 最近8条历史
+        {
+            role: "user",
+            content: [
+                // 选中节点的文本内容
+                ...refs.filter(item => item.text).map(item => ({
+                    type: "text",
+                    text: `选中节点 ${item.title}：${item.text}`
+                })),
+                // 当前画布JSON快照
+                { type: "text", text: `当前画布：${JSON.stringify(snapshot)}` },
+                // 选中节点的图片
+                ...refs.filter(item => item.dataUrl).map(item => ({
+                    type: "image_url",
+                    image_url: { url: item.dataUrl }
+                })),
+            ],
+        },
+    ];
+}
+```
+
+**学习要点**：
+- 每次请求带上当前画布完整JSON快照
+- 选中节点作为参考上下文自动附加
+- 支持@引用画布上的资源节点
+- 支持多轮对话，最近8条历史作为上下文
+
+#### 5. Ops操作抽象（参考 infinite-canvas）
+
+```typescript
+type CanvasAgentOp =
+    | { type: "add_node"; nodeType?; position?; metadata?; }
+    | { type: "update_node"; id; patch?; metadata? }
+    | { type: "delete_node"; id?; ids?; nodeType? }
+    | { type: "connect_nodes"; fromNodeId; toNodeId }
+    | { type: "run_generation"; nodeId; mode?; prompt? }
+    | { type: "set_viewport"; viewport }
+    | { type: "select_nodes"; ids };
+```
+
+**学习要点**：
+- 所有操作统一为Ops接口
+- 用户手动操作、Agent调用、MCP工具调用都通过同一套Ops执行
+- 支持撤销/重做（历史记录）
+- 支持Agent确认（写操作需用户批准）
+- 支持快照对比
+
+#### 6. MCP协议集成（参考 infinite-canvas）
+
+```
+浏览器网页 --SSE/HTTP--> Canvas Agent (本地) --stdio--> Codex/Claude Code
+```
+
+**学习要点**：
+- 画布作为MCP客户端，Agent作为MCP服务器
+- MCP工具调用通过HTTP转发到浏览器执行
+- 支持工具确认机制（写操作需用户批准）
+- 支持SSE事件流实时推送
+
+#### 7. 多Agent协作（参考 TapCanvas）
+
+```typescript
+interface CollabAgentManager {
+    spawn(options: SpawnOptions): { agentId: string; submissionId: string }
+    close(id: string): string
+    enqueue(id: string, prompt: string): { submissionId: string }
+    sendMailboxMessage(input: MailboxMessageInput): PersistedMailboxMessage
+    requestProtocol(input: ProtocolRequestInput): PersistedProtocolRequest
+}
+```
+
+**学习要点**：
+- 团队管理：支持创建子Agent
+- 任务队列：任务提交和状态追踪
+- 消息传递：邮箱机制和协议请求
+- 工作空间协作：文件移交和工作空间导入
+
+#### 8. 章节事件图谱（参考 Toonflow）
+
+```typescript
+// 获取章节事件
+get_novel_events: tool({
+    description: "获取章节事件",
+    execute: async ({ chapterIndexes }) => {
+        const data = await u.db("o_novel")
+            .where("projectId", resTool.data.projectId)
+            .whereIn("chapterIndex", chapterIndexes)
+            .select("id", "chapterIndex as index", "event");
+        return data.map(i => `第${i.index}章:\n${i.event}`).join("\n\n");
+    },
+}),
+```
+
+**学习要点**：
+- 自动提取章节事件并结构化存储
+- 剧本改编时按事件图谱精准调用上下文
+- 解决长文本改编的信息丢失问题
+- Agent作为MCP服务器暴露工具和状态
+- 标准化通信，便于扩展
+
+#### 2. 画布助手（参考 infinite-canvas）
+
+- 上下文对话：围绕选中节点进行对话
+- 结果回流：生成结果直接插入画布
+- 视觉上下文驱动的AI创作
+
+#### 3. 三层Agent架构（参考 Toonflow）
+
+```
+决策层 (Planner) → 执行层 (Executor) → 监督层 (Reflector)
+```
+
+- 明确的职责划分
+- 模块化设计
+- 便于扩展和维护
+
+#### 4. 状态同步（参考 TapCanvas、Toonflow）
+
+- 后端事件驱动
+- 前端实时订阅
+- 双向同步机制
