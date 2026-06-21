@@ -272,35 +272,6 @@ body {
   gap: 16px;
 }
 
-.header__mode-switcher {
-  display: flex;
-  background: var(--bg-elev);
-  border-radius: var(--radius);
-  padding: 2px;
-}
-
-.header__mode-btn {
-  padding: 4px 12px;
-  border: none;
-  background: transparent;
-  color: var(--fg-faint);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: var(--text-sm);
-  font-family: var(--font-ui);
-  font-weight: 500;
-  transition: all 0.15s ease;
-}
-
-.header__mode-btn:hover {
-  color: var(--fg);
-}
-
-.header__mode-btn.active {
-  background: var(--accent);
-  color: white;
-}
-
 .header__status {
   display: flex;
   align-items: center;
@@ -738,6 +709,44 @@ body {
   height: 32px;
   padding: 0 12px;
   font-size: var(--text-sm);
+}
+
+/* Execution Mode Selector - Above Input */
+.mode-selector {
+  display: flex;
+  justify-content: center;
+  padding: 0 20px 8px;
+}
+
+.mode-selector__options {
+  display: flex;
+  background: var(--bg-elev);
+  border-radius: var(--radius);
+  padding: 3px;
+  gap: 2px;
+}
+
+.mode-selector__btn {
+  padding: 6px 16px;
+  border: none;
+  background: transparent;
+  color: var(--fg-faint);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.mode-selector__btn:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+
+.mode-selector__btn.active {
+  background: var(--accent);
+  color: white;
 }
 
 /* ═══════════════════════════════════════════

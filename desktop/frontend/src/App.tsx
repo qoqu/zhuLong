@@ -445,18 +445,6 @@ function App() {
             <span className="header__version">{t.version}</span>
           </div>
           <div className="header__right">
-            <div className="header__mode-switcher">
-              {(['ask', 'auto', 'yolo'] as ExecutionMode[]).map(mode => (
-                <button
-                  key={mode}
-                  className={`header__mode-btn ${executionMode === mode ? 'active' : ''}`}
-                  onClick={() => setExecutionMode(mode)}
-                  title={`${t.execution_mode}: ${mode}`}
-                >
-                  {modeLabel[mode]}
-                </button>
-              ))}
-            </div>
             <div className="header__status" style={{ color: statusColor[status] }}>
               <span className="header__status-dot" style={{ background: statusColor[status] }}></span>
               <span>{statusLabel[status]}</span>
@@ -572,6 +560,26 @@ function App() {
             </div>
           </div>
         )}
+
+        {/* Execution Mode Selector - Above Input */}
+        <div className="mode-selector">
+          <div className="mode-selector__options">
+            {(['ask', 'auto', 'yolo'] as ExecutionMode[]).map(mode => (
+              <button
+                key={mode}
+                className={`mode-selector__btn ${executionMode === mode ? 'active' : ''}`}
+                onClick={() => setExecutionMode(mode)}
+                title={
+                  mode === 'ask' ? t.ask_desc :
+                  mode === 'auto' ? t.auto_desc :
+                  t.yolo_desc
+                }
+              >
+                {modeLabel[mode]}
+              </button>
+            ))}
+          </div>
+        </div>
       </main>
 
       {/* Right Panel */}
