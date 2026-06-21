@@ -77,6 +77,15 @@ func (r *ToolRegistry) Get(name string) (Tool, error) {
 	return tool, nil
 }
 
+// List lists all registered tool names
+func (r *ToolRegistry) List() []string {
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	return names
+}
+
 // LLMExecutor implements Executor using LLM and tools
 type LLMExecutor struct {
 	provider LLMProvider
