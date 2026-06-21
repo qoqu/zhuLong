@@ -33,6 +33,8 @@ import { PerformancePanel } from './PerformancePanel';
 import { OfflinePanel } from './OfflinePanel';
 import { AIPanel } from './AIPanel';
 import { PluginPanel } from './PluginPanel';
+import { ChapterGraphPanel } from './ChapterGraphPanel';
+import { ProductionPanel } from './ProductionPanel';
 
 // 注册自定义节点类型
 const nodeTypes = {
@@ -60,6 +62,8 @@ function CanvasInner() {
   const [showOfflinePanel, setShowOfflinePanel] = useState(false);
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [showPluginPanel, setShowPluginPanel] = useState(false);
+  const [showChapterGraphPanel, setShowChapterGraphPanel] = useState(false);
+  const [showProductionPanel, setShowProductionPanel] = useState(false);
 
   const {
     nodes,
@@ -230,6 +234,8 @@ function CanvasInner() {
         onToggleOfflinePanel={() => setShowOfflinePanel(!showOfflinePanel)}
         onToggleAIPanel={() => setShowAIPanel(!showAIPanel)}
         onTogglePluginPanel={() => setShowPluginPanel(!showPluginPanel)}
+        onToggleChapterGraphPanel={() => setShowChapterGraphPanel(!showChapterGraphPanel)}
+        onToggleProductionPanel={() => setShowProductionPanel(!showProductionPanel)}
         showNodePanel={showNodePanel}
         showAssetPanel={showAssetPanel}
         showAssistant={showAssistant}
@@ -240,6 +246,8 @@ function CanvasInner() {
         showOfflinePanel={showOfflinePanel}
         showAIPanel={showAIPanel}
         showPluginPanel={showPluginPanel}
+        showChapterGraphPanel={showChapterGraphPanel}
+        showProductionPanel={showProductionPanel}
       />
 
       {/* 节点面板 */}
@@ -290,6 +298,16 @@ function CanvasInner() {
       {/* 插件面板 */}
       {showPluginPanel && (
         <PluginPanel onClose={() => setShowPluginPanel(false)} />
+      )}
+
+      {/* 章节事件图谱面板 */}
+      {showChapterGraphPanel && (
+        <ChapterGraphPanel onClose={() => setShowChapterGraphPanel(false)} />
+      )}
+
+      {/* 内容生产面板 */}
+      {showProductionPanel && (
+        <ProductionPanel onClose={() => setShowProductionPanel(false)} />
       )}
 
       {/* React Flow 画布 */}

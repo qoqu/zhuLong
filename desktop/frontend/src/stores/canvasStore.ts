@@ -9,6 +9,16 @@ import type {
   Asset,
   AssistantSession,
   AssistantMessage,
+  ChapterGraph,
+  Chapter,
+  ChapterEvent,
+  CharacterInfo,
+  LocationInfo,
+  EventRelationship,
+  ProductionPipeline,
+  AgentWorkspace,
+  AgentMessage,
+  AgentInfo,
 } from '../types/canvas';
 
 // 画布状态接口
@@ -32,6 +42,41 @@ interface CanvasState {
   // 助手会话
   assistantSessions: AssistantSession[];
   activeAssistantSessionId?: string;
+
+  // 章节事件图谱（参考Toonflow）
+  chapterGraph?: ChapterGraph;
+  addChapter: (chapter: Chapter) => void;
+  updateChapter: (id: string, patch: Partial<Chapter>) => void;
+  deleteChapter: (id: string) => void;
+  addEvent: (event: ChapterEvent) => void;
+  updateEvent: (id: string, patch: Partial<ChapterEvent>) => void;
+  deleteEvent: (id: string) => void;
+  addCharacter: (character: CharacterInfo) => void;
+  updateCharacter: (id: string, patch: Partial<CharacterInfo>) => void;
+  deleteCharacter: (id: string) => void;
+  addLocation: (location: LocationInfo) => void;
+  updateLocation: (id: string, patch: Partial<LocationInfo>) => void;
+  deleteLocation: (id: string) => void;
+  addRelationship: (rel: EventRelationship) => void;
+  deleteRelationship: (id: string) => void;
+
+  // 多Agent工作空间协作（参考TapCanvas）
+  agentWorkspaces: AgentWorkspace[];
+  activeAgentWorkspaceId?: string;
+  addAgentWorkspace: (ws: AgentWorkspace) => void;
+  updateAgentWorkspace: (id: string, patch: Partial<AgentWorkspace>) => void;
+  deleteAgentWorkspace: (id: string) => void;
+  setActiveAgentWorkspace: (id: string) => void;
+  addAgent: (workspaceId: string, agent: AgentInfo) => void;
+  removeAgent: (workspaceId: string, agentId: string) => void;
+  sendAgentMessage: (workspaceId: string, msg: AgentMessage) => void;
+
+  // 五层内容生产架构（参考Toonflow）
+  productionPipelines: ProductionPipeline[];
+  addProductionPipeline: (pipeline: ProductionPipeline) => void;
+  updateProductionPipeline: (id: string, patch: Partial<ProductionPipeline>) => void;
+  deleteProductionPipeline: (id: string) => void;
+  setProductionLayerStatus: (pipelineId: string, layer: string, status: string, progress: number) => void;
 
   // 操作方法
   addNode: (node: CanvasNode) => void;
@@ -88,6 +133,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   assets: [],
   assistantSessions: [],
   activeAssistantSessionId: undefined,
+  chapterGraph: undefined,
+  agentWorkspaces: [],
+  activeAgentWorkspaceId: undefined,
+  productionPipelines: [],
 
   // 节点操作
   addNode: (node) => {
@@ -412,6 +461,332 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         session.id === sessionId
           ? { ...session, messages: [...session.messages, message] }
           : session
+      ),
+    });
+  },
+
+  // 章节事件图谱
+  addChapter: (chapter) => {
+    const state = get();
+    const graph = state.chapterGraph || {
+      id: `graph-${Date.now()}`,
+      name: 'Chapter Graph',
+      chapters: [],
+      events: [],
+      relationships: [],
+      characters: [],
+      locations: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    set({
+      chapterGraph: {
+        ...graph,
+        chapters: [...graph.chapters, chapter],
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  updateChapter: (id, patch) => {
+    const state = get();
+    if (!state.chapterGraph) return;
+    set({
+      chapterGraph: {
+        ...state.chapterGraph,
+        chapters: state.chapterGraph.chapters.map((c) =>
+          c.id === id ? { ...c, ...patch } : c
+        ),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  deleteChapter: (id) => {
+    const state = get();
+    if (!state.chapterGraph) return;
+    set({
+      chapterGraph: {
+        ...state.chapterGraph,
+        chapters: state.chapterGraph.chapters.filter((c) => c.id !== id),
+        events: state.chapterGraph.events.filter((e) => e.chapterId !== id),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  addEvent: (event) => {
+    const state = get();
+    if (!state.chapterGraph) return;
+    set({
+      chapterGraph: {
+        ...state.chapterGraph,
+        events: [...state.chapterGraph.events, event],
+        chapters: state.chapterGraph.chapters.map((c) =>
+          c.id === event.chapterId
+            ? { ...c, events: [...c.events, event.id] }
+            : c
+        ),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  updateEvent: (id, patch) => {
+    const state = get();
+    if (!state.chapterGraph) return;
+    set({
+      chapterGraph: {
+        ...state.chapterGraph,
+        events: state.chapterGraph.events.map((e) =>
+          e.id === id ? { ...e, ...patch } : e
+        ),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  deleteEvent: (id) => {
+    const state = get();
+    if (!state.chapterGraph) return;
+    const evt = state.chapterGraph.events.find((e) => e.id === id);
+    set({
+      chapterGraph: {
+        ...state.chapterGraph,
+        events: state.chapterGraph.events.filter((e) => e.id !== id),
+        chapters: evt
+          ? state.chapterGraph.chapters.map((c) =>
+              c.id === evt.chapterId
+                ? { ...c, events: c.events.filter((eid) => eid !== id) }
+                : c
+            )
+          : state.chapterGraph.chapters,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  addCharacter: (character) => {
+    const state = get();
+    const graph = state.chapterGraph || {
+      id: `graph-${Date.now()}`,
+      name: 'Chapter Graph',
+      chapters: [],
+      events: [],
+      relationships: [],
+      characters: [],
+      locations: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    set({
+      chapterGraph: {
+        ...graph,
+        characters: [...graph.characters, character],
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  updateCharacter: (id, patch) => {
+    const state = get();
+    if (!state.chapterGraph) return;
+    set({
+      chapterGraph: {
+        ...state.chapterGraph,
+        characters: state.chapterGraph.characters.map((c) =>
+          c.id === id ? { ...c, ...patch } : c
+        ),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  deleteCharacter: (id) => {
+    const state = get();
+    if (!state.chapterGraph) return;
+    set({
+      chapterGraph: {
+        ...state.chapterGraph,
+        characters: state.chapterGraph.characters.filter((c) => c.id !== id),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  addLocation: (location) => {
+    const state = get();
+    const graph = state.chapterGraph || {
+      id: `graph-${Date.now()}`,
+      name: 'Chapter Graph',
+      chapters: [],
+      events: [],
+      relationships: [],
+      characters: [],
+      locations: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    set({
+      chapterGraph: {
+        ...graph,
+        locations: [...graph.locations, location],
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  updateLocation: (id, patch) => {
+    const state = get();
+    if (!state.chapterGraph) return;
+    set({
+      chapterGraph: {
+        ...state.chapterGraph,
+        locations: state.chapterGraph.locations.map((l) =>
+          l.id === id ? { ...l, ...patch } : l
+        ),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  deleteLocation: (id) => {
+    const state = get();
+    if (!state.chapterGraph) return;
+    set({
+      chapterGraph: {
+        ...state.chapterGraph,
+        locations: state.chapterGraph.locations.filter((l) => l.id !== id),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  addRelationship: (rel) => {
+    const state = get();
+    if (!state.chapterGraph) return;
+    set({
+      chapterGraph: {
+        ...state.chapterGraph,
+        relationships: [...state.chapterGraph.relationships, rel],
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  deleteRelationship: (id) => {
+    const state = get();
+    if (!state.chapterGraph) return;
+    set({
+      chapterGraph: {
+        ...state.chapterGraph,
+        relationships: state.chapterGraph.relationships.filter((r) => r.id !== id),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  // 多Agent工作空间协作
+  addAgentWorkspace: (ws) => {
+    const state = get();
+    set({
+      agentWorkspaces: [...state.agentWorkspaces, ws],
+      activeAgentWorkspaceId: ws.id,
+    });
+  },
+
+  updateAgentWorkspace: (id, patch) => {
+    const state = get();
+    set({
+      agentWorkspaces: state.agentWorkspaces.map((ws) =>
+        ws.id === id ? { ...ws, ...patch } : ws
+      ),
+    });
+  },
+
+  deleteAgentWorkspace: (id) => {
+    const state = get();
+    const newWorkspaces = state.agentWorkspaces.filter((ws) => ws.id !== id);
+    set({
+      agentWorkspaces: newWorkspaces,
+      activeAgentWorkspaceId:
+        state.activeAgentWorkspaceId === id
+          ? newWorkspaces[0]?.id
+          : state.activeAgentWorkspaceId,
+    });
+  },
+
+  setActiveAgentWorkspace: (id) => {
+    set({ activeAgentWorkspaceId: id });
+  },
+
+  addAgent: (workspaceId, agent) => {
+    const state = get();
+    set({
+      agentWorkspaces: state.agentWorkspaces.map((ws) =>
+        ws.id === workspaceId
+          ? { ...ws, agents: [...ws.agents, agent] }
+          : ws
+      ),
+    });
+  },
+
+  removeAgent: (workspaceId, agentId) => {
+    const state = get();
+    set({
+      agentWorkspaces: state.agentWorkspaces.map((ws) =>
+        ws.id === workspaceId
+          ? { ...ws, agents: ws.agents.filter((a) => a.id !== agentId) }
+          : ws
+      ),
+    });
+  },
+
+  sendAgentMessage: (workspaceId, msg) => {
+    const state = get();
+    set({
+      agentWorkspaces: state.agentWorkspaces.map((ws) =>
+        ws.id === workspaceId
+          ? { ...ws, messages: [...ws.messages, msg] }
+          : ws
+      ),
+    });
+  },
+
+  // 五层内容生产架构
+  addProductionPipeline: (pipeline) => {
+    const state = get();
+    set({ productionPipelines: [...state.productionPipelines, pipeline] });
+  },
+
+  updateProductionPipeline: (id, patch) => {
+    const state = get();
+    set({
+      productionPipelines: state.productionPipelines.map((p) =>
+        p.id === id ? { ...p, ...patch } : p
+      ),
+    });
+  },
+
+  deleteProductionPipeline: (id) => {
+    const state = get();
+    set({
+      productionPipelines: state.productionPipelines.filter((p) => p.id !== id),
+    });
+  },
+
+  setProductionLayerStatus: (pipelineId, layer, status, progress) => {
+    const state = get();
+    set({
+      productionPipelines: state.productionPipelines.map((p) =>
+        p.id === pipelineId
+          ? {
+              ...p,
+              status: status as any,
+              progress: { ...p.progress, [layer]: progress },
+              currentLayer: layer as any,
+            }
+          : p
       ),
     });
   },

@@ -1,263 +1,261 @@
-// 协作功能面板组件
+// 多Agent工作空间协作面板（参考TapCanvas）
 import { useState, useCallback } from 'react';
 import { useCanvasStore } from '../../stores/canvasStore';
+import type { AgentInfo, AgentMessage, AgentWorkspace } from '../../types/canvas';
 
 interface CollaborationPanelProps {
   onClose: () => void;
 }
 
-interface Collaborator {
-  id: string;
-  name: string;
-  role: 'owner' | 'editor' | 'viewer';
-  color: string;
-  isOnline: boolean;
-  cursor?: { x: number; y: number };
-}
-
 export function CollaborationPanel({ onClose }: CollaborationPanelProps) {
-  const [collaborators, setCollaborators] = useState<Collaborator[]>([
-    {
-      id: 'user-1',
-      name: 'You',
-      role: 'owner',
-      color: '#0a84ff',
-      isOnline: true,
-    },
-  ]);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('editor');
+  const [activeTab, setActiveTab] = useState<'workspaces' | 'agents' | 'messages'>('workspaces');
+  const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [agentName, setAgentName] = useState('');
+  const [agentRole, setAgentRole] = useState('');
+  const [messageInput, setMessageInput] = useState('');
 
-  const { nodes, edges } = useCanvasStore();
+  const {
+    agentWorkspaces,
+    activeAgentWorkspaceId,
+    addAgentWorkspace,
+    setActiveAgentWorkspace,
+    addAgent,
+    removeAgent,
+    sendAgentMessage,
+  } = useCanvasStore();
 
-  // 邀请协作者（模拟）
-  const handleInvite = useCallback(() => {
-    if (!inviteEmail.trim()) return;
+  // 获取当前工作空间
+  const currentWorkspace = agentWorkspaces.find(ws => ws.id === activeAgentWorkspaceId);
 
-    const newCollaborator: Collaborator = {
-      id: `user-${Date.now()}`,
-      name: inviteEmail.split('@')[0],
-      role: inviteRole,
-      color: getRandomColor(),
-      isOnline: false,
+  // 创建工作空间
+  const handleCreateWorkspace = useCallback(() => {
+    if (!workspaceName.trim()) return;
+
+    const newWorkspace: AgentWorkspace = {
+      id: `ws-${Date.now()}`,
+      name: workspaceName.trim(),
+      agents: [],
+      messages: [],
+      handoffs: [],
+      sharedAssets: [],
+      ownerId: 'user',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
-    setCollaborators((prev) => [...prev, newCollaborator]);
-    setInviteEmail('');
-    alert(`Invitation sent to ${inviteEmail}`);
-  }, [inviteEmail, inviteRole]);
+    addAgentWorkspace(newWorkspace);
+    setWorkspaceName('');
+    setShowCreateWorkspace(false);
+  }, [workspaceName, addAgentWorkspace]);
 
-  // 移除协作者
-  const handleRemoveCollaborator = useCallback((id: string) => {
-    if (confirm('Are you sure you want to remove this collaborator?')) {
-      setCollaborators((prev) => prev.filter((c) => c.id !== id));
-    }
-  }, []);
+  // 添加Agent到工作空间
+  const handleAddAgent = useCallback(() => {
+    if (!currentWorkspace || !agentName.trim() || !agentRole.trim()) return;
 
-  // 更新协作者角色
-  const handleUpdateRole = useCallback(
-    (id: string, role: 'editor' | 'viewer') => {
-      setCollaborators((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, role } : c))
-      );
-    },
-    []
+    const newAgent: AgentInfo = {
+      id: `agent-${Date.now()}`,
+      name: agentName.trim(),
+      role: agentRole.trim(),
+      status: 'idle',
+      capabilities: [],
+      lastActive: new Date().toISOString(),
+    };
+
+    addAgent(currentWorkspace.id, newAgent);
+    setAgentName('');
+    setAgentRole('');
+  }, [currentWorkspace, agentName, agentRole, addAgent]);
+
+  // 发送消息到工作空间
+  const handleSendMessage = useCallback(() => {
+    if (!currentWorkspace || !messageInput.trim()) return;
+
+    const newMsg: AgentMessage = {
+      id: `msg-${Date.now()}`,
+      fromAgentId: 'user',
+      toAgentId: '*',
+      type: 'broadcast',
+      protocol: 'chat',
+      payload: { text: messageInput.trim() },
+      status: 'sent',
+      timestamp: new Date().toISOString(),
+    };
+
+    sendAgentMessage(currentWorkspace.id, newMsg);
+    setMessageInput('');
+  }, [currentWorkspace, messageInput, sendAgentMessage]);
+
+  // 渲染工作空间列表
+  const renderWorkspaces = () => (
+    <div className="collab-panel__list">
+      {agentWorkspaces.map(ws => (
+        <div
+          key={ws.id}
+          className={`collab-panel__item ${ws.id === activeAgentWorkspaceId ? 'selected' : ''}`}
+          onClick={() => setActiveAgentWorkspace(ws.id)}
+        >
+          <div className="collab-panel__item-title">{ws.name}</div>
+          <div className="collab-panel__item-meta">
+            {ws.agents.length} agents · {ws.messages.length} messages
+          </div>
+        </div>
+      ))}
+      {showCreateWorkspace ? (
+        <div className="collab-panel__create-form">
+          <input
+            className="collab-panel__input"
+            placeholder="Workspace name..."
+            value={workspaceName}
+            onChange={(e) => setWorkspaceName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleCreateWorkspace()}
+            autoFocus
+          />
+          <div className="collab-panel__form-actions">
+            <button className="collab-panel__btn" onClick={handleCreateWorkspace}>
+              Create
+            </button>
+            <button className="collab-panel__btn collab-panel__btn--secondary" onClick={() => setShowCreateWorkspace(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button className="collab-panel__btn collab-panel__btn--add" onClick={() => setShowCreateWorkspace(true)}>
+          + New Workspace
+        </button>
+      )}
+    </div>
   );
 
-  // 生成随机颜色
-  function getRandomColor(): string {
-    const colors = [
-      '#ff6b6b',
-      '#51cf66',
-      '#339af0',
-      '#ffd43b',
-      '#cc5de8',
-      '#20c997',
-      '#ff922b',
-    ];
-    return colors[Math.floor(Math.random() * colors.length)];
-  }
+  // 渲染Agent列表
+  const renderAgents = () => {
+    if (!currentWorkspace) {
+      return <div className="collab-panel__empty">Select a workspace to manage agents</div>;
+    }
 
-  // 角色图标
-  const roleIcons: Record<string, string> = {
-    owner: '👑',
-    editor: '✏️',
-    viewer: '👁️',
-  };
-
-  return (
-    <div className="collaboration-panel">
-      <div className="collaboration-panel__header">
-        <div className="collaboration-panel__title">Collaboration</div>
-        <button className="collaboration-panel__close" onClick={onClose}>
-          ×
-        </button>
-      </div>
-
-      {/* 邀请协作者 */}
-      <div className="collaboration-panel__section">
-        <div className="collaboration-panel__section-title">
-          Invite Collaborator
-        </div>
-        <div className="collaboration-panel__invite-form">
+    return (
+      <div className="collab-panel__list">
+        {currentWorkspace.agents.map(agent => (
+          <div key={agent.id} className="collab-panel__item">
+            <div className="collab-panel__item-header">
+              <span className={`collab-panel__status collab-panel__status--${agent.status}`} />
+              <div className="collab-panel__item-title">{agent.name}</div>
+            </div>
+            <div className="collab-panel__item-meta">{agent.role}</div>
+            <button
+              className="collab-panel__btn collab-panel__btn--danger"
+              onClick={() => removeAgent(currentWorkspace.id, agent.id)}
+              style={{ fontSize: '10px', padding: '2px 8px' }}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <div className="collab-panel__create-form">
           <input
-            className="collaboration-panel__input"
-            placeholder="Email address"
-            value={inviteEmail}
-            onChange={(e) => setInviteEmail(e.target.value)}
-            type="email"
+            className="collab-panel__input"
+            placeholder="Agent name..."
+            value={agentName}
+            onChange={(e) => setAgentName(e.target.value)}
+            style={{ marginBottom: '4px' }}
           />
-          <select
-            className="collaboration-panel__select"
-            value={inviteRole}
-            onChange={(e) =>
-              setInviteRole(e.target.value as 'editor' | 'viewer')
-            }
-          >
-            <option value="editor">Editor</option>
-            <option value="viewer">Viewer</option>
-          </select>
-          <button
-            className="collaboration-panel__invite-btn"
-            onClick={handleInvite}
-            disabled={!inviteEmail.trim()}
-          >
-            Invite
+          <input
+            className="collab-panel__input"
+            placeholder="Agent role (e.g. Writer, Reviewer)..."
+            value={agentRole}
+            onChange={(e) => setAgentRole(e.target.value)}
+            style={{ marginBottom: '4px' }}
+          />
+          <button className="collab-panel__btn" onClick={handleAddAgent}>
+            + Add Agent
           </button>
         </div>
       </div>
+    );
+  };
 
-      {/* 协作者列表 */}
-      <div className="collaboration-panel__section">
-        <div className="collaboration-panel__section-title">
-          Collaborators ({collaborators.length})
-        </div>
-        <div className="collaboration-panel__list">
-          {collaborators.map((collaborator) => (
-            <div
-              key={collaborator.id}
-              className="collaboration-panel__item"
-            >
-              <div
-                className="collaboration-panel__avatar"
-                style={{ background: collaborator.color }}
-              >
-                {collaborator.name.charAt(0).toUpperCase()}
-              </div>
-              <div className="collaboration-panel__info">
-                <div className="collaboration-panel__name">
-                  {collaborator.name}
-                  {collaborator.role === 'owner' && (
-                    <span className="collaboration-panel__owner-badge">
-                      (You)
-                    </span>
-                  )}
-                </div>
-                <div className="collaboration-panel__role">
-                  {roleIcons[collaborator.role]} {collaborator.role}
-                </div>
-              </div>
-              <div className="collaboration-panel__status">
-                <div
-                  className={`collaboration-panel__status-dot ${
-                    collaborator.isOnline ? 'online' : 'offline'
-                  }`}
-                />
-                <span className="collaboration-panel__status-text">
-                  {collaborator.isOnline ? 'Online' : 'Offline'}
+  // 渲染消息列表
+  const renderMessages = () => {
+    if (!currentWorkspace) {
+      return <div className="collab-panel__empty">Select a workspace to view messages</div>;
+    }
+
+    return (
+      <div className="collab-panel__messages">
+        <div className="collab-panel__messages-list">
+          {currentWorkspace.messages.map(msg => (
+            <div key={msg.id} className="collab-panel__message">
+              <div className="collab-panel__message-header">
+                <strong>{msg.fromAgentId === 'user' ? 'You' : msg.fromAgentId}</strong>
+                <span className="collab-panel__message-type">[{msg.type}]</span>
+                <span className="collab-panel__message-time">
+                  {new Date(msg.timestamp).toLocaleTimeString()}
                 </span>
               </div>
-              {collaborator.role !== 'owner' && (
-                <div className="collaboration-panel__actions">
-                  <select
-                    className="collaboration-panel__role-select"
-                    value={collaborator.role}
-                    onChange={(e) =>
-                      handleUpdateRole(
-                        collaborator.id,
-                        e.target.value as 'editor' | 'viewer'
-                      )
-                    }
-                  >
-                    <option value="editor">Editor</option>
-                    <option value="viewer">Viewer</option>
-                  </select>
-                  <button
-                    className="collaboration-panel__remove-btn"
-                    onClick={() =>
-                      handleRemoveCollaborator(collaborator.id)
-                    }
-                    title="Remove collaborator"
-                  >
-                    ×
-                  </button>
-                </div>
-              )}
+              <div className="collab-panel__message-body">
+                {typeof msg.payload === 'object' ? msg.payload.text || JSON.stringify(msg.payload) : msg.payload}
+              </div>
             </div>
           ))}
+          {currentWorkspace.messages.length === 0 && (
+            <div className="collab-panel__empty">No messages yet</div>
+          )}
+        </div>
+        <div className="collab-panel__message-input">
+          <input
+            className="collab-panel__input"
+            placeholder="Type a message..."
+            value={messageInput}
+            onChange={(e) => setMessageInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+          />
+          <button className="collab-panel__btn" onClick={handleSendMessage}>
+            Send
+          </button>
         </div>
       </div>
+    );
+  };
 
-      {/* 协作统计 */}
-      <div className="collaboration-panel__section">
-        <div className="collaboration-panel__section-title">
-          Collaboration Stats
-        </div>
-        <div className="collaboration-panel__stats">
-          <div className="collaboration-panel__stat">
-            <span className="collaboration-panel__stat-label">
-              Total Collaborators:
-            </span>
-            <span className="collaboration-panel__stat-value">
-              {collaborators.length}
-            </span>
-          </div>
-          <div className="collaboration-panel__stat">
-            <span className="collaboration-panel__stat-label">
-              Online Now:
-            </span>
-            <span className="collaboration-panel__stat-value">
-              {collaborators.filter((c) => c.isOnline).length}
-            </span>
-          </div>
-          <div className="collaboration-panel__stat">
-            <span className="collaboration-panel__stat-label">
-              Canvas Nodes:
-            </span>
-            <span className="collaboration-panel__stat-value">
-              {nodes.length}
-            </span>
-          </div>
-          <div className="collaboration-panel__stat">
-            <span className="collaboration-panel__stat-label">
-              Canvas Edges:
-            </span>
-            <span className="collaboration-panel__stat-value">
-              {edges.length}
-            </span>
-          </div>
-        </div>
+  return (
+    <div className="collab-panel">
+      <div className="collab-panel__header">
+        <div className="collab-panel__title">Multi-Agent Collaboration</div>
+        <button className="collab-panel__close" onClick={onClose}>×</button>
       </div>
 
-      {/* 协作说明 */}
-      <div className="collaboration-panel__section">
-        <div className="collaboration-panel__section-title">
-          How Collaboration Works
-        </div>
-        <div className="collaboration-panel__info-text">
-          <p>
-            <strong>Real-time sync:</strong> All changes are synchronized in
-            real-time across all collaborators.
-          </p>
-          <p>
-            <strong>Roles:</strong> Owners can manage collaborators, editors can
-            edit the canvas, viewers can only view.
-          </p>
-          <p>
-            <strong>Cursors:</strong> See where other collaborators are working
-            on the canvas.
-          </p>
-        </div>
+      <div className="collab-panel__tabs">
+        <button
+          className={`collab-panel__tab ${activeTab === 'workspaces' ? 'active' : ''}`}
+          onClick={() => setActiveTab('workspaces')}
+        >
+          Workspaces
+        </button>
+        <button
+          className={`collab-panel__tab ${activeTab === 'agents' ? 'active' : ''}`}
+          onClick={() => setActiveTab('agents')}
+        >
+          Agents
+        </button>
+        <button
+          className={`collab-panel__tab ${activeTab === 'messages' ? 'active' : ''}`}
+          onClick={() => setActiveTab('messages')}
+        >
+          Messages
+        </button>
+      </div>
+
+      <div className="collab-panel__content">
+        {activeTab === 'workspaces' && renderWorkspaces()}
+        {activeTab === 'agents' && renderAgents()}
+        {activeTab === 'messages' && renderMessages()}
+      </div>
+
+      <div className="collab-panel__footer">
+        {currentWorkspace && (
+          <span>{currentWorkspace.agents.length} agents · {currentWorkspace.messages.length} messages</span>
+        )}
       </div>
     </div>
   );

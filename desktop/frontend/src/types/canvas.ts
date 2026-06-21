@@ -320,3 +320,235 @@ export interface CanvasProject {
   createdAt: string;
   updatedAt: string;
 }
+
+// ========== 多Agent工作空间协作（参考TapCanvas） ==========
+
+// Agent信息
+export interface AgentInfo {
+  id: string;
+  name: string;
+  role: string;
+  status: 'idle' | 'busy' | 'error' | 'offline';
+  capabilities: string[];
+  currentTask?: string;
+  lastActive: string;
+}
+
+// Agent消息
+export interface AgentMessage {
+  id: string;
+  fromAgentId: string;
+  toAgentId: string; // '*' 表示广播
+  type: 'request' | 'response' | 'notification' | 'broadcast';
+  protocol: string;
+  payload: any;
+  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
+  timestamp: string;
+  responseTo?: string;
+}
+
+// 工作空间移交请求
+export interface WorkspaceHandoff {
+  id: string;
+  fromAgentId: string;
+  toAgentId: string;
+  assets: string[];       // 移交的资产ID
+  context: string;        // 移交上下文
+  status: 'pending' | 'accepted' | 'rejected' | 'completed';
+  createdAt: string;
+}
+
+// Agent工作空间
+export interface AgentWorkspace {
+  id: string;
+  name: string;
+  description?: string;
+  agents: AgentInfo[];
+  messages: AgentMessage[];
+  handoffs: WorkspaceHandoff[];
+  sharedAssets: string[]; // 共享的资产ID
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ========== 章节事件图谱（参考Toonflow） ==========
+
+// 章节事件
+export interface ChapterEvent {
+  id: string;
+  chapterId: string;
+  eventId: string;
+  description: string;
+  characters: string[];  // 涉及角色
+  locations: string[];   // 涉及场景
+  time: string;          // 时间点
+  importance: 'low' | 'medium' | 'high';
+  dependencies: string[]; // 依赖的其他事件
+  metadata?: Record<string, any>;
+}
+
+// 章节
+export interface Chapter {
+  id: string;
+  title: string;
+  summary: string;
+  events: string[]; // 事件ID列表
+  characters: string[]; // 章节中的角色
+  locations: string[];  // 章节中的场景
+  metadata?: Record<string, any>;
+}
+
+// 事件关系
+export interface EventRelationship {
+  id: string;
+  sourceEventId: string;
+  targetEventId: string;
+  type: 'causes' | 'follows' | 'contradicts' | 'supports' | 'references';
+  description?: string;
+}
+
+// 章节事件图谱
+export interface ChapterGraph {
+  id: string;
+  name: string;
+  description?: string;
+  chapters: Chapter[];
+  events: ChapterEvent[];
+  relationships: EventRelationship[];
+  characters: CharacterInfo[];
+  locations: LocationInfo[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 角色信息
+export interface CharacterInfo {
+  id: string;
+  name: string;
+  description?: string;
+  aliases: string[];
+  relationships: CharacterRelationship[];
+  appearances: string[]; // 出现的章节ID
+  metadata?: Record<string, any>;
+}
+
+// 角色关系
+export interface CharacterRelationship {
+  characterId: string;
+  relationship: string; // 如：朋友、敌人、家人等
+  description?: string;
+}
+
+// 场景信息
+export interface LocationInfo {
+  id: string;
+  name: string;
+  description?: string;
+  aliases: string[];
+  appearances: string[]; // 出现的章节ID
+  metadata?: Record<string, any>;
+}
+
+// ========== 五层内容生产架构（参考Toonflow） ==========
+
+// 生产层级
+export enum ProductionLayer {
+  Import = 'import',       // 小说导入
+  Parse = 'parse',         // 内容解析
+  Character = 'character', // 角色生成
+  Script = 'script',       // 剧本生成
+  Storyboard = 'storyboard', // 分镜生成
+  Video = 'video',         // 视频生成
+}
+
+// 生产状态
+export type ProductionStatus = 'idle' | 'running' | 'completed' | 'failed' | 'paused';
+
+// 生产管道
+export interface ProductionPipeline {
+  id: string;
+  name: string;
+  description?: string;
+  layers: ProductionLayer[];
+  currentLayer: ProductionLayer;
+  status: ProductionStatus;
+  progress: Record<ProductionLayer, number>; // 每层进度 0-100
+  config: ProductionConfig;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 生产配置
+export interface ProductionConfig {
+  import?: ImportConfig;
+  parse?: ParseConfig;
+  character?: CharacterConfig;
+  script?: ScriptConfig;
+  storyboard?: StoryboardConfig;
+  video?: VideoConfig;
+}
+
+// 导入配置
+export interface ImportConfig {
+  sourceType: 'file' | 'url' | 'text';
+  source: string;
+  format: 'txt' | 'docx' | 'pdf' | 'epub';
+  encoding?: string;
+}
+
+// 解析配置
+export interface ParseConfig {
+  splitBy: 'chapter' | 'scene' | 'paragraph';
+  minChapterLength?: number;
+  maxChapterLength?: number;
+  extractEvents: boolean;
+  extractCharacters: boolean;
+  extractLocations: boolean;
+}
+
+// 角色配置
+export interface CharacterConfig {
+  generatePortraits: boolean;
+  portraitStyle?: string;
+  extractRelationships: boolean;
+  generateDescriptions: boolean;
+}
+
+// 剧本配置
+export interface ScriptConfig {
+  format: 'screenplay' | 'stage' | 'radio';
+  includeDirections: boolean;
+  includeDialogue: boolean;
+  targetLength?: number;
+}
+
+// 分镜配置
+export interface StoryboardConfig {
+  style: 'realistic' | 'anime' | 'cartoon' | 'sketch';
+  aspectRatio: '16:9' | '4:3' | '1:1' | '9:16';
+  shotsPerScene?: number;
+  includeDialogue: boolean;
+  includeDirections: boolean;
+}
+
+// 视频配置
+export interface VideoConfig {
+  resolution: '720p' | '1080p' | '4k';
+  fps: 24 | 30 | 60;
+  style: string;
+  duration?: number;
+  includeAudio: boolean;
+  audioType?: 'narration' | 'music' | 'both';
+}
+
+// 生产层级结果
+export interface LayerResult {
+  layer: ProductionLayer;
+  status: ProductionStatus;
+  progress: number;
+  output?: any;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+}

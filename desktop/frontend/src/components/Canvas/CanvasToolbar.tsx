@@ -12,6 +12,8 @@ interface CanvasToolbarProps {
   onToggleOfflinePanel: () => void;
   onToggleAIPanel: () => void;
   onTogglePluginPanel: () => void;
+  onToggleChapterGraphPanel: () => void;
+  onToggleProductionPanel: () => void;
   showNodePanel: boolean;
   showAssetPanel: boolean;
   showAssistant: boolean;
@@ -22,6 +24,8 @@ interface CanvasToolbarProps {
   showOfflinePanel: boolean;
   showAIPanel: boolean;
   showPluginPanel: boolean;
+  showChapterGraphPanel: boolean;
+  showProductionPanel: boolean;
 }
 
 export function CanvasToolbar({
@@ -35,6 +39,8 @@ export function CanvasToolbar({
   onToggleOfflinePanel,
   onToggleAIPanel,
   onTogglePluginPanel,
+  onToggleChapterGraphPanel,
+  onToggleProductionPanel,
   showNodePanel,
   showAssetPanel,
   showAssistant,
@@ -45,6 +51,8 @@ export function CanvasToolbar({
   showOfflinePanel,
   showAIPanel,
   showPluginPanel,
+  showChapterGraphPanel,
+  showProductionPanel,
 }: CanvasToolbarProps) {
   const { undo, redo, fitView, zoomIn, zoomOut } = useCanvasStore();
 
@@ -148,6 +156,24 @@ export function CanvasToolbar({
         title="Toggle Plugin Panel"
       >
         🔌
+      </button>
+
+      {/* 章节事件图谱面板切换 */}
+      <button
+        className={`canvas-toolbar__btn ${showChapterGraphPanel ? 'active' : ''}`}
+        onClick={onToggleChapterGraphPanel}
+        title="Toggle Chapter Graph"
+      >
+        📖
+      </button>
+
+      {/* 内容生产面板切换 */}
+      <button
+        className={`canvas-toolbar__btn ${showProductionPanel ? 'active' : ''}`}
+        onClick={onToggleProductionPanel}
+        title="Toggle Production Pipeline"
+      >
+        🏭
       </button>
 
       {/* 分隔符 */}
