@@ -109,7 +109,6 @@ export function Sidebar(props: SidebarProps) {
       </div>
 
       <div className="sidebar__footer">
-        <NavItem icon="🤖" label={t.agents} active={props.view === 'agents'} onClick={() => props.onChangeView('agents')} />
         <NavItem icon="🕐" label={t.history} active={props.view === 'history'} onClick={() => props.onChangeView('history')} />
         <NavItem icon="🗑" label={t.trash} active={props.view === 'trash'} onClick={() => props.onChangeView('trash')} />
         <NavItem icon="⚙" label={t.settings} active={props.view === 'settings'} onClick={() => props.onChangeView('settings')} />
