@@ -162,29 +162,12 @@ func NewApp() *App {
 
 func (a *App) seedDefaults() {
 	a.agents = []AgentInfo{
-		{ID: "auto", Name: "自适应游…", Model: "deepseek-v4-flash", Yolo: true},
-		{ID: "umit", Name: "umit", Model: "deepseek-v4-flash", Yolo: true},
-		{ID: "mnemonic", Name: "mnemon…", Model: "deepseek-v4-flash", Yolo: true},
+		{ID: "auto", Name: "默认 Agent", Model: "deepseek-v4-flash", Yolo: true},
 	}
 	a.projects = []ProjectInfo{
-		{
-			ID: "global",
-			Name: "Global",
-			Sessions: []SessionInfo{
-				{ID: "s1", Title: "自适应游工作室", AgentID: "auto", ProjectID: "global", MessageCount: 24, ToolCount: 5, UpdatedAt: "5天前", Preview: "自适应游工作室"},
-				{ID: "s2", Title: "mnemonic全笔记2.mcp", AgentID: "mnemonic", ProjectID: "global", MessageCount: 195, ToolCount: 4, UpdatedAt: "4天前", Preview: "mnemonic全笔记2.mcp"},
-				{ID: "s3", Title: "umit", AgentID: "umit", ProjectID: "global", MessageCount: 5, ToolCount: 6, UpdatedAt: "5天前", Preview: "umit"},
-				{ID: "s4", Title: "V2构建", AgentID: "auto", ProjectID: "global", MessageCount: 25, ToolCount: 6, UpdatedAt: "6天前", Preview: "V2构建"},
-				{ID: "s5", Title: "热点创作工作流—今天有什么…", AgentID: "auto", ProjectID: "global", MessageCount: 41, ToolCount: 6, UpdatedAt: "6天前", Preview: "热点创作工作流—今天有什么…"},
-				{ID: "s6", Title: "2自滚小说工作室", AgentID: "auto", ProjectID: "global", MessageCount: 100, ToolCount: 5, UpdatedAt: "5天前", Preview: "2自滚小说工作室"},
-				{ID: "s7", Title: "创世日记引擎", AgentID: "auto", ProjectID: "global", MessageCount: 144, ToolCount: 6, UpdatedAt: "6天前", Preview: "创世日记引擎"},
-				{ID: "s8", Title: "1自滚小说作家接手", AgentID: "auto", ProjectID: "global", MessageCount: 13, ToolCount: 6, UpdatedAt: "6天前", Preview: "1自滚小说作家接手"},
-				{ID: "s9", Title: "UUMit 接单工作", AgentID: "auto", ProjectID: "global", MessageCount: 22, ToolCount: 6, UpdatedAt: "6天前", Preview: "UUMit 接单工作"},
-				{ID: "s10", Title: "reasonix-buddy", AgentID: "auto", ProjectID: "global", MessageCount: 4, ToolCount: 6, UpdatedAt: "6天前", Preview: "reasonix-buddy"},
-			},
-		},
+		{ID: "global", Name: "Global"},
 	}
-	a.activeID = "s2"
+	a.activeID = ""
 	a.activeAge = "auto"
 }
 
