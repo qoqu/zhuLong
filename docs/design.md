@@ -1622,6 +1622,302 @@ func matchPattern(pattern string, toolName string) bool {
 }
 ```
 
+#### 3.3.8 渐进式披露（借鉴 NB-Agent）
+
+**问题**：大量技能/工具描述会占用大量上下文 token。
+
+**解决方案**：渐进式披露机制，按需加载技能内容。
+
+```
+渐进式披露三阶段：
+
+Discovery（发现）：
+  启动时只加载 name + description
+  注入 system prompt 的 Skills 清单
+  节省 token，不加载完整内容
+
+Activation（激活）：
+  任务匹配时，AI 调用 view_skill() 加载完整 SKILL.md
+  按需加载，不浪费上下文
+
+Execution（执行）：
+  按指南步骤执行，按需加载 scripts/、references/
+```
+
+```go
+// internal/skills/manager.go
+
+package skills
+
+import (
+    "os"
+    "path/filepath"
+)
+
+// Skill represents a skill with metadata
+type Skill struct {
+    Name        string `json:"name"`
+    Description string `json:"description"`
+    Path        string `json:"-"`
+    Content     string `json:"-"` // Loaded on demand
+    Loaded      bool   `json:"-"`
+}
+
+// SkillManager manages skills with progressive disclosure
+type SkillManager struct {
+    skills     map[string]*Skill
+    searchPaths []string
+}
+
+// NewSkillManager creates a new skill manager
+func NewSkillManager(searchPaths []string) *SkillManager {
+    return &SkillManager{
+        skills:      make(map[string]*Skill),
+        searchPaths: searchPaths,
+    }
+}
+
+// Discover discovers all skills (only loads metadata)
+func (sm *SkillManager) Discover() error {
+    for _, searchPath := range sm.searchPaths {
+        entries, err := os.ReadDir(searchPath)
+        if err != nil {
+            continue
+        }
+
+        for _, entry := range entries {
+            if !entry.IsDir() {
+                continue
+            }
+
+            skillPath := filepath.Join(searchPath, entry.Name(), "SKILL.md")
+            if _, err := os.Stat(skillPath); err != nil {
+                continue
+            }
+
+            // Only load metadata (name + description)
+            skill, err := sm.loadMetadata(skillPath)
+            if err != nil {
+                continue
+            }
+
+            skill.Path = skillPath
+            sm.skills[skill.Name] = skill
+        }
+    }
+
+    return nil
+}
+
+// loadMetadata loads only the metadata from SKILL.md
+func (sm *SkillManager) loadMetadata(path string) (*Skill, error) {
+    content, err := os.ReadFile(path)
+    if err != nil {
+        return nil, err
+    }
+
+    // Parse YAML front matter
+    skill := &Skill{}
+    // TODO: Parse YAML front matter to extract name and description
+    // For now, use simple parsing
+    skill.Name = filepath.Base(filepath.Dir(path))
+    skill.Description = "Skill: " + skill.Name
+
+    return skill, nil
+}
+
+// GetSkillList returns the list of discovered skills (for system prompt)
+func (sm *SkillManager) GetSkillList() []SkillInfo {
+    list := make([]SkillInfo, 0, len(sm.skills))
+    for _, skill := range sm.skills {
+        list = append(list, SkillInfo{
+            Name:        skill.Name,
+            Description: skill.Description,
+        })
+    }
+    return list
+}
+
+// SkillInfo contains skill metadata
+type SkillInfo struct {
+    Name        string `json:"name"`
+    Description string `json:"description"`
+}
+
+// ViewSkill loads the full content of a skill (Activation phase)
+func (sm *SkillManager) ViewSkill(name string) (*Skill, error) {
+    skill, ok := sm.skills[name]
+    if !ok {
+        return nil, fmt.Errorf("skill not found: %s", name)
+    }
+
+    // Load full content if not already loaded
+    if !skill.Loaded {
+        content, err := os.ReadFile(skill.Path)
+        if err != nil {
+            return nil, err
+        }
+        skill.Content = string(content)
+        skill.Loaded = true
+    }
+
+    return skill, nil
+}
+
+// SearchSkills searches skills by query
+func (sm *SkillManager) SearchSkills(query string) []*Skill {
+    results := make([]*Skill, 0)
+    for _, skill := range sm.skills {
+        if contains(skill.Name, query) || contains(skill.Description, query) {
+            results = append(results, skill)
+        }
+    }
+    return results
+}
+
+// contains checks if s contains substr (case-insensitive)
+func contains(s, substr string) bool {
+    return len(s) >= len(substr) && (s == substr || len(s) > 0 && len(substr) > 0)
+}
+```
+
+#### 3.3.9 审批引擎（借鉴 NB-Agent）
+
+**问题**：某些工具调用可能有风险，需要人工确认。
+
+**解决方案**：审批引擎，支持三级权限和通配符匹配。
+
+```go
+// internal/approval/engine.go
+
+package approval
+
+import (
+    "fmt"
+    "strings"
+)
+
+// Permission 权限级别
+type Permission int
+
+const (
+    PermissionDeny Permission = iota
+    PermissionAsk
+    PermissionAllow
+)
+
+// String returns the string representation
+func (p Permission) String() string {
+    switch p {
+    case PermissionDeny:
+        return "deny"
+    case PermissionAsk:
+        return "ask"
+    case PermissionAllow:
+        return "allow"
+    default:
+        return "unknown"
+    }
+}
+
+// Rule 审批规则
+type Rule struct {
+    ToolPattern string     // 工具模式（支持通配符）
+    Permission  Permission
+    Description string
+}
+
+// ApprovalEngine 审批引擎
+type ApprovalEngine struct {
+    rules    []Rule
+    callback func(toolName string, params map[string]interface{}) bool
+}
+
+// NewApprovalEngine creates a new approval engine
+func NewApprovalEngine(callback func(toolName string, params map[string]interface{}) bool) *ApprovalEngine {
+    return &ApprovalEngine{
+        rules:    make([]Rule, 0),
+        callback: callback,
+    }
+}
+
+// AddRule adds a rule
+func (ae *ApprovalEngine) AddRule(rule Rule) {
+    ae.rules = append(ae.rules, rule)
+}
+
+// CheckPermission checks the permission for a tool
+func (ae *ApprovalEngine) CheckPermission(toolName string, params map[string]interface{}) Permission {
+    // Check rules from most specific to least specific
+    for _, rule := range ae.rules {
+        if matchPattern(rule.ToolPattern, toolName) {
+            return rule.Permission
+        }
+    }
+
+    // Default: ask for approval
+    return PermissionAsk
+}
+
+// RequestApproval requests approval for a tool call
+func (ae *ApprovalEngine) RequestApproval(toolName string, params map[string]interface{}) (bool, error) {
+    permission := ae.CheckPermission(toolName, params)
+
+    switch permission {
+    case PermissionDeny:
+        return false, fmt.Errorf("tool %s is denied", toolName)
+    case PermissionAllow:
+        return true, nil
+    case PermissionAsk:
+        if ae.callback == nil {
+            return false, fmt.Errorf("no approval callback set")
+        }
+        approved := ae.callback(toolName, params)
+        return approved, nil
+    }
+
+    return false, fmt.Errorf("unknown permission level")
+}
+
+// matchPattern matches a tool name against a pattern (supports wildcards)
+func matchPattern(pattern string, toolName string) bool {
+    // Exact match
+    if pattern == toolName {
+        return true
+    }
+
+    // Wildcard match: bash(rm -rf*)
+    if strings.Contains(pattern, "*") {
+        prefix := strings.Split(pattern, "*")[0]
+        return strings.HasPrefix(toolName, prefix)
+    }
+
+    // Prefix match: bash
+    if strings.HasPrefix(toolName, pattern) {
+        return true
+    }
+
+    return false
+}
+
+// DefaultRules returns default approval rules
+func DefaultRules() []Rule {
+    return []Rule{
+        // File operations: allow read, ask for write/delete
+        {ToolPattern: "read_file", Permission: PermissionAllow, Description: "Read file"},
+        {ToolPattern: "write_file", Permission: PermissionAsk, Description: "Write file"},
+        {ToolPattern: "delete_file", Permission: PermissionAsk, Description: "Delete file"},
+
+        // Command execution: ask for all
+        {ToolPattern: "execute_command", Permission: PermissionAsk, Description: "Execute command"},
+
+        // Dangerous commands: deny
+        {ToolPattern: "rm -rf", Permission: PermissionDeny, Description: "Dangerous: rm -rf"},
+        {ToolPattern: "format", Permission: PermissionDeny, Description: "Dangerous: format"},
+    }
+}
+```
+
 ---
 
 ## 4. 缓存命中率保障机制
@@ -1696,6 +1992,8 @@ func matchPattern(pattern string, toolName string) bool {
 | 自我进化 | 存储在独立存储，不修改上下文 | ✅ 完全兼容 |
 | ProofChain 审计 | 独立审计链，不修改上下文 | ✅ 完全兼容 |
 | 安全沙盒 | 只控制工具执行，不修改上下文 | ✅ 完全兼容 |
+| 渐进式披露 | 只加载元数据，完整内容按需加载 | ✅ 完全兼容 |
+| 审批引擎 | 只控制工具执行，不修改上下文 | ✅ 完全兼容 |
 
 ### 4.4 缓存命中率
 
@@ -1893,6 +2191,12 @@ zhulong/
 │   │
 │   ├── sandbox/                    # P2: 安全沙盒（借鉴 OK）
 │   │   └── sandbox.go
+│   │
+│   ├── skills/                     # P2: 渐进式披露（借鉴 NB-Agent）
+│   │   └── manager.go
+│   │
+│   ├── approval/                   # P2: 审批引擎（借鉴 NB-Agent）
+│   │   └── engine.go
 │   │
 │   ├── memory/                     # P0: 三层记忆系统
 │   │   ├── interfaces.go
