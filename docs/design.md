@@ -3814,3 +3814,188 @@ get_novel_events: tool({
 2. **画布助手对话独立** - 不进入Agent上下文
 3. **资产管理数据独立** - 不影响缓存
 4. **通过MCP工具调用** - 符合缓存命中率铁律
+
+---
+
+## 附录 F: 与 Harness-Starter 的学习参考清单
+
+> **策略：学习设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。**
+
+### F.1 项目概述
+
+Harness-Starter 是一个为 Claude Code 设计的**工程化模板系统**，将开发规范、检查流程和自动化任务固化为可复用的模板。其核心理念是**"系统驱动AI，而非人驱动AI"**。
+
+### F.2 核心参考特性
+
+| 特性 | Harness-Starter 实现 | 烛龙实现方式 | 优先级 |
+|------|---------------------|-------------|--------|
+| **三层自动化体系** | 安全拦截→感知注入→审查反馈 | 扩展现有approval/memory/reflector | P1 |
+| **Circuit Breaker** | 连续3次无改善自动暂停 | 新增stability/breaker.go | P0 |
+| **执行/验证分离** | 独立verify-goal技能 | 扩展reflector模块 | P0 |
+| **GC扫描器** | 8个确定性维度质量扫描 | 新增quality/scanner.go | P1 |
+| **工作流模式** | full/hotfix/tweak模式切换 | 新增workflow/modes.go | P1 |
+| **上下文自动注入** | 自动注入Git状态、技术栈 | 扩展memory系统 | P2 |
+| **工具执行后审查** | 自动格式化和代码审查 | 扩展executor模块 | P2 |
+
+### F.3 Circuit Breaker 设计
+
+参考 Harness-Starter 的 Circuit Breaker 机制，防止无效循环：
+
+```go
+// BreakerConfig 配置断路器
+type BreakerConfig struct {
+    MaxConsecutiveFailures int           // 最大连续失败次数（默认3）
+    CooldownPeriod         time.Duration // 冷却期（默认5分钟）
+    CheckInterval          time.Duration // 检查间隔（默认1分钟）
+}
+
+// Breaker 断路器
+type Breaker struct {
+    config           *BreakerConfig
+    consecutiveFails int
+    lastFailTime     time.Time
+    state            BreakerState // closed/open/half-open
+}
+
+// Check 检查是否应该继续
+func (b *Breaker) Check() bool {
+    if b.state == BreakerOpen {
+        if time.Since(b.lastFailTime) > b.config.CooldownPeriod {
+            b.state = BreakerHalfOpen
+            return true // 允许一次尝试
+        }
+        return false // 仍在冷却期
+    }
+    return true // closed状态，正常执行
+}
+
+// RecordResult 记录执行结果
+func (b *Breaker) RecordResult(success bool) {
+    if success {
+        b.consecutiveFails = 0
+        b.state = BreakerClosed
+    } else {
+        b.consecutiveFails++
+        b.lastFailTime = time.Now()
+        if b.consecutiveFails >= b.config.MaxConsecutiveFailures {
+            b.state = BreakerOpen
+        }
+    }
+}
+```
+
+### F.4 执行/验证分离设计
+
+参考 Harness-Starter 的执行/验证分离机制：
+
+```go
+// Validator 独立验证器
+type Validator struct {
+    provider Provider
+    config   *ValidatorConfig
+}
+
+// Validate 验证执行结果
+func (v *Validator) Validate(ctx context.Context, goal string, result *ExecutionResult) (*ValidationResult, error) {
+    // 构建验证提示词
+    prompt := buildValidationPrompt(goal, result)
+
+    // 调用LLM进行验证（独立于执行器）
+    response, err := v.provider.Chat(ctx, validationSystemPrompt, prompt)
+    if err != nil {
+        return nil, err
+    }
+
+    // 解析验证结果
+    return parseValidationResult(response)
+}
+
+// ValidationResult 验证结果
+type ValidationResult struct {
+    Passed     bool     // 是否通过
+    Score      float64  // 评分（0-1）
+    Issues     []string // 发现的问题
+    Suggestions []string // 改进建议
+}
+```
+
+### F.5 GC扫描器设计
+
+参考 Harness-Starter 的8个确定性维度：
+
+```go
+// ScanDimension 扫描维度
+type ScanDimension struct {
+    Name        string
+    Description string
+    Scanner     func(projectPath string) (*ScanResult, error)
+}
+
+// 默认扫描维度
+var DefaultDimensions = []ScanDimension{
+    {Name: "documentation", Scanner: scanDocumentation},  // 文档完整性
+    {Name: "git_status", Scanner: scanGitStatus},         // Git状态
+    {Name: "todo_density", Scanner: scanTodoDensity},     // TODO密度
+    {Name: "test_coverage", Scanner: scanTestCoverage},   // 测试覆盖
+    {Name: "code_quality", Scanner: scanCodeQuality},     // 代码质量
+    {Name: "dependency", Scanner: scanDependency},        // 依赖健康
+    {Name: "security", Scanner: scanSecurity},            // 安全检查
+    {Name: "performance", Scanner: scanPerformance},      // 性能检查
+}
+
+// ScanResult 扫描结果
+type ScanResult struct {
+    Dimension string
+    Score     float64  // 0-1
+    Issues    []string
+    Details   map[string]interface{}
+}
+```
+
+### F.6 工作流模式设计
+
+参考 Harness-Starter 的工作流模式：
+
+```go
+// WorkflowMode 工作流模式
+type WorkflowMode string
+
+const (
+    ModeFull    WorkflowMode = "full"    // 完整检查
+    ModeHotfix  WorkflowMode = "hotfix"  // 紧急修复
+    ModeTweak   WorkflowMode = "tweak"   // 微调
+)
+
+// WorkflowStage 工作流阶段
+type WorkflowStage string
+
+const (
+    StageDesign WorkflowStage = "design" // 设计阶段
+    StageFix    WorkflowStage = "fix"    // 修复阶段
+    StageTest   WorkflowStage = "test"   // 测试阶段
+)
+
+// ModeConfig 模式配置
+type ModeConfig struct {
+    Mode           WorkflowMode
+    Stage          WorkflowStage
+    ApprovalLevel  ApprovalLevel  // 审批级别
+    CheckIntensity float64        // 检查强度（0-1）
+    AutoFix        bool           // 是否自动修复
+}
+```
+
+### F.7 实现阶段
+
+| Phase | 任务 | 时间 |
+|-------|------|------|
+| **Phase 1** | Circuit Breaker + 执行/验证分离 | 2-3天 |
+| **Phase 2** | GC扫描器 + 工作流模式 | 3-4天 |
+| **Phase 3** | 上下文自动注入 + 工具执行后审查 | 2-3天 |
+
+### F.8 设计原则
+
+1. **不抄袭代码** - 学习设计思路，从零实现
+2. **缓存命中率铁律** - 所有新功能不影响缓存优化
+3. **渐进式实现** - 分阶段实现，逐步增强
+4. **可配置性** - 所有功能可配置、可禁用
