@@ -351,7 +351,6 @@ function ChangesTab(props: { language: Language; changes: FileChange[] }) {
 
 // Memory Tab - 三层记忆状态
 function MemoryTab(props: { language: Language; memoryState?: MemoryState | null }) {
-  const t = useT(props.language)
   const memory = props.memoryState
   
   if (!memory) {
@@ -424,7 +423,6 @@ function MemoryTab(props: { language: Language; memoryState?: MemoryState | null
 
 // Learning Tab - 学习状态
 function LearningTab(props: { language: Language; learningState?: LearningState | null }) {
-  const t = useT(props.language)
   const learning = props.learningState
   
   if (!learning) {
@@ -493,7 +491,6 @@ function LearningTab(props: { language: Language; learningState?: LearningState 
 
 // Modules Tab - 模块状态
 function ModulesTab(props: { language: Language; moduleState?: ModuleState | null }) {
-  const t = useT(props.language)
   const modules = props.moduleState
   
   if (!modules) {
