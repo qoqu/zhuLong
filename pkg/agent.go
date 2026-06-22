@@ -13,21 +13,29 @@ import (
 	"github.com/qoqu/zhuLong/internal/executor"
 	"github.com/qoqu/zhuLong/internal/memento"
 	"github.com/qoqu/zhuLong/internal/memory"
+	"github.com/qoqu/zhuLong/internal/observe"
 	"github.com/qoqu/zhuLong/internal/planner"
+	"github.com/qoqu/zhuLong/internal/profile"
 	"github.com/qoqu/zhuLong/internal/provider"
 	"github.com/qoqu/zhuLong/internal/reflector"
+	"github.com/qoqu/zhuLong/internal/security"
 	"github.com/qoqu/zhuLong/internal/skills"
+	"github.com/qoqu/zhuLong/internal/terminal"
 	"github.com/qoqu/zhuLong/internal/tools"
 	"github.com/qoqu/zhuLong/internal/trace"
 )
 
-// Agent is the main entry point for the Zhulong agent
+// Agent 是烛龙的主入口，封装Agent循环的全部状态
 type Agent struct {
-	goal         string
-	options      *Options
-	provider     Provider
-	skillPipeline *skills.Pipeline
-	memoryStore  *memento.MemoryStore
+	goal          string               // 用户目标
+	options       *Options             // 配置选项
+	provider      Provider             // LLM提供者
+	skillPipeline *skills.Pipeline     // 技能管道（目录加载→渐进披露→骨架压缩→注入）
+	memoryStore   *memento.MemoryStore // 记忆系统（MEMORY.md + USER.md 冻结快照）
+	security      *security.Engine     // 安全引擎（7层防御）
+	terminal      *terminal.Manager    // 终端后端管理器（Local/Docker/SSH）
+	profiler      *profile.Manager     // Profile隔离管理器
+	tracer        *observe.Tracer      // 可观测性追踪器
 }
 
 // Provider is the interface for LLM providers
@@ -149,11 +157,27 @@ func NewAgent(opts ...Option) (*Agent, error) {
 		return nil, fmt.Errorf("memory store init: %w", err)
 	}
 
+	// Initialize security engine (7-layer defense)
+	secEngine := security.NewEngine()
+
+	// Initialize terminal backend manager (default: local)
+	termMgr := terminal.NewManager()
+
+	// Initialize profile manager
+	profMgr := profile.NewManager(options.DataDir)
+
+	// Initialize observability tracer
+	tracer := observe.NewTracer()
+
 	return &Agent{
 		goal:          options.Goal,
 		options:       options,
 		skillPipeline: skillPipeline,
 		memoryStore:   memStore,
+		security:      secEngine,
+		terminal:      termMgr,
+		profiler:      profMgr,
+		tracer:        tracer,
 	}, nil
 }
 
@@ -196,12 +220,12 @@ func (a *Agent) Run() (*AgentResult, error) {
 	_ = memStore
 	_ = chkStore
 
-	// Initialize tools
+	// Initialize tools — 安全增强版工具适配器
 	toolsReg := executor.NewToolRegistry()
-	toolsReg.Register(&AdapterReadFile{})
-	toolsReg.Register(&AdapterWriteFile{})
+	toolsReg.Register(&SecureReadFile{Engine: a.security})
+	toolsReg.Register(&SecureWriteFile{Engine: a.security})
 	toolsReg.Register(&AdapterSearchFile{})
-	toolsReg.Register(&AdapterExecuteCommand{})
+	toolsReg.Register(&SecureExecuteCommand{Engine: a.security, Terminal: a.terminal})
 
 	// Register skill tools
 	toolsReg.Register(&SkillViewTool{Pipeline: a.skillPipeline})
@@ -211,10 +235,11 @@ func (a *Agent) Run() (*AgentResult, error) {
 	toolsReg.Register(&MemoryNoteTool{Store: a.memoryStore})
 	toolsReg.Register(&MemoryProfileTool{Store: a.memoryStore})
 
-	// Build system prompt with skill context and memory
-	systemPrompt := "You are Zhulong, an autonomous agent."
+	// Build system prompt with full context injection
+	systemPrompt := "You are Zhulong (烛龙), an autonomous agent powered by DeepSeek."
 
-	// Inject MEMORY.md (Agent notes) - frozen snapshot
+	// 注入记忆冻结快照（MEMORY.md + USER.md）
+	// 冻结模式：会话开始时读取一次，循环中不再变更，保证prefix缓存命中率
 	agentNote, userProfile := a.memoryStore.GetSnapshot()
 	if agentNote != "" {
 		systemPrompt += "\n\n## Agent Notes\n" + agentNote
@@ -223,11 +248,14 @@ func (a *Agent) Run() (*AgentResult, error) {
 		systemPrompt += "\n\n## User Profile\n" + userProfile
 	}
 
-	// Inject skill list
+	// 注入可用技能清单（Tier 1 元数据，最小token消耗）
 	skillList := a.skillPipeline.GetSkillList()
 	if skillList != "" {
 		systemPrompt += "\n" + skillList
 	}
+
+	// 注入安全策略提示
+	systemPrompt += "\n\n## Security\nCommands are filtered through a 7-layer security engine. Dangerous commands (rm -rf /, fork bombs) are hard-blocked."
 
 	// Initialize planner with enriched system prompt
 	plannerConfig := planner.DefaultConfig()
@@ -796,6 +824,83 @@ func (a *AdapterExecuteCommand) Description() string { return "Execute a shell c
 func (a *AdapterExecuteCommand) Call(ctx context.Context, params map[string]interface{}) (string, error) {
 	t := &tools.ExecuteCommandTool{}
 	return t.Call(ctx, params)
+}
+
+// ========== 安全增强工具适配器 ==========
+// 所有工具调用经过security引擎检查后再执行
+
+// SecureReadFile 安全增强的文件读取
+type SecureReadFile struct {
+	Engine *security.Engine
+}
+
+func (s *SecureReadFile) Name() string { return "read_file" }
+
+func (s *SecureReadFile) Description() string { return "Read the contents of a file (security-checked)" }
+
+func (s *SecureReadFile) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	path, _ := params["path"].(string)
+	// 安全检查：路径验证
+	results := s.Engine.CheckAll("", path, "")
+	for _, r := range results {
+		if !r.Passed {
+			return "", fmt.Errorf("security blocked: %s", r.Message)
+		}
+	}
+	t := &tools.ReadFileTool{}
+	return t.Call(ctx, params)
+}
+
+// SecureWriteFile 安全增强的文件写入
+type SecureWriteFile struct {
+	Engine *security.Engine
+}
+
+func (s *SecureWriteFile) Name() string { return "write_file" }
+
+func (s *SecureWriteFile) Description() string { return "Write content to a file (security-checked)" }
+
+func (s *SecureWriteFile) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	path, _ := params["path"].(string)
+	content, _ := params["content"].(string)
+	// 安全检查：路径验证 + 文件突变验证
+	results := s.Engine.CheckAll(content, path, "")
+	for _, r := range results {
+		if !r.Passed {
+			return "", fmt.Errorf("security blocked: %s", r.Message)
+		}
+	}
+	t := &tools.WriteFileTool{}
+	return t.Call(ctx, params)
+}
+
+// SecureExecuteCommand 安全增强的命令执行（经过终端后端）
+type SecureExecuteCommand struct {
+	Engine   *security.Engine
+	Terminal *terminal.Manager
+}
+
+func (s *SecureExecuteCommand) Name() string { return "execute_command" }
+
+func (s *SecureExecuteCommand) Description() string { return "Execute a shell command (security-checked, terminal-backend)" }
+
+func (s *SecureExecuteCommand) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	command, _ := params["command"].(string)
+	// 安全检查：硬性黑名单 + 输入清理
+	results := s.Engine.CheckAll(command, "", command)
+	for _, r := range results {
+		if !r.Passed {
+			return "", fmt.Errorf("security blocked: %s", r.Message)
+		}
+	}
+	// 通过终端后端执行（支持Local/Docker/SSH切换）
+	result, err := s.Terminal.Execute(ctx, "sh", "-c", command)
+	if err != nil {
+		// 回退到原始工具
+		t := &tools.ExecuteCommandTool{}
+		return t.Call(ctx, params)
+	}
+	return result.Stdout, nil
 }
 
 // SkillViewTool adapts the skill pipeline for agent usage
