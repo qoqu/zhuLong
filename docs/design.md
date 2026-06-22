@@ -3765,6 +3765,16 @@ get_novel_events: tool({
 | Skills | ✅ | ✅ | 技能管理 |
 | Approval | ✅ | ✅ | 审批引擎 |
 | Environment | ✅ | ✅ | 环境感知 |
+| **breaker** | ✅ | ✅ | 断路器 (Harness-Starter) |
+| **workflow** | ✅ | ✅ | 工作流模式 (full/hotfix/tweak) |
+| **quality** | ✅ | ✅ | 8 维 GC 扫描器 (Harness-Starter) |
+| **evolution** | ✅ | ✅ | 自进化 (reviewer/curator/suggester) |
+| **hook** | ✅ | ✅ | 3 层自动化钩子 (pre/post tool/plan/reflect) |
+| **health** | ✅ | ✅ | 运行时健康检查 (P4 独立服务) |
+| **state** | ✅ | ✅ | 状态持久化 (P4 独立服务) |
+| **upgrade** | ✅ | ✅ | 智能升级 (P4 独立服务) |
+| **cache** | ✅ | ✅ | PrefixCache 高级缓存 (P4 备用) |
+| **loop** | ✅ | ✅ | 自治循环引擎 (P4 独立服务) |
 
 ### E.2 画布功能实现状态
 
@@ -4883,7 +4893,22 @@ prerequisites:
 
 4. **P2 已完成**：
    - 备选路径规划（Plan 失败时自动 fallback）
-   - 环境感知（dataDir 变化监控，30s 轮询）
+   - 环境感知（dataDir 变化监控，60s 轮询）
+
+5. **P4 保留能力库**（5 个模块，代码完整 + 测试通过，但未接主循环）：
+   - **health** — 运行时健康检查（独立 CLI 子命令启动，不阻塞 agent 线程）
+   - **state** — 状态持久化（与 `controller.Session` 功能重叠，前者偏文件持久化，后者偏内存会话）
+   - **upgrade** — 智能升级系统（独立 CLI 子命令启动）
+   - **cache** — PrefixCache 高级缓存（`compressor.SimpleCompressor` 已有自己的实现，此模块为备用方案）
+   - **loop** — 自治循环引擎（与 `controller/loop.go` 功能重叠，前者偏 cron 定时触发，后者偏事件驱动）
+   
+   > 这 5 个模块**不是 bug，不破坏任何功能**，作为全局能力库保留。需要时可通过 CLI 子命令（`zhulong health`/`zhulong upgrade`）或 `internal/loop` 的定时任务入口单独启用。
+
+### J.11 目录树同步说明（design.md §6 与 实现差异）
+
+design.md §6 目录树写于 P0 阶段，目前已比实现落后约 **27 个预期文件名**（`controller/fsm.go`、`planner/replan.go`、`memory/working.go` 等已于代码演进中被 `state.go`、`alternative.go`、`interfaces.go` 替代）。新增 **20+ 个模块**（breaker/board/blueprint/scheduler/evolution/memento/security/terminal/hook/health/state/upgrade/loop/skillset/review/cronx/hub/i18n/dashboard/gateway/plugins/qa/voice/backup/models/cache/observe/profile/acp）在目录树中列出但未注明实现状态。这不影响代码质量，仅文档同步滞后。
+
+**建议**：§6 目录树标记为历史存档，真实目录以 `internal/` 实际文件为准。
 
 ### J.9 测试覆盖统计（2026-06-22 验证）
 
