@@ -128,7 +128,7 @@ export function Sidebar(props: SidebarProps) {
           <div className="history-view">
             <h3 className="history-view__title">{t.history}</h3>
             <div className="history-view__list">
-              {props.projects.flatMap((p) => p.sessions).slice(0, 10).map((session) => (
+              {props.projects.flatMap((p) => p.sessions || []).filter(Boolean).slice(0, 10).map((session) => (
                 <div 
                   key={session.id}
                   className={`history-view__item ${props.activeSessionId === session.id ? 'active' : ''}`}
