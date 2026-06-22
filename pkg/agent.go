@@ -15,15 +15,17 @@ import (
 	"github.com/qoqu/zhuLong/internal/planner"
 	"github.com/qoqu/zhuLong/internal/provider"
 	"github.com/qoqu/zhuLong/internal/reflector"
+	"github.com/qoqu/zhuLong/internal/skills"
 	"github.com/qoqu/zhuLong/internal/tools"
 	"github.com/qoqu/zhuLong/internal/trace"
 )
 
 // Agent is the main entry point for the Zhulong agent
 type Agent struct {
-	goal     string
-	options  *Options
-	provider Provider
+	goal         string
+	options      *Options
+	provider     Provider
+	skillPipeline *skills.Pipeline
 }
 
 // Provider is the interface for LLM providers
@@ -131,9 +133,18 @@ func NewAgent(opts ...Option) (*Agent, error) {
 	// Create data directory if it doesn't exist
 	os.MkdirAll(options.DataDir, 0755)
 
+	// Initialize skill pipeline
+	skillSearchPath := filepath.Join(options.DataDir, "skills")
+	os.MkdirAll(skillSearchPath, 0755)
+	skillPipeline := skills.NewPipeline([]string{skillSearchPath})
+	if err := skillPipeline.Init(); err != nil {
+		return nil, fmt.Errorf("skill pipeline init: %w", err)
+	}
+
 	return &Agent{
-		goal:    options.Goal,
-		options: options,
+		goal:          options.Goal,
+		options:       options,
+		skillPipeline: skillPipeline,
 	}, nil
 }
 
@@ -183,8 +194,21 @@ func (a *Agent) Run() (*AgentResult, error) {
 	toolsReg.Register(&AdapterSearchFile{})
 	toolsReg.Register(&AdapterExecuteCommand{})
 
-	// Initialize planner, executor, reflector
-	pl := planner.NewLLMPlanner(&PlannerProvider{Provider: a.provider}, planner.DefaultConfig())
+	// Register skill tools
+	toolsReg.Register(&SkillViewTool{Pipeline: a.skillPipeline})
+	toolsReg.Register(&SkillSearchTool{Pipeline: a.skillPipeline})
+
+	// Build system prompt with skill context
+	systemPrompt := "You are Zhulong, an autonomous agent."
+	skillList := a.skillPipeline.GetSkillList()
+	if skillList != "" {
+		systemPrompt += "\n" + skillList
+	}
+
+	// Initialize planner with enriched system prompt
+	plannerConfig := planner.DefaultConfig()
+	_ = plannerConfig
+	pl := planner.NewLLMPlanner(&PlannerProvider{Provider: a.provider}, plannerConfig)
 	ex := executor.NewLLMExecutor(&ExecutorProvider{Provider: a.provider}, toolsReg, executor.DefaultConfig())
 	rf := reflector.NewLLMReflector(&ReflectorProvider{Provider: a.provider}, reflector.DefaultConfig())
 
@@ -748,4 +772,42 @@ func (a *AdapterExecuteCommand) Description() string { return "Execute a shell c
 func (a *AdapterExecuteCommand) Call(ctx context.Context, params map[string]interface{}) (string, error) {
 	t := &tools.ExecuteCommandTool{}
 	return t.Call(ctx, params)
+}
+
+// SkillViewTool adapts the skill pipeline for agent usage
+type SkillViewTool struct {
+	Pipeline *skills.Pipeline
+}
+
+func (s *SkillViewTool) Name() string { return "skill_view" }
+
+func (s *SkillViewTool) Description() string {
+	return "Load a skill by name. Returns compressed skill content for context. Usage: skill_view <name>"
+}
+
+func (s *SkillViewTool) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	name, _ := params["name"].(string)
+	if name == "" {
+		return "", fmt.Errorf("skill name is required")
+	}
+	return s.Pipeline.SkillViewTool(name)
+}
+
+// SkillSearchTool adapts the skill pipeline for agent search
+type SkillSearchTool struct {
+	Pipeline *skills.Pipeline
+}
+
+func (s *SkillSearchTool) Name() string { return "skill_search" }
+
+func (s *SkillSearchTool) Description() string {
+	return "Search for available skills by keyword. Usage: skill_search <query>"
+}
+
+func (s *SkillSearchTool) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	query, _ := params["query"].(string)
+	if query == "" {
+		return "", fmt.Errorf("search query is required")
+	}
+	return s.Pipeline.SkillSearchTool(query), nil
 }
