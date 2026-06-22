@@ -62,11 +62,11 @@
   --bg-hover: #3a3a3c;
   --bg-active: #48484a;
   
-  /* Foregrounds */
+  /* Foregrounds - enhanced contrast for readability on pure black */
   --fg: #ffffff;
-  --fg-soft: #e5e5ea;
-  --fg-faint: #8e8e93;
-  --fg-mute: #636366;
+  --fg-soft: #f0f0f5;
+  --fg-faint: #b0b0b8;
+  --fg-mute: #98989f;
   
   /* Borders */
   --border: rgba(255, 255, 255, 0.1);
@@ -2320,18 +2320,36 @@ select {
 }
 
 /* ===== Right Panel Tabs ===== */
+.right-panel__tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  padding: 0 var(--space-2);
+  gap: 0;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.right-panel__tabs::-webkit-scrollbar {
+  display: none;
+}
+
 .right-panel__tab {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
+  gap: 2px;
+  padding: var(--space-2) var(--space-2);
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--fg-faint);
-  font-size: var(--text-sm);
+  font-size: 11px;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .right-panel__tab:hover {
@@ -2346,4 +2364,156 @@ select {
 
 .right-panel__tab-icon {
   font-size: var(--text-base);
+}
+
+/* ===== Status Bar (used by StatusBar.tsx) ===== */
+.statusbar {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 var(--space-3);
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  color: var(--fg-soft);
+  font-size: var(--text-xs);
+  gap: 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.statusbar__group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.statusbar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusbar__sep {
+  margin: 0 var(--space-2);
+  color: var(--fg-mute);
+  flex-shrink: 0;
+}
+
+.statusbar__spacer {
+  flex: 1;
+}
+
+.statusbar__icon {
+  width: 24px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.statusbar__icon:hover {
+  background: var(--bg-hover);
+}
+
+/* ===== File Tree (used by RightPanel FilesTab) ===== */
+.file-tree {
+  font-size: var(--text-sm);
+  user-select: none;
+}
+
+.file-tree__node {
+  /* container for each node */
+}
+
+.file-tree__dir {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  color: var(--fg-soft);
+  transition: background var(--transition-fast);
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.file-tree__dir:hover {
+  background: var(--bg-hover);
+}
+
+.file-tree__arrow {
+  display: inline-block;
+  width: 12px;
+  font-size: 10px;
+  color: var(--fg-faint);
+  transition: transform var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.file-tree__icon {
+  font-size: var(--text-base);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.file-tree__name {
+  color: var(--fg-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree__file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  padding-left: calc(var(--space-2) + 18px);
+  color: var(--fg-faint);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.file-tree__file:hover {
+  background: var(--bg-hover);
+  color: var(--fg-soft);
+}
+
+.file-tree__size {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--fg-mute);
+  flex-shrink: 0;
+}
+
+.file-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.file-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--fg-soft);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.file-list__item:hover {
+  background: var(--bg-hover);
 }
