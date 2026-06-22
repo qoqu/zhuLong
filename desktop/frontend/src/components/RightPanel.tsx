@@ -220,7 +220,7 @@ function FilesTab(props: { language: Language; files: string[] }) {
       setLoading(true)
       try {
         if (backend) {
-          const result = await backend.ListWorkspaceTree('.', 4)
+          const result = await backend.ListWorkspaceTree('.', 2)
           if (!cancelled) setTree(result)
         }
       } catch {}

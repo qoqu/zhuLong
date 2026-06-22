@@ -237,6 +237,8 @@ select {
   background: var(--bg-soft);
   border-right: 1px solid var(--border);
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   position: relative;
   font-size: var(--text-base);
   padding: var(--space-4);
@@ -1096,6 +1098,8 @@ select {
   background: var(--bg-soft);
   border-left: 1px solid var(--border);
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   font-size: var(--text-base);
 }
 
@@ -2378,6 +2382,7 @@ select {
 
 /* ===== Status Bar (used by StatusBar.tsx) ===== */
 .statusbar {
+  grid-area: status;
   display: flex;
   align-items: center;
   height: 32px;

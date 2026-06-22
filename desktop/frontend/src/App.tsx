@@ -500,10 +500,12 @@ function App() {
         {viewMode === 'chat' ? (
           <>
             {messages.length === 0 ? (
-              <EmptyState
-                language={language}
-                onPick={(text) => setInput(text)}
-              />
+              <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                <EmptyState
+                  language={language}
+                  onPick={(text) => setInput(text)}
+                />
+              </div>
             ) : (
               <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
                 <Transcript
