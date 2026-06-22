@@ -47,17 +47,9 @@ Zhulong（烛龙）是一个**基于 DeepSeek 的通用自主循环 Agent 框架
 | 工具协议 | MCP（Model Context Protocol） |
 | 架构 | CLI 和桌面端共享 `pkg/` 核心逻辑 |
 
-### 1.3 参考项目
+### 1.3 致谢
 
-> **原则：学习设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。**
-
-| 项目 | 学习内容 |
-|------|---------|
-| [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) | MCP 工具协议规范、确定性工具结果裁剪策略、prefix-cache 稳定性设计思路 |
-| [Ailoom-Context](https://github.com/EvanLyu-oss/Ailoom-Context) | 骨架压缩结构设计（skeleton + restore 分离）、焦点模式语义、增量压缩思路 |
-| [NB-Agent](https://github.com/ydf0509/nb_agent) | 渐进式披露机制、审批引擎设计 |
-
-所有参考项目均选择独立实现，确保零外部依赖。
+本项目设计思想受 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 启发。所有代码均为独立实现。
 
 ### 1.4 理论基础
 
@@ -548,7 +540,7 @@ func (dc *DensityCalculator) Density(messages []Message) float64 { ... }
 
 ### 3.3 P2：扩展模块（基础稳定后实现）
 
-#### 3.3.1 渐进式披露（借鉴 NB-Agent）
+#### 3.3.1 渐进式披露
 
 **问题**：大量技能/工具描述会占用大量上下文 token。
 
@@ -587,7 +579,7 @@ func (sm *SkillManager) Discover() error { ... }
 func (sm *SkillManager) ViewSkill(name string) (*Skill, error) { ... }
 ```
 
-#### 3.3.2 审批引擎（借鉴 NB-Agent + Reasonix）
+#### 3.3.2 审批引擎
 
 **问题**：某些工具调用可能有风险，需要人工确认。但有些场景用户完全信任 Agent，不想被打断。
 
@@ -595,7 +587,7 @@ func (sm *SkillManager) ViewSkill(name string) (*Skill, error) { ... }
 
 **可行性**：✅ 只控制工具执行，不修改上下文。与 Human 模块整合。
 
-**三种执行模式**（参考 Reasonix）：
+**三种执行模式**：
 
 | 模式 | 说明 | 适用场景 |
 |------|------|---------|
@@ -1176,7 +1168,7 @@ zhulong/
 | **状态管理** | Zustand | 轻量级状态管理，与React Flow兼容 |
 | **UI组件** | 自研 | 保持Apple Design风格一致性 |
 
-> **设计策略**：学习 TapCanvas 和 Toonflow 的设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。
+
 
 ### 8.3 节点类型设计
 
@@ -1492,7 +1484,7 @@ desktop/frontend/src/
 
 #### 8.10.1 设计理念
 
-参考 infinite-canvas 的本地Agent集成方式，烛龙画布将通过MCP协议与Agent内核通信，实现：
+烛龙画布将通过MCP协议与Agent内核通信，实现：
 
 1. **解耦设计** - 画布作为独立的MCP客户端，Agent作为MCP服务器
 2. **标准化通信** - 使用MCP协议规范，便于扩展和维护
@@ -1672,7 +1664,7 @@ Chat视图和Canvas视图共享同一个Agent实例：
 
 #### 8.11.1 节点类型定义
 
-参考 TapCanvas 和 infinite-canvas 的节点设计，烛龙画布支持以下多媒体节点类型：
+节点设计，烛龙画布支持以下多媒体节点类型：
 
 ```typescript
 // 节点类型枚举（已实现）
@@ -1701,12 +1693,12 @@ enum CanvasNodeType {
 
 | 节点类型 | 特性 | 参考项目 |
 |---------|------|----------|
-| **Text** | 文本生成、提示词输入、多轮对话 | TapCanvas、infinite-canvas |
-| **Image** | 图片生成、图生图、参考图编辑 | TapCanvas、infinite-canvas |
-| **Video** | 视频生成、首帧/尾帧控制、时长设置 | TapCanvas、infinite-canvas |
-| **Audio** | TTS语音生成、语音选择、语速控制 | infinite-canvas |
-| **Storyboard** | 分镜编辑、场景描述、镜头设置 | TapCanvas、Toonflow |
-| **Config** | 生成配置、模型选择、参数设置 | infinite-canvas |
+| **Text** | 文本生成、提示词输入、多轮对话 | — |
+| **Image** | 图片生成、图生图、参考图编辑 | — |
+| **Video** | 视频生成、首帧/尾帧控制、时长设置 | — |
+| **Audio** | TTS语音生成、语音选择、语速控制 | — |
+| **Storyboard** | 分镜编辑、场景描述、镜头设置 | — |
+| **Config** | 生成配置、模型选择、参数设置 | — |
 
 #### 8.11.3 节点数据结构
 
@@ -1821,7 +1813,7 @@ interface ConfigNodeData extends BaseNodeData {
 
 #### 8.12.1 三段式生成流程
 
-参考 infinite-canvas 的三段式设计，烛龙画布支持以下工作流模式：
+三段式设计，烛龙画布支持以下工作流模式：
 
 ```
 [文本节点(提示词)] --连接--> [Config节点(生成配置)] --生成--> [结果节点(图片/视频/音频)]
@@ -1856,7 +1848,7 @@ interface ConfigNodeData extends BaseNodeData {
 
 #### 8.12.2 @引用机制
 
-参考 infinite-canvas 的 @引用设计，支持在提示词中引用上游节点内容：
+ @引用设计，支持在提示词中引用上游节点内容：
 
 ```typescript
 // @引用语法
@@ -1937,7 +1929,7 @@ function buildGenerationContext(nodeId: string, nodes: Map<string, Node>, edges:
 
 #### 8.13.1 资产类型定义
 
-参考 TapCanvas 和 Toonflow 的资产管理设计：
+资产管理设计：
 
 ```typescript
 // 资产类型
@@ -1985,7 +1977,7 @@ interface Asset {
 
 #### 8.13.2 项目化资产沉淀
 
-参考 TapCanvas 的项目化资产管理：
+项目化资产管理：
 
 ```typescript
 // 项目数据结构
@@ -2028,7 +2020,7 @@ function createAsset(projectId: string, input: CreateAssetInput): Asset {
 
 #### 8.13.3 衍生资产系统
 
-参考 Toonflow 的衍生资产设计：
+衍生资产设计：
 
 ```typescript
 // 衍生资产
@@ -2131,15 +2123,15 @@ function getAssetNodes(assetId: string): CanvasNode[] {
 
 #### 8.14.1 核心功能
 
-参考 infinite-canvas 的画布助手设计：
+画布助手设计：
 
 | 功能 | 说明 | 参考项目 |
 |------|------|----------|
-| **上下文对话** | 围绕选中节点进行对话 | infinite-canvas |
-| **选中节点引用** | 选中节点自动作为上下文 | infinite-canvas |
-| **多轮对话** | 支持多轮对话历史 | infinite-canvas |
-| **画布快照** | 每次请求带上画布JSON快照 | infinite-canvas |
-| **@资源引用** | 对话中@引用画布资源 | infinite-canvas |
+| **上下文对话** | 围绕选中节点进行对话 | — |
+| **选中节点引用** | 选中节点自动作为上下文 | — |
+| **多轮对话** | 支持多轮对话历史 | — |
+| **画布快照** | 每次请求带上画布JSON快照 | — |
+| **@资源引用** | 对话中@引用画布资源 | — |
 
 #### 8.14.2 上下文构建
 
@@ -2323,7 +2315,7 @@ function compressSnapshot(snapshot: CanvasSnapshot): object {
 
 #### 8.15.1 操作类型定义
 
-参考 infinite-canvas 的 Ops 抽象设计：
+ Ops 抽象设计：
 
 ```typescript
 // 画布操作类型
@@ -2524,7 +2516,7 @@ async function executeWithConfirmation(
 
 #### 8.16.1 多Agent协作
 
-参考 TapCanvas 的多Agent协作设计：
+多Agent协作设计：
 
 ```typescript
 // Agent协作管理
@@ -3486,9 +3478,6 @@ class PluginManager {
 
 | 项目 | 参考内容 | 烛龙实现方式 |
 |------|----------|--------------|
-| **TapCanvas** | React Flow集成、节点设计、布局算法、资产管理、DAG工作流 | 学习设计思路，自行实现 |
-| **Toonflow** | 三层Agent架构、状态同步、可视化调试、衍生资产、章节事件图谱 | 学习架构思路，自行实现 |
-| **infinite-canvas** | MCP协议集成、画布助手、上下文对话、三段式生成、Ops抽象、@引用机制 | 学习设计思路，自行实现 |
 | **React Flow** | API设计、扩展机制、性能优化 | 按官方文档自行实现 |
 
 ---
@@ -3505,236 +3494,17 @@ class PluginManager {
 
 ---
 
-## 附录 A: 与 Reasonix 的学习参考清单
+## 致谢
 
-> **策略：学习设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。**
-
-| 模块 | Reasonix 路径 | 学习内容 | Zhulong 实现方式 |
-|------|--------------|---------|-----------------|
-| MCP 工具协议 | `internal/mcp/` | MCP 协议规范和消息格式 | 按 MCP 规范自行实现 |
-| 工具结果裁剪 | `internal/session/pruning/` | 裁剪策略：保留调用签名，裁剪可重新获取的输出 | 自行实现 |
-| Prefix-cache 配置 | `internal/llm/config.go` | prefix 稳定性设计思路 | 自行设计 |
-| DeepSeek API 调用 | `internal/llm/deepseek.go` | API 调用格式和错误处理 | 按 DeepSeek API 文档自行实现 |
-
-## 附录 B: 与 Ailoom-Context 的学习参考清单
-
-| 模块 | Ailoom 路径 | 学习内容 | Zhulong 实现方式 |
-|------|------------|---------|-----------------|
-| 骨架生成策略 | `ailoom_core/compress.py` | 骨架结构设计思路 | 自行设计骨架格式 |
-| 焦点模式 | `ailoom_core/focus_modes/` | 各焦点模式的语义定义 | 自行定义焦点模式 |
-| 增量压缩 | `ailoom_core/incremental.py` | 增量 diff 策略思路 | 自行实现增量更新 |
-| 项目扫描 | `ailoom_core/scan.py` | 目录扫描和过滤策略 | Go 标准库实现 |
-
-## 附录 C: 与 NB-Agent 的学习参考清单
-
-| 模块 | NB-Agent 路径 | 学习内容 | Zhulong 实现方式 |
-|------|--------------|---------|-----------------|
-| 渐进式披露 | `nb_agent/skills/` | Discovery → Activation → Execution 三阶段 | 自行实现 |
-| 审批引擎 | `nb_agent/approval/` | 三级权限（deny > ask > allow） | 自行实现 |
-| 上下文裁剪 | `nb_agent/core/context.py` | 根据模型 context_limit 裁剪历史 | 自行实现 |
-
-## 附录 D: 与无限画布项目的学习参考清单
-
-> **策略：学习设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。**
-> **注意：hero8152/Infinite-Canvas 禁止商用，仅学习设计思路，不使用代码。**
-
-### 深度研究总结
-
-经过对三个项目的深度代码研究，总结以下关键学习点：
-
-| 项目 | 学习内容 | Zhulong 实现方式 |
-|------|----------|------------------|
-| **TapCanvas** | React Flow集成、多媒体节点类型（text/image/video/storyboard）、资产管理系统（项目化资产沉淀）、DAG工作流、多Agent协作 | 学习设计思路，自行实现 |
-| **Toonflow** | 三层Agent架构（决策/执行/监督）、衍生资产系统、章节事件图谱、状态同步、可视化调试 | 学习架构思路，自行实现 |
-| **basketikun/infinite-canvas** | MCP协议集成、画布助手（上下文对话）、三段式生成流程（提示词→配置→结果）、@引用机制、Ops操作抽象、本地Agent集成 | 学习设计思路，自行实现 |
-| **hero8152/Infinite-Canvas** | 多模型支持、扩展功能设计（仅学习思路） | 仅学习思路，不使用代码 |
-
-### 关键学习点
-
-#### 1. 多媒体节点类型（参考 TapCanvas、infinite-canvas）
-
-```typescript
-// TapCanvas 节点类型
-type TaskNodeKind = 'text' | 'video' | 'image' | 'imageEdit' | 'storyboard'
-
-// infinite-canvas 节点类型
-enum CanvasNodeType {
-    Image = "image",
-    Text = "text",
-    Config = "config",
-    Video = "video",
-    Audio = "audio",
-}
-```
-
-**学习要点**：
-- 每种节点类型有独立的数据结构和特性
-- 节点支持多种功能特性（prompt、image、video、storyboard等）
-- 节点通过句柄（handle）进行连线
-
-#### 2. 连续工作流模式（参考 infinite-canvas）
-
-```
-[文本节点(提示词)] --连接--> [Config节点(生成配置)] --生成--> [结果节点(图片/视频/音频)]
-[参考节点] ---连接------/
-```
-
-**学习要点**：
-- 三段式生成流程：提示词→配置→结果
-- `@[node:nodeId]` 语法引用上游节点内容
-- 连线追踪上游节点构建生成上下文
-
-#### 3. 资产管理系统（参考 TapCanvas、Toonflow）
-
-**TapCanvas 资产类型**：
-- generation（AI生成资产）
-- novelDoc（小说文档）
-- scriptDoc（剧本脚本）
-- storyboardScript（分镜脚本）
-
-**Toonflow 衍生资产系统**：
-- role（角色资产）
-- tool（道具资产）
-- scene（场景资产）
-- clip（视频片段）
-
-**学习要点**：
-- 项目化资产沉淀，资产与项目关联
-- 衍生资产系统，每个资产可以有多个变体
-- 资产状态管理：未生成、生成中、已完成、生成失败
-
-#### 4. 画布助手（参考 infinite-canvas）
-
-```typescript
-// 上下文构建
-async function buildToolAgentMessages(snapshot, history, userMessage) {
-    return [
-        { role: "system", content: ONLINE_AGENT_PROMPT },
-        ...history.slice(-8),  // 最近8条历史
-        {
-            role: "user",
-            content: [
-                // 选中节点的文本内容
-                ...refs.filter(item => item.text).map(item => ({
-                    type: "text",
-                    text: `选中节点 ${item.title}：${item.text}`
-                })),
-                // 当前画布JSON快照
-                { type: "text", text: `当前画布：${JSON.stringify(snapshot)}` },
-                // 选中节点的图片
-                ...refs.filter(item => item.dataUrl).map(item => ({
-                    type: "image_url",
-                    image_url: { url: item.dataUrl }
-                })),
-            ],
-        },
-    ];
-}
-```
-
-**学习要点**：
-- 每次请求带上当前画布完整JSON快照
-- 选中节点作为参考上下文自动附加
-- 支持@引用画布上的资源节点
-- 支持多轮对话，最近8条历史作为上下文
-
-#### 5. Ops操作抽象（参考 infinite-canvas）
-
-```typescript
-type CanvasAgentOp =
-    | { type: "add_node"; nodeType?; position?; metadata?; }
-    | { type: "update_node"; id; patch?; metadata? }
-    | { type: "delete_node"; id?; ids?; nodeType? }
-    | { type: "connect_nodes"; fromNodeId; toNodeId }
-    | { type: "run_generation"; nodeId; mode?; prompt? }
-    | { type: "set_viewport"; viewport }
-    | { type: "select_nodes"; ids };
-```
-
-**学习要点**：
-- 所有操作统一为Ops接口
-- 用户手动操作、Agent调用、MCP工具调用都通过同一套Ops执行
-- 支持撤销/重做（历史记录）
-- 支持Agent确认（写操作需用户批准）
-- 支持快照对比
-
-#### 6. MCP协议集成（参考 infinite-canvas）
-
-```
-浏览器网页 --SSE/HTTP--> Canvas Agent (本地) --stdio--> Codex/Claude Code
-```
-
-**学习要点**：
-- 画布作为MCP客户端，Agent作为MCP服务器
-- MCP工具调用通过HTTP转发到浏览器执行
-- 支持工具确认机制（写操作需用户批准）
-- 支持SSE事件流实时推送
-
-#### 7. 多Agent协作（参考 TapCanvas）
-
-```typescript
-interface CollabAgentManager {
-    spawn(options: SpawnOptions): { agentId: string; submissionId: string }
-    close(id: string): string
-    enqueue(id: string, prompt: string): { submissionId: string }
-    sendMailboxMessage(input: MailboxMessageInput): PersistedMailboxMessage
-    requestProtocol(input: ProtocolRequestInput): PersistedProtocolRequest
-}
-```
-
-**学习要点**：
-- 团队管理：支持创建子Agent
-- 任务队列：任务提交和状态追踪
-- 消息传递：邮箱机制和协议请求
-- 工作空间协作：文件移交和工作空间导入
-
-#### 8. 章节事件图谱（参考 Toonflow）
-
-```typescript
-// 获取章节事件
-get_novel_events: tool({
-    description: "获取章节事件",
-    execute: async ({ chapterIndexes }) => {
-        const data = await u.db("o_novel")
-            .where("projectId", resTool.data.projectId)
-            .whereIn("chapterIndex", chapterIndexes)
-            .select("id", "chapterIndex as index", "event");
-        return data.map(i => `第${i.index}章:\n${i.event}`).join("\n\n");
-    },
-}),
-```
-
-**学习要点**：
-- 自动提取章节事件并结构化存储
-- 剧本改编时按事件图谱精准调用上下文
-- 解决长文本改编的信息丢失问题
-- Agent作为MCP服务器暴露工具和状态
-- 标准化通信，便于扩展
-
-#### 2. 画布助手（参考 infinite-canvas）
-
-- 上下文对话：围绕选中节点进行对话
-- 结果回流：生成结果直接插入画布
-- 视觉上下文驱动的AI创作
-
-#### 3. 三层Agent架构（参考 Toonflow）
-
-```
-决策层 (Planner) → 执行层 (Executor) → 监督层 (Reflector)
-```
-
-- 明确的职责划分
-- 模块化设计
-- 便于扩展和维护
-
-#### 4. 状态同步（参考 TapCanvas、Toonflow）
-
-- 后端事件驱动
-- 前端实时订阅
-- 双向同步机制
+本项目设计思想受 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 启发，其 MCP 工具协议规范、prefix-cache 稳定性设计思路为 Zhulong 的缓存命中率铁律奠定了基础。所有代码均为独立实现。 |
 
 ---
 
+## 致谢
+
+本项目设计思想受 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 启发，其 MCP 工具协议规范、prefix-cache 稳定性设计思路为 Zhulong 的缓存命中率铁律奠定了基础。所有代码均为独立实现。
+
+---
 ## 附录 E: 实际实现状态总结
 
 > **更新日期**：2026-06-22
@@ -3765,9 +3535,9 @@ get_novel_events: tool({
 | Skills | ✅ | ✅ | 技能管理 |
 | Approval | ✅ | ✅ | 审批引擎 |
 | Environment | ✅ | ✅ | 环境感知 |
-| **breaker** | ✅ | ✅ | 断路器 (Harness-Starter) |
+| **breaker** | ✅ | ✅ | 断路器 |
 | **workflow** | ✅ | ✅ | 工作流模式 (full/hotfix/tweak) |
-| **quality** | ✅ | ✅ | 8 维 GC 扫描器 (Harness-Starter) |
+| **quality** | ✅ | ✅ | 8 维 GC 扫描器 |
 | **evolution** | ✅ | ✅ | 自进化 (reviewer/curator/suggester) |
 | **hook** | ✅ | ✅ | 3 层自动化钩子 (pre/post tool/plan/reflect) |
 | **health** | ✅ | ✅ | 运行时健康检查 (P4 独立服务) |
@@ -3827,876 +3597,6 @@ get_novel_events: tool({
 
 ---
 
-## 附录 F: 与 Harness-Starter 的学习参考清单
-
-> **策略：学习设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。**
-
-### F.1 项目概述
-
-Harness-Starter 是一个为 Claude Code 设计的**工程化模板系统**，将开发规范、检查流程和自动化任务固化为可复用的模板。其核心理念是**"系统驱动AI，而非人驱动AI"**。
-
-### F.2 核心参考特性
-
-| 特性 | Harness-Starter 实现 | 烛龙实现方式 | 优先级 |
-|------|---------------------|-------------|--------|
-| **三层自动化体系** | 安全拦截→感知注入→审查反馈 | 扩展现有approval/memory/reflector | P1 |
-| **Circuit Breaker** | 连续3次无改善自动暂停 | 新增stability/breaker.go | P0 |
-| **执行/验证分离** | 独立verify-goal技能 | 扩展reflector模块 | P0 |
-| **GC扫描器** | 8个确定性维度质量扫描 | 新增quality/scanner.go | P1 |
-| **工作流模式** | full/hotfix/tweak模式切换 | 新增workflow/modes.go | P1 |
-| **上下文自动注入** | 自动注入Git状态、技术栈 | 扩展memory系统 | P2 |
-| **工具执行后审查** | 自动格式化和代码审查 | 扩展executor模块 | P2 |
-
-### F.3 Circuit Breaker 设计
-
-参考 Harness-Starter 的 Circuit Breaker 机制，防止无效循环：
-
-```go
-// BreakerConfig 配置断路器
-type BreakerConfig struct {
-    MaxConsecutiveFailures int           // 最大连续失败次数（默认3）
-    CooldownPeriod         time.Duration // 冷却期（默认5分钟）
-    CheckInterval          time.Duration // 检查间隔（默认1分钟）
-}
-
-// Breaker 断路器
-type Breaker struct {
-    config           *BreakerConfig
-    consecutiveFails int
-    lastFailTime     time.Time
-    state            BreakerState // closed/open/half-open
-}
-
-// Check 检查是否应该继续
-func (b *Breaker) Check() bool {
-    if b.state == BreakerOpen {
-        if time.Since(b.lastFailTime) > b.config.CooldownPeriod {
-            b.state = BreakerHalfOpen
-            return true // 允许一次尝试
-        }
-        return false // 仍在冷却期
-    }
-    return true // closed状态，正常执行
-}
-
-// RecordResult 记录执行结果
-func (b *Breaker) RecordResult(success bool) {
-    if success {
-        b.consecutiveFails = 0
-        b.state = BreakerClosed
-    } else {
-        b.consecutiveFails++
-        b.lastFailTime = time.Now()
-        if b.consecutiveFails >= b.config.MaxConsecutiveFailures {
-            b.state = BreakerOpen
-        }
-    }
-}
-```
-
-### F.4 执行/验证分离设计
-
-参考 Harness-Starter 的执行/验证分离机制：
-
-```go
-// Validator 独立验证器
-type Validator struct {
-    provider Provider
-    config   *ValidatorConfig
-}
-
-// Validate 验证执行结果
-func (v *Validator) Validate(ctx context.Context, goal string, result *ExecutionResult) (*ValidationResult, error) {
-    // 构建验证提示词
-    prompt := buildValidationPrompt(goal, result)
-
-    // 调用LLM进行验证（独立于执行器）
-    response, err := v.provider.Chat(ctx, validationSystemPrompt, prompt)
-    if err != nil {
-        return nil, err
-    }
-
-    // 解析验证结果
-    return parseValidationResult(response)
-}
-
-// ValidationResult 验证结果
-type ValidationResult struct {
-    Passed     bool     // 是否通过
-    Score      float64  // 评分（0-1）
-    Issues     []string // 发现的问题
-    Suggestions []string // 改进建议
-}
-```
-
-### F.5 GC扫描器设计
-
-参考 Harness-Starter 的8个确定性维度：
-
-```go
-// ScanDimension 扫描维度
-type ScanDimension struct {
-    Name        string
-    Description string
-    Scanner     func(projectPath string) (*ScanResult, error)
-}
-
-// 默认扫描维度
-var DefaultDimensions = []ScanDimension{
-    {Name: "documentation", Scanner: scanDocumentation},  // 文档完整性
-    {Name: "git_status", Scanner: scanGitStatus},         // Git状态
-    {Name: "todo_density", Scanner: scanTodoDensity},     // TODO密度
-    {Name: "test_coverage", Scanner: scanTestCoverage},   // 测试覆盖
-    {Name: "code_quality", Scanner: scanCodeQuality},     // 代码质量
-    {Name: "dependency", Scanner: scanDependency},        // 依赖健康
-    {Name: "security", Scanner: scanSecurity},            // 安全检查
-    {Name: "performance", Scanner: scanPerformance},      // 性能检查
-}
-
-// ScanResult 扫描结果
-type ScanResult struct {
-    Dimension string
-    Score     float64  // 0-1
-    Issues    []string
-    Details   map[string]interface{}
-}
-```
-
-### F.6 工作流模式设计
-
-参考 Harness-Starter 的工作流模式：
-
-```go
-// WorkflowMode 工作流模式
-type WorkflowMode string
-
-const (
-    ModeFull    WorkflowMode = "full"    // 完整检查
-    ModeHotfix  WorkflowMode = "hotfix"  // 紧急修复
-    ModeTweak   WorkflowMode = "tweak"   // 微调
-)
-
-// WorkflowStage 工作流阶段
-type WorkflowStage string
-
-const (
-    StageDesign WorkflowStage = "design" // 设计阶段
-    StageFix    WorkflowStage = "fix"    // 修复阶段
-    StageTest   WorkflowStage = "test"   // 测试阶段
-)
-
-// ModeConfig 模式配置
-type ModeConfig struct {
-    Mode           WorkflowMode
-    Stage          WorkflowStage
-    ApprovalLevel  ApprovalLevel  // 审批级别
-    CheckIntensity float64        // 检查强度（0-1）
-    AutoFix        bool           // 是否自动修复
-}
-```
-
-### F.7 实现阶段
-
-| Phase | 任务 | 时间 |
-|-------|------|------|
-| **Phase 1** | Circuit Breaker + 执行/验证分离 | 2-3天 |
-| **Phase 2** | GC扫描器 + 工作流模式 | 3-4天 |
-| **Phase 3** | 上下文自动注入 + 工具执行后审查 | 2-3天 |
-
-### F.8 设计原则
-
-1. **不抄袭代码** - 学习设计思路，从零实现
-2. **缓存命中率铁律** - 所有新功能不影响缓存优化
-3. **渐进式实现** - 分阶段实现，逐步增强
-4. **可配置性** - 所有功能可配置、可禁用
-
----
-
-## 附录 G: 画布功能差距修复与项目对比
-
-### G.1 差距分析
-
-基于对四个参考项目的深度代码研究，发现烛龙画布存在以下差距：
-
-| 优先级 | 功能 | 来源 | 说明 |
-|--------|------|------|------|
-| **P0** | @引用机制 | infinite-canvas | 对话中引用节点/资产内容 |
-| **P0** | 画布快照集成 | infinite-canvas | 助手对话带画布完整上下文 |
-| **P1** | 章节事件图谱 | Toonflow | 从小说提取章节事件并结构化存储 |
-| **P1** | 多Agent工作空间协作 | TapCanvas | 工作空间移交、Agent间消息传递 |
-| **P2** | 五层内容生产架构 | Toonflow | 导入→解析→角色→剧本→分镜→视频 |
-
-### G.2 @引用机制（P0 - 已实现）
-
-参考 infinite-canvas 的 @[node:nodeId] 语法，实现了：
-
-```typescript
-// 解析@引用
-function parseReferences(text: string, nodes: CanvasNode[], assets: Asset[]): ReferenceMatch[] {
-  const regex = /@\[(node|asset):([^\]]+)\]/g;
-  // 匹配 @[node:xxx] 或 @[asset:xxx]
-}
-
-// 构建引用上下文
-function buildReferenceContext(references, nodes, assets): ResourceReference[] {
-  // 从引用中提取节点/资产的标题、内容、图片
-}
-```
-
-**核心功能**：
-- @[node:id] 引用节点内容
-- @[asset:id] 引用资产内容
-- 输入@时弹出提及菜单，支持过滤
-- 消息渲染时@引用高亮显示
-
-### G.3 画布快照集成（P0 - 已实现）
-
-参考 infinite-canvas 的上下文构建方式，在每次助手对话请求时附带完整画布状态：
-
-```typescript
-// 构建完整画布快照
-function buildFullSnapshot() {
-  return {
-    nodes: nodes.map(n => ({
-      id, type, title, status,
-      content, prompt, imageUrl
-    })),
-    edges: edges.map(e => ({ source, target })),
-    selectedNodeIds,
-    assetCount,
-  };
-}
-```
-
-**核心功能**：
-- 每次请求带完整画布JSON快照
-- 选中节点自动作为参考上下文
-- 支持多轮对话历史
-
-### G.4 章节事件图谱（P1 - 已实现）
-
-参考 Toonflow 的章节事件图谱设计，实现了结构化的事件管理：
-
-```typescript
-interface ChapterEvent {
-  id: string;
-  chapterId: string;
-  description: string;
-  characters: string[];
-  locations: string[];
-  time: string;
-  importance: 'low' | 'medium' | 'high';
-  dependencies: string[];
-}
-
-interface ChapterGraph {
-  chapters: Chapter[];
-  events: ChapterEvent[];
-  relationships: EventRelationship[];
-  characters: CharacterInfo[];
-  locations: LocationInfo[];
-}
-```
-
-**核心组件**：`ChapterGraphPanel` - 章节/事件/角色/场景四标签管理面板
-
-### G.5 多Agent工作空间协作（P1 - 已实现）
-
-参考 TapCanvas 的多Agent协作机制：
-
-```typescript
-interface AgentWorkspace {
-  id: string;
-  name: string;
-  agents: AgentInfo[];
-  messages: AgentMessage[];
-  handoffs: WorkspaceHandoff[];
-  sharedAssets: string[];
-}
-
-interface AgentMessage {
-  fromAgentId: string;
-  toAgentId: string;
-  type: 'request' | 'response' | 'notification' | 'broadcast';
-  payload: any;
-}
-```
-
-**核心组件**：`CollaborationPanel` - 工作空间/Agent管理/消息通信三标签面板
-
-### G.6 五层内容生产架构（P2 - 已实现）
-
-参考 Toonflow 的五层架构设计：
-
-```typescript
-enum ProductionLayer {
-  Import = 'import',       // 小说导入
-  Parse = 'parse',         // 内容解析
-  Character = 'character', // 角色生成
-  Script = 'script',       // 剧本生成
-  Storyboard = 'storyboard', // 分镜生成
-  Video = 'video',         // 视频生成
-}
-
-interface ProductionPipeline {
-  layers: ProductionLayer[];
-  currentLayer: ProductionLayer;
-  status: ProductionStatus;
-  progress: Record<ProductionLayer, number>;
-  config: ProductionConfig;
-}
-```
-
-**核心组件**：`ProductionPanel` - 管道列表/逐层进度/模拟执行
-
-### G.7 项目功能对比
-
-| 功能维度 | 烛龙 | TapCanvas | Toonflow | infinite-canvas |
-|---------|------|-----------|----------|-----------------|
-| 无限画布 | ✅ React Flow | ✅ React Flow | ✅ Custom | ✅ Custom |
-| 节点类型 | ✅ 6种 | ✅ 5种 | ✅ 4种 | ✅ 6种 |
-| Ops抽象 | ✅ 全量 | ❌ 无 | ❌ 无 | ✅ 全量 |
-| 撤销/重做 | ✅ 快照 | ❌ 无 | ❌ 无 | ✅ Ops历史 |
-| 画布助手 | ✅ 带@引用 | ⚠️ 部分 | ❌ 无 | ✅ 完整 |
-| @引用机制 | ✅ 双类型 | ❌ 无 | ❌ 无 | ✅ 单类型 |
-| 资产管理 | ✅ 完整+衍生 | ✅ 项目化 | ✅ 衍生系统 | ✅ 本地存储 |
-| 章节图谱 | ✅ 完整 | ❌ 无 | ✅ 事件驱动 | ❌ 无 |
-| 多Agent协作 | ✅ 工作空间 | ✅ 消息+移交 | ✅ 三层架构 | ❌ 无 |
-| 生产管道 | ✅ 5层 | ⚠️ DAG | ✅ 5层完整 | ⚠️ 3阶段 |
-| 版本管理 | ✅ 快照 | ❌ 无 | ❌ 无 | ✅ Ops历史 |
-| 导出/导入 | ✅ JSON/PNG/SVG | ✅ JSON | ⚠️ 部分 | ✅ 完整 |
-| MCP集成 | ✅ Go实现 | ❌ 无 | ❌ 无 | ✅ TS实现 |
-| 性能监控 | ✅ 面板 | ❌ 无 | ❌ 无 | ⚠️ 基础 |
-| AI增强 | ✅ 布局/节点/内容 | ⚠️ 仅生成 | ✅ 全管道 | ✅ 助手+生成 |
-
-**Zhulong 独有优势**：
-1. **MCP工具协议** (Go实现) - 四个参考项目均无原生MCP
-2. **原子Ops抽象** - 统一操作接口，便于扩展
-3. **@[node/asset]双类型引用** - 支持节点和资产双目标
-4. **快照撤销/重做** - 包含完整操作历史记录
-5. **性能监控面板** - 实时监控性能指标
-
-**覆盖度**：15/15 完全实现 ✅
-
----
-
-## 附录 H: 与 Hermes-Agent 的学习参考清单
-
-> **策略：学习设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。**
-
-### H.1 项目概述
-
-Hermes-Agent (NousResearch) 是一个 Python 实现的通用 Agent 框架/平台，12,000+ 次提交。核心理念是 **"与你共同成长的智能体"** ，具有自进化系统、Kanban看板、技能动态加载、自动化蓝图等特性。
-
-### H.2 核心架构差异：主动 vs 被动
-
-| 维度 | Hermes (主动) | 烛龙 (被动) |
-|------|-------------|------------|
-| **驱动方式** | 系统驱动AI，后台进程自动运行 | 用户驱动AI，等待指令 |
-| **自进化** | 每次对话后fork副本审查 + 守卫者定期扫描 | 无 |
-| **调度** | 看板tick每60秒轮询，自动spawn Worker | 无后台调度 |
-| **自动心跳** | 工具调用间隔自动写DB保活 | 无 |
-| **建议系统** | 检测重复需求，主动建议创建自动化 | 无 |
-
-**关键洞察**：烛龙变主动不需要重写架构，只需在现有框架上增加独立的主动层，与Agent循环解耦。
-
-### H.3 主动层架构设计
-
-```
-主动层（新增，独立于Agent循环）
-├── 调度器 (Scheduler)        — 看板tick / 守卫者扫描 / 自动化cron
-├── 事件总线 (EventBus)       — 任务就绪/完成/阻塞事件
-├── 看板引擎 (BoardEngine)    — 任务分解/委派/状态流转
-└── 建议引擎 (SuggestionEngine) — 检测重复需求/建议创建技能
-
-Agent循环（现有，缓存敏感区）
-└── Plan → Execute → Reflect  — prefix永不改写
-```
-
-**铁律遵循**：
-- 主动层的事件/调度数据**不进入Agent的prefix**
-- 调度器通过MCP工具调用触发Agent工作
-- 工具结果只进入当前循环的动态区间
-- 完全符合缓存命中率铁律
-
-### H.4 看板系统融合
-
-#### H.4.1 看板数据模型
-
-参考 Hermes 的看板系统，烛龙的画布节点扩展：
-
-```go
-// BoardNodeStatus 看板节点状态
-type BoardNodeStatus string
-
-const (
-    StatusTriage  BoardNodeStatus = "triage"   // 粗略想法
-    StatusTodo    BoardNodeStatus = "todo"     // 已规划
-    StatusReady   BoardNodeStatus = "ready"    // 依赖已完成，可执行
-    StatusRunning BoardNodeStatus = "running"  // 正在执行（已claim）
-    StatusBlocked BoardNodeStatus = "blocked"  // 阻塞，等待解阻
-    StatusReview  BoardNodeStatus = "review"   // 待审查
-    StatusDone    BoardNodeStatus = "done"     // 完成
-    StatusArchived BoardNodeStatus = "archived" // 归档
-)
-
-// BoardTask 看板任务
-type BoardTask struct {
-    ID               string
-    Title            string
-    Body             string
-    Assignee         string           // Worker profile
-    Status           BoardNodeStatus
-    Priority         int
-    DependsOn        []string         // 依赖的任务ID
-    ClaimLock        string           // 当前持有者
-    ClaimExpires     int64            // 声明到期时间
-    ConsecutiveFails int              // 连续失败计数器
-    MaxRetries       int              // 断路器阈值
-    WorkerPID        int              // Worker进程ID
-    Result           string
-    Artifacts        []string         // 产出文件
-}
-```
-
-#### H.4.2 看板→画布映射
-
-| Hermes看板 | 烛龙画布 | 融合方式 |
-|-----------|---------|---------|
-| 任务卡片 (Task) | 画布节点 (Node) | 增加Board类型节点 |
-| 依赖边 (task_links) | 画布连线 (Edge) | 复用现有连线系统 |
-| 状态流转 | 节点状态 (NodeStatus) | 扩展为8种看板状态 |
-| Worker委派 | Agent委派 | 调度器spawn子进程 |
-| 评论线程 (comments) | 画布助手 | 现有助手系统 |
-| 审计日志 (events) | Trace系统 | 复用 |
-| 附件 (attachments) | 资产系统 | 复用 |
-
-#### H.4.3 状态流转
-
-```
-triage ──(specify)──> todo ──(parents done)──> ready ──(claim)──> running
-                                                      ↑               │
-                                                      │         ┌─────┼──────┐
-                                                      │         │     │      │
-                                                      │    [complete] [block] [crash/timeout]
-                                                      │         │     │      │
-                                                      │         ▼     ▼      ▼
-                                                      │       done  blocked  ready (retry)
-                                                      │               │
-                                                      └──(unblock)───┘
-                                                      review ──(claim_review)──> running...
-                                                      archived (terminal)
-```
-
-### H.5 技能动态加载系统
-
-#### H.5.1 目录结构
-
-参考 Hermes 的 agentskills.io 兼容格式：
-
-```
-~/.zhulong/skills/
-├── my-skill/
-│   ├── SKILL.md           # 主指令文件（必需）
-│   ├── references/        # 参考文档、API文档
-│   ├── templates/         # 输出模板
-│   ├── scripts/           # 可执行脚本
-│   └── assets/            # 补充资源文件
-└── category/
-    └── another-skill/
-        └── SKILL.md
-```
-
-#### H.5.2 SKILL.md 格式
-
-```yaml
----
-name: skill-name              # 必需，最长64字符
-description: Brief description # 必需，最长1024字符
-version: 1.0.0                # 可选
-platforms: [windows]          # 可选，OS限制
-environments: [desktop, cli]  # 可选，运行环境
-prerequisites:
-  env_vars: [API_KEY]
-  commands: [git, go]
-metadata:
-  tags: [coding, analysis]
-  related_skills: [code-review]
----
-```
-
-#### H.5.3 加载流程
-
-```go
-// 技能加载器
-type Loader struct {
-    searchPaths []string  // 搜索路径（本地目录优先）
-}
-
-// Scan 扫描目录加载所有技能
-func (l *Loader) Scan() ([]Skill, error) {
-    // 遍历 ~/.zhulong/skills/*/SKILL.md
-    // 解析YAML前置元数据
-    // 验证安全性（路径遍历防护）
-    // 注册到Registry
-}
-
-// Watch 监听文件变更
-func (l *Loader) Watch(callback func(Skill)) {
-    // fsnotify 监听技能目录
-    // 新增/修改/删除时自动回调
-}
-```
-
-#### H.5.4 分级暴露
-
-参考 Hermes 的 Tier 1-3 设计：
-- **Tier 1**: 仅名称和描述（最小token消耗）
-- **Tier 2**: 完整 SKILL.md 内容
-- **Tier 3**: 完整内容 + 支持文件（references/templates/scripts/assets）
-
-#### H.5.5 自进化（参考Hermes background_review + curator）
-
-```go
-// BackgroundReviewer 后台审查器
-type BackgroundReviewer struct {
-    provider Provider
-}
-
-// Review 审查会话快照，判断是否需要创建/更新技能
-func (r *BackgroundReviewer) Review(snapshot SessionSnapshot) (*SkillChange, error) {
-    // fork副本Agent
-    // 回放会话快照
-    // 执行自我审查
-    // 工具权限严格限制（只允许memory和skill_manage）
-}
-
-// Curator 守卫者
-type Curator struct {
-    interval time.Duration // 默认7天
-}
-
-// Maintain 维护技能库
-func (c *Curator) Maintain() error {
-    // 标记过时技能（30天未使用）
-    // 归档旧技能（90天未使用）
-    // 合并相似技能（可选）
-}
-```
-
-### H.6 自动化工作流模板
-
-#### H.6.1 蓝图系统
-
-参考 Hermes 的 14 个内置蓝图模板：
-
-```go
-// BlueprintSlot 蓝图插槽
-type BlueprintSlot struct {
-    Name     string   `yaml:"name"`
-    Type     string   `yaml:"type"`     // time/enum/text/weekdays
-    Label    string   `yaml:"label"`
-    Default  string   `yaml:"default"`
-    Options  []string `yaml:"options,omitempty"`
-    Required bool     `yaml:"required"`
-    Desc     string   `yaml:"desc"`
-}
-
-// Blueprint 自动化蓝图
-type Blueprint struct {
-    Key              string          `yaml:"key"`
-    Title            string          `yaml:"title"`
-    Description      string          `yaml:"description"`
-    Category         string          `yaml:"category"`  // daily/weekly/email/general
-    ScheduleTemplate string          `yaml:"schedule"`  // 带{slot}的cron表达式
-    PromptTemplate   string          `yaml:"prompt"`    // 带{slot}的种子指令
-    Slots            []BlueprintSlot `yaml:"slots"`
-    Skills           []string        `yaml:"skills,omitempty"` // 运行前加载的技能
-}
-```
-
-#### H.6.2 内置蓝图
-
-| 蓝图 | 分类 | 说明 |
-|------|------|------|
-| `morning-brief` | daily | 每日晨间简报 |
-| `weekly-review` | weekly | 每周项目回顾 |
-| `news-digest` | general | 主题新闻摘要 |
-| `code-health` | daily | 代码健康扫描 |
-| `dependency-check` | weekly | 依赖更新检查 |
-| `test-runner` | general | 定时运行测试 |
-| `backup` | daily | 自动备份 |
-| `report-gen` | general | 定时生成报告 |
-
-#### H.6.3 Cron调度
-
-```go
-// Schedule 调度计划
-type Schedule struct {
-    Expression string // cron表达式 / 间隔 / 一次性时间
-    Type       string // cron / interval / once
-}
-
-// ParseSchedule 解析调度计划
-func ParseSchedule(s string) (*Schedule, error) {
-    // "30m" / "2h" / "1d" → 一次性间隔
-    // "every 30m" / "every 2h" → 重复间隔
-    // "0 9 * * *" → 标准cron
-    // "2026-06-22T14:00" → 一次性指定时间
-}
-```
-
-### H.7 实现阶段
-
-| Phase | 任务 | 时间 | 说明 |
-|-------|------|------|------|
-| **Phase 1** | 看板→画布融合 | 2-3天 | 扩展节点状态、添加看板节点、状态流转引擎 |
-| **Phase 1** | 主动层调度器 | 2-3天 | 事件总线、调度器tick、Worker spawn |
-| **Phase 2** | 技能目录加载 | 1-2天 | SKILL.md解析、目录扫描、动态注册、Watch |
-| **Phase 2** | 自动化蓝图模板 | 2-3天 | 内置模板、参数化插槽、cron解析 |
-| **Phase 3** | 自进化系统 | 3-5天 | 后台审查器、守卫者、建议引擎 |
-
-### H.8 设计原则
-
-1. **不抄袭代码** - 学习设计思路，从零实现
-2. **缓存命中率铁律** - 主动层独立于Agent循环，不影响缓存
-3. **渐进式实现** - 分阶段实现，逐步增强
-4. **可配置性** - 所有功能可配置、可禁用
-5. **用户同意优先** - 自进化和建议系统需要用户确认
-
-### H.9 最终差距分析
-
-基于对 Hermes-Agent 项目的全面深度代码研究（12,493次提交），烛龙已完成核心功能对标，但存在以下架构级差距：
-
-| 优先级 | 差距 | 说明 | 烛龙状态 |
-|--------|------|------|---------|
-| **P0** | 消息网关 | 20+平台适配器（Telegram/钉钉/飞书/Slack等），统一的GatewayRunner管理 | ❌ 缺失 |
-| **P0** | 双文件记忆系统 | MEMORY.md（Agent笔记）+ USER.md（用户画像）+ 8种外部记忆提供者 | ❌ 缺失 |
-| **P0** | 终端执行后端 | Docker容器隔离/SSH远程/Singularity HPC/Modal云端，仅本地执行不够 | ❌ 缺失 |
-| **P1** | 7层安全模型 | 容器隔离/SSRF保护/输入清理/上下文文件扫描/MCP凭据过滤/文件突变验证/供应链审计 | ⚠️ 基础 |
-| **P1** | Electron桌面应用 | 流式聊天+并排预览+文件浏览器+语音交互+自动更新 | ❌ 缺失 |
-| **P1** | Web Dashboard | 管理配置/API密钥/会话/Profile，支持远程部署 | ❌ 缺失 |
-| **P1** | Skills Hub生态 | 10种技能来源市场（official/github/claude-marketplace等）+安全扫描+信任等级 | ❌ 缺失 |
-| **P1** | 国际化(i18n) | 17种语言YAML翻译文件 + React useI18n hook | ⚠️ 部分 |
-| **P2** | Cron高级特性 | 无Agent模式（零Token消耗）/wakeAgent门控/任务链/广播投递/SILENT静默 | ⚠️ 基础 |
-| **P2** | 18+模型提供者 | Nous Portal(300+)/OpenRouter(200+)/国产全线/凭据池轮换/回退链 | ⚠️ 基础 |
-| **P2** | 可观测性 | Langfuse集成/trace&span/insights分析/doctor诊断/dump调试 | ⚠️ 基础 |
-| **P2** | 插件系统 | 18个插件目录（browser/cron/memory/model-providers等），3种发现源 | ❌ 缺失 |
-| **P2** | ACP协议 | 基于stdio/JSON-RPC的编辑器原生集成（VS Code/Zed/JetBrains） | ❌ 缺失 |
-| **P3** | 批量轨迹生成 | ShareGPT格式轨迹，用于训练下一代工具调用模型 | ❌ 缺失 |
-| **P3** | 备份与恢复 | hermes backup/import/checkpoints，原子写入 | ❌ 缺失 |
-| **P3** | Profile隔离 | 独立HERMES_HOME，可并发运行，导入/导出/别名 | ❌ 缺失 |
-| **P3** | 语音交互 | 语音备忘录转录(STT)+文字转语音(TTS)+CLI语音模式 | ❌ 缺失 |
-
-### H.10 烛龙领先于 Hermes 的特性
-
-| 特性 | 烛龙 | Hermes |
-|------|------|--------|
-| **自动化建议引擎** | ✅ SuggestionEngine（Phase 3） | ❌ 无独立引擎 |
-| **骨架压缩** | ✅ 4预设+5焦点+3密度 | ❌ 无 |
-| **缓存命中率铁律** | ✅ 系统级约束，prefix永不改写 | ❌ 无 |
-| **Ops操作抽象** | ✅ 原子操作接口，撤销/重做 | ❌ 无 |
-| **@引用机制** | ✅ 画布内@[node/asset]资源引用 | ❌ 无 |
-| **无限画布可视化** | ✅ React Flow + 12种面板 | ⚠️ 仅Kanban看板 |
-
-### H.11 推荐开发路线
-
-```
-Phase 4: 消息网关（P0）      — 20+平台适配器 + GatewayRunner
-Phase 5: 记忆系统（P0）      — MEMORY.md + USER.md + 外部提供者
-Phase 6: 终端后端（P0）      — Docker/SSH/云端隔离执行
-Phase 7: 安全增强（P1）      — 7层安全模型
-Phase 8: 桌面完善（P1）      — Electron应用 + Web Dashboard
-Phase 9: Skills Hub（P1）    — 技能市场生态
-```
-
----
-
-## 附录 I: 与 OpenClaw 的学习参考清单
-
-> **策略：学习设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。**
-
-### I.1 项目概述
-
-OpenClaw 是一个 TypeScript 实现的企业级个人AI助手平台（61,419次提交），采用 monorepo + pnpm workspace 架构。其格言是 "Your own personal AI assistant. Any OS. Any Platform."
-
-### I.2 核心技术栈
-
-| 组件 | 技术 | 说明 |
-|------|------|------|
-| 核心语言 | TypeScript | 全栈统一 |
-| 包管理 | pnpm workspace | monorepo |
-| 构建 | tsdown | 现代 TypeScript 打包 |
-| Linter | oxlint/oxfmt | Rust 实现，超高速 |
-| 测试 | Vitest | - |
-| 部署 | Docker / Fly.io / Render | 多平台 |
-
-### I.3 核心架构对比
-
-| 维度 | OpenClaw | 烛龙 | 差异 |
-|------|---------|------|------|
-| **Agent 运行时** | `packages/agent-core` 独立包 | `pkg/agent.go` | ✅ 思路一致 |
-| **技能系统** | `skills/` 动态加载 | `internal/skills/` 目录+管道 | ✅ 已实现 |
-| **会话压缩** | session compaction | `internal/compressor/` 骨架压缩 | ✅ 已实现 |
-| **LLM 提供者** | gateway + model catalog | `internal/provider/` | ✅ 已实现 |
-| **CLAUDE.md** | AGENTS.md 符号链接 | 类似 Harness-Starter | ✅ 已参考 |
-| **插件 SDK** | `packages/plugin-sdk` | 无 | ❌ 缺少 |
-| **QA 体系** | `qa/` 集成测试点 | 仅单元测试 | ⚠️ 可增强 |
-
-### I.4 最值得借鉴的三大特性
-
-#### 1. QA Lab（质量保障实验室）
-
-OpenClaw 拥有专业的质量保障体系，烛龙缺少集成测试和端到端测试：
-
-```
-qa/
-├── tests/           集成测试用例
-├── lab.mjs          QA Lab 运行器
-└── http-api/        HTTP API 测试集
-```
-
-**设计思路**：
-- 独立的 QA 目录，不是散落在各 package 中
-- 专用的 Lab 运行器，非标准 test runner
-- 包含 HTTP API 级别的集成测试
-- 验证 Agent 的实际行为而非代码单元
-
-**烛龙实现方式**：
-```go
-// internal/qa/lab.go
-type QALab struct {
-    tests []QATest
-    runner *QARunner
-}
-
-// QATest 集成测试
-type QATest struct {
-    Name string
-    // 输入 → 执行 → 验证
-    Input    string
-    Setup    func() error
-    Execute  func(ctx) (*Result, error)
-    Verify   func(*Result) error
-    Teardown func() error
-}
-```
-
-#### 2. .agents/ 自托管开发代理
-
-OpenClaw 用 AI 开发 AI，通过自托管的开发代理自动完成代码审查、测试等任务：
-
-```
-.agents/
-├── autoreview/      自动代码审查代理
-├── autotest/        自动测试代理
-└── config.yaml      代理配置
-```
-
-**设计思路**：
-- 项目元目录 `.agents/` 与 `.claude/` 同级
-- 每个代理有独立的配置和技能
-- 代理可以调用项目自身的能力（用烛龙开发烛龙）
-- 代理的输出直接作为 PR 评论/测试报告
-
-**烛龙实现方式**：
-```go
-// .agents/ 目录结构
-.agents/
-├── reviewer/          // 自动审查代理
-│   ├── CLAUDE.md      // 代理行为规则
-│   └── config.yaml    // 代理配置
-├── tester/            // 自动测试代理
-│   └── config.yaml
-└── manager.go         // 代理管理器
-```
-
-#### 3. ClawScore 技能评分系统
-
-社区驱动的技能质量评判机制：
-
-```
-type ClawScore struct {
-    SkillName string
-    Score      float64  // 0-5
-    Reviews    int      // 评价数
-    Version    string
-    Tags       []string
-}
-```
-
-**设计思路**：
-- 用户评价驱动
-- 评分影响技能排序推荐
-- 版本关联
-- 防刷机制
-
-### I.5 工程实践借鉴
-
-| 实践 | OpenClaw | 烛龙现状 | 借鉴价值 |
-|------|---------|---------|---------|
-| 提交规范 | feat/fix/chore/test/refactor/dosc + 详细描述 | 有基本规范 | ✅ 一致 |
-| QA Lab | 独立qa/目录+专用运行器 | 仅单元测试 | ⭐ 值得引入 |
-| .agents/ | 自托管开发代理 | 无 | ⭐ 值得引入 |
-| AGENTS.md | AI辅助开发的上下文文件 | 类似Harness-Starter | ✅ 已参考 |
-| pre-commit hooks | .pre-commit-config.yaml | 无 | ⚠️ 可引入 |
-| CodeQL分析 | GitHub安全分析 | 无 | ⚠️ 可引入 |
-
-### I.6 设计原则
-
-1. **不抄袭代码** - 学习设计思路，从零实现
-2. **缓存命中率铁律** - 所有新功能不影响缓存优化
-3. **分阶段实现** - QA Lab→.agents/→ClawScore 逐步推进
-4. **自举设计** - 用烛龙开发烛龙（.agents/ 理念）
-
-### I.7 跨生态技能兼容
-
-烛龙已实现跨生态技能兼容，可无损复用 OpenClaw (clawhub)、Hermes Agent 和 agentskills.io 标准的技能。
-
-#### 兼容矩阵
-
-| 技能来源 | 兼容 | 说明 |
-|---------|------|------|
-| **OpenClaw clawhub** | ✅ 已验证 | requires.bins 格式已解析 |
-| **Hermes Agent** | ✅ 已验证 | prerequisites.commands 格式已解析 |
-| **agentskills.io 标准** | ✅ 兼容 | 使用标准 SKILL.md 格式 |
-| **任意 GitHub 仓库** | ✅ 支持 | 通用下载器 |
-| **本地文件系统** | ✅ 支持 | 含支持文件复制 |
-
-#### 安装器用法
-
-```go
-// 从 clawhub 安装
-installer.Install("1password", skills.SourceClawhub, targetDir)
-
-// 从 Hermes 安装
-installer.Install("my-skill", skills.SourceHermes, targetDir)
-
-// 从 GitHub 安装
-installer.Install("owner/repo", skills.SourceGitHub, targetDir)
-
-// 自动检测
-installer.Install("path/to/skill", skills.SourceAny, targetDir)
-```
-
-#### 格式兼容
-
-```yaml
-# OpenClaw 格式 - ✅ 烛龙可解析
-requires:
-  bins: [op, jq]
-
-# Hermes 格式 - ✅ 烛龙可解析
-prerequisites:
-  commands: [git, curl]
-
-# agentskills.io 标准 - ✅ 烛龙可解析
----
-
-依赖项自动提取为 `req:` 前缀标签，支持技能搜索和过滤。
-
----
-
 ## 附录 J: 设计 vs 实现自审对照表（2026-06-22）
 
 > **目的**：用户要求"对照 design.md 文件，逐行自审代码和功能"——本表是设计文档与实际代码的差异表
@@ -4746,36 +3646,6 @@ prerequisites:
 | 3.3.2 | 审批引擎 | `internal/approval/engine.go` | ✅ | 3 模式 (ask/auto/yolo) 已实现，**已在 Run() CheckPermission** |
 | 3.3.3 | 环境感知 | `internal/environment/monitor.go` | ✅ | **已在 Run() Start/Stop，监控 dataDir 变化** |
 | 3.3.4 | 备选路径 | `internal/planner/alternative.go` | ✅ | **已在 Run() Plan 失败时 GenerateAlternatives + SelectBestAlternative** |
-
-### J.4 附录 A-I 参考特性实现对照
-
-| 参考项目 | 关键特性 | 实际实现 | 状态 | 串联位置 |
-|---------|---------|---------|------|---------|
-| 附录 A: Reasonix | Prefix cache TTL + 冷恢复 | `internal/cache/{prefix,maintenance}.go` | ✅ | 未在 agent.go 主动调用 |
-| 附录 A: Reasonix | 风险非对称默认 | cache 包内有注释 | ⚠️ | 启发式常量，未逻辑化 |
-| 附录 B: Ailoom-Context | 三级压缩 (recent/summary/full) | `internal/compressor/skeleton.go` | ✅ | 未在 Run() 调用 |
-| 附录 C: NB-Agent | 渐进披露三阶段 | `internal/skills/pipeline.go` | ✅ | agent.go GetSkillList + SkillViewTool |
-| 附录 D: 无限画布 | React Flow + 6 节点 | `desktop/frontend/src/components/Canvas/` | ✅ | 桌面端 |
-| 附录 F: Harness-Starter | Circuit Breaker | `internal/breaker/breaker.go` | ✅ | **已串联** — Run() 每步前 Allow() |
-| 附录 F: Harness-Starter | 执行/验证分离 | `internal/quality/scanner.go` | ✅ | **已串联** — postRunEvolution 按 workflow 模式跑 |
-| 附录 F: Harness-Starter | GC 8 维扫描 | `internal/quality/scanner.go` | ✅ | **已串联** |
-| 附录 F: Harness-Starter | Workflow 模式 | `internal/workflow/workflow.go` | ✅ | **已串联** — 决定 maxLoops |
-| 附录 F: Harness-Starter | Hook 引擎 | `internal/hook/engine.go` | ⚠️ | 已实现，**未注册到 Run()** |
-| 附录 F: Harness-Starter | State 持久化 | `internal/state/state.go` | ⚠️ | 已实现，**未用** |
-| 附录 F: Harness-Starter | Upgrade 系统 | `internal/upgrade/upgrade.go` | ⚠️ | 已实现，**未触发** |
-| 附录 F: Harness-Starter | Review 报告 | `internal/review/recorder.go` | ⚠️ | 已实现，**未生成 session 报告** |
-| 附录 F: Harness-Starter | Health checker | `internal/health/checker.go` | ⚠️ | 已实现，**未启动** |
-| 附录 F: Harness-Starter | Skillset 预置 | `internal/skillset/registry.go` | ⚠️ | 已实现，**未注册到 skillPipeline** |
-| 附录 G: 画布差距修复 | @ 引用机制 | `pkg/canvas/*.go` + frontend | ✅ | 完整 |
-| 附录 G: 画布差距修复 | 快照集成 | `pkg/canvas/snapshot.go` | ✅ | 完整 |
-| 附录 H: Hermes-Agent | Kanban 引擎 | `internal/board/engine.go` | ✅ | 完整 8 状态 |
-| 附录 H: Hermes-Agent | Scheduler 调度 | `internal/scheduler/scheduler.go` | ✅ | SetBoard 已加，**默认 tick 仍空操作** |
-| 附录 H: Hermes-Agent | Blueprint 模板 | `internal/blueprint/catalog.go` | ✅ | 7 蓝图 |
-| 附录 H: Hermes-Agent | Background Reviewer | `internal/evolution/reviewer.go` | ✅ | **已串联** — postRunEvolution |
-| 附录 H: Hermes-Agent | Curator 守卫者 | `internal/evolution/curator.go` | ✅ | **已串联**（待拉取真实 skill records） |
-| 附录 H: Hermes-Agent | Suggestion 引擎 | `internal/evolution/suggestion.go` | ✅ | **已串联** — 推到 suggester |
-| 附录 I: OpenClaw | Skill YAML 跨生态 | `internal/skills/manager.go` | ✅ | 解析 OpenClaw/Hermes/agentskills.io |
-| 附录 I: OpenClaw | Installer 4 源 | `internal/skills/installer.go` | ✅ | clawhub/github/hermes/local |
 
 ### J.5 P3 增强模块对照
 

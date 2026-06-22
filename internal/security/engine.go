@@ -1,4 +1,4 @@
-// 7层安全模型 - 深度防御设计（参考Hermes）
+// 7层安全模型 - 深度防御设计
 package security
 
 import (

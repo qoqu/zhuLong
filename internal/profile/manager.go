@@ -1,4 +1,4 @@
-// Profile隔离 - 独立环境并发运行（参考Hermes profile）
+// Profile隔离 - 独立环境并发运行
 package profile
 
 import (

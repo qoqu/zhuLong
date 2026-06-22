@@ -1,4 +1,4 @@
-// 备份与恢复系统（参考Hermes backup/import/checkpoints）
+// 备份与恢复系统
 package backup
 
 import (

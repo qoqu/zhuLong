@@ -201,8 +201,7 @@ Zhulong 提供无限画布功能，用于可视化 Agent 工作循环和内容�
 
 ### 设计原则
 
-- **缓存命中率铁律**：画布功能不影响 Agent 循环的缓存命中率
-- **只借鉴不抄袭**：学习 TapCanvas、Toonflow、infinite-canvas 的设计思路，从零实现
+- **缓存命中率铁律**：所有功能不影响 Agent 循环的缓存命中率
 
 ## 项目结构
 
@@ -296,8 +295,7 @@ Zhulong 融合六大系统科学理论：
 
 - [DeepSeek](https://www.deepseek.com/) - 提供强大的 LLM API
 - [Wails](https://wails.io/) - Go 桌面应用框架
-- [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) - 参考设计思路
-- [Ailoom-Context](https://github.com/EvanLyu-oss/Ailoom-Context) - 骨架压缩结构设计
+- [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) - 设计灵感来源
 
 ## 联系方式
 

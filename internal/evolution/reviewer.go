@@ -1,5 +1,4 @@
 // 后台审查器 - 对话后自动审查，判断是否需要创建/更新技能
-// 参考Hermes background_review.py
 package evolution
 
 import (

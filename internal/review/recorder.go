@@ -1,4 +1,4 @@
-// 审查报告系统（参考Harness-Starter session-review.mjs）
+// 审查报告系统
 package review
 
 import (

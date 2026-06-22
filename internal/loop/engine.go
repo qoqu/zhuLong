@@ -1,5 +1,4 @@
-// Loop自治循环系统（参考Harness-Starter）
-// 系统驱动AI，而非人驱动AI
+// Loop自治循环系统
 package loop
 
 import (

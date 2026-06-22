@@ -176,7 +176,7 @@ func (ms *MemoryStore) SaveUserProfile(content string) error {
 }
 
 // UpdateUserProfile 更新用户画像中指定部分
-// 使用子串匹配替换（参考Hermes replace/remove机制）
+// 使用子串匹配替换
 func (ms *MemoryStore) UpdateUserProfile(substring, replacement string) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()

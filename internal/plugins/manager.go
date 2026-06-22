@@ -1,4 +1,4 @@
-// 插件系统 - 动态加载/卸载（参考Hermes 18个插件目录）
+// 插件系统 - 动态加载/卸载
 package plugins
 
 import (

@@ -1,4 +1,4 @@
-// 智能升级系统（参考Harness-Starter）
+// 智能升级系统
 // 区分用户文件和模板文件，支持dry-run预览
 package upgrade
 

@@ -1,4 +1,4 @@
-// 语音交互 - STT/TTS/语音模式（参考Hermes voice）
+// 语音交互 - STT/TTS/语音模式
 package voice
 
 // STTProvider 语音转文本提供者

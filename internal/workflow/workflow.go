@@ -1,4 +1,4 @@
-// 工作流模式（参考Harness-Starter）
+// 工作流模式
 // full/hotfix/tweak 模式切换
 package workflow
 

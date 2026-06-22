@@ -1,4 +1,4 @@
-// Skills Hub - 技能市场生态（参考Hermes Skills Hub + OpenClaw clawhub）
+// Skills Hub - 技能市场生态
 package hub
 
 import (

@@ -1,4 +1,4 @@
-// 状态持久化系统（参考Harness-Starter）
+// 状态持久化系统
 // 热状态+冷存储分离
 package state
 

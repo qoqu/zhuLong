@@ -1,4 +1,4 @@
-// Cron高级特性 - 无Agent模式/wakeAgent门控/任务链（参考Hermes）
+// Cron高级特性 - 无Agent模式/wakeAgent门控/任务链
 package cronx
 
 import (

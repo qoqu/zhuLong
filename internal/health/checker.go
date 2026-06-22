@@ -1,4 +1,4 @@
-// 健康检查系统（参考Harness-Starter check.mjs）
+// 健康检查系统
 package health
 
 import (

@@ -1,4 +1,4 @@
-// 消息网关 - 20+平台适配器 + 统一路由（参考Hermes Gateway）
+// 消息网关 - 20+平台适配器 + 统一路由
 package gateway
 
 import (

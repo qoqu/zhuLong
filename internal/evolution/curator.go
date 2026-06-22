@@ -1,5 +1,4 @@
 // 守卫者 - 定期审查技能库，标记过时/归档/合并
-// 参考Hermes curator.py
 package evolution
 
 import (

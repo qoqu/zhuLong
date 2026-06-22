@@ -1,4 +1,4 @@
-// Web Dashboard - 管理界面（参考Hermes dashboard）
+// Web Dashboard - 管理界面
 package dashboard
 
 import (

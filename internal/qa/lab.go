@@ -1,4 +1,4 @@
-// QA Lab - 集成测试框架（参考OpenClaw qa/）
+// QA Lab - 集成测试框架
 package qa
 
 import (

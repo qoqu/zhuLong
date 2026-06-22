@@ -1,4 +1,4 @@
-// 看板引擎 - 任务分解/委派/状态流转（参考Hermes Kanban）
+// 看板引擎 - 任务分解/委派/状态流转
 package board
 
 import (

@@ -1,4 +1,4 @@
-// 模型提供者 - 凭据池轮换/回退链（参考Hermes provider routing）
+// 模型提供者 - 凭据池轮换/回退链
 package models
 
 import (

@@ -1,4 +1,4 @@
-// 技能安装器 - 跨生态技能兼容（OpenClaw clawhub / Hermes / GitHub）
+// 技能安装器 - 跨生态技能兼容
 package skills
 
 import (

@@ -1,4 +1,4 @@
-// Circuit Breaker - 连续无改善自动暂停（参考Harness-Starter）
+// Circuit Breaker - 连续无改善自动暂停
 package breaker
 
 import (

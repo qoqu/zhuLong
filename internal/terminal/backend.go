@@ -1,5 +1,4 @@
 // 终端执行后端 - 策略模式（local/docker/ssh/singularity/modal/daytona）
-// 参考Hermes 6种终端后端设计
 package terminal
 
 import (

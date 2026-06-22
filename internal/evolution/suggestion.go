@@ -1,5 +1,4 @@
 // 建议引擎 - 检测重复需求，主动建议创建技能/自动化
-// 参考Hermes suggestion_catalog.py
 package evolution
 
 import (

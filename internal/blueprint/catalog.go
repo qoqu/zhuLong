@@ -1,4 +1,4 @@
-// 自动化蓝图模板系统（参考Hermes blueprint_catalog + cron）
+// 自动化蓝图模板系统
 package blueprint
 
 import (

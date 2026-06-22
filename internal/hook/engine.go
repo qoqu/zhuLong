@@ -1,4 +1,4 @@
-// Hook system - three-layer automation (参考Harness-Starter)
+// Hook system - three-layer automation
 // 安全拦截→感知注入→审查反馈
 package hook
 

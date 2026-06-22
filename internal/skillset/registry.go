@@ -1,4 +1,4 @@
-// 预置技能系统（参考Harness-Starter harness-init/harness-mode/harness-gc/verify-goal）
+// 预置技能系统
 package skillset
 
 import (

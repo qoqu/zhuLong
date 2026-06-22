@@ -1,4 +1,4 @@
-// 可观测性 - trace/span/insights（参考Hermes Langfuse集成）
+// 可观测性 - trace/span/insights
 package observe
 
 import (

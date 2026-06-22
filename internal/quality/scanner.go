@@ -1,4 +1,4 @@
-// GC扫描器 - 8个确定性维度质量扫描（参考Harness-Starter）
+// GC扫描器 - 8个确定性维度质量扫描
 package quality
 
 import (

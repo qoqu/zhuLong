@@ -1,4 +1,4 @@
-// 主动层调度器 - 事件总线 + 调度tick + Worker spawn（参考Hermes）
+// 主动层调度器 - 事件总线 + 调度tick + Worker spawn
 package scheduler
 
 import (
