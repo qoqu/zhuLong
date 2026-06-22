@@ -91,6 +91,13 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	logger.Log("system", "session_start", map[string]string{"goal": s.Goal})
 
+	// === Initialize enhanced states ===
+	a.mu.Lock()
+	s.MemoryState = a.initMemoryState()
+	s.LearningState = a.initLearningState()
+	s.ModuleState = a.initModuleState()
+	a.mu.Unlock()
+
 	// Try to restore from checkpoint
 	if cp, err := chkStore.LoadByID(fmt.Sprintf("cp-%s-done", s.Info.ID)); err == nil && cp != nil {
 		a.appendLog(s, "system", "Restored from checkpoint", fmt.Sprintf("loop %d", cp.LoopCount))
@@ -103,6 +110,15 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	// === Planning ===
 	s.Status = "planning"
+	
+	// Update module states
+	a.mu.Lock()
+	if s.ModuleState != nil && s.ModuleState.Controller != nil {
+		s.ModuleState.Controller.Details["fsmState"] = "Planning"
+		s.ModuleState.Planner.Details["lastPlan"] = pkg.TruncateStr(s.Goal, 30)
+	}
+	a.mu.Unlock()
+	
 	a.appendLog(s, "plan", "Planning...", "goal="+pkg.TruncateStr(s.Goal, 60))
 	a.emitSession(s)
 	logger.Log("plan", "plan_start", nil)
@@ -112,6 +128,14 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 	if err != nil || plan == nil {
 		a.appendLog(s, "plan", "Plan failed", pkg.ErrString(err))
 		s.Status = "error"
+		
+		// Update module states
+		a.mu.Lock()
+		if s.ModuleState != nil && s.ModuleState.Planner != nil {
+			s.ModuleState.Planner.Status = "error"
+		}
+		a.mu.Unlock()
+		
 		a.emitSession(s)
 		logger.Log("plan", "plan_fail", map[string]string{"error": pkg.ErrString(err)})
 		return
@@ -119,6 +143,20 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	s.Plan = convertPlan(plan)
 	a.appendLog(s, "plan", fmt.Sprintf("Plan created: %d steps", len(plan.Steps)), plan.Rationale)
+	
+	// Update module states after planning
+	a.mu.Lock()
+	if s.ModuleState != nil {
+		if s.ModuleState.Planner != nil {
+			s.ModuleState.Planner.Status = "idle"
+			s.ModuleState.Planner.Details["lastPlan"] = pkg.TruncateStr(plan.Rationale, 50)
+		}
+		if s.ModuleState.Controller != nil {
+			s.ModuleState.Controller.Details["fsmState"] = "Planning"
+		}
+	}
+	a.mu.Unlock()
+	
 	a.emitSession(s)
 	logger.Log("plan", "plan_ok", map[string]int{"steps": len(plan.Steps)})
 	logger.Save()
@@ -134,10 +172,32 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	// === Execution loop ===
 	s.Status = "executing"
+	
+	// Update module states
+	a.mu.Lock()
+	if s.ModuleState != nil {
+		if s.ModuleState.Controller != nil {
+			s.ModuleState.Controller.Details["fsmState"] = "Executing"
+		}
+		if s.ModuleState.Executor != nil {
+			s.ModuleState.Executor.Status = "active"
+			s.ModuleState.Executor.Details["toolsLoaded"] = len(toolsReg.List())
+		}
+	}
+	a.mu.Unlock()
+	
 	for i, step := range plan.Steps {
 		if err := ctx.Err(); err != nil {
 			a.appendLog(s, "system", "Cancelled", pkg.ErrString(err))
 			s.Status = "cancelled"
+			
+			// Update module states
+			a.mu.Lock()
+			if s.ModuleState != nil && s.ModuleState.Controller != nil {
+				s.ModuleState.Controller.Details["fsmState"] = "Cancelled"
+			}
+			a.mu.Unlock()
+			
 			a.emitSession(s)
 			logger.LogWithLoop(i + 1, "system", "cancelled", nil)
 			return
@@ -209,6 +269,37 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			"success": res != nil && res.Success,
 			"tokens":  func() int { if res != nil { return res.TokensUsed }; return 0 }(),
 		})
+		
+		// Update module states after step
+		a.mu.Lock()
+		if s.ModuleState != nil {
+			// Update memory state (simulated)
+			if s.MemoryState != nil {
+				s.MemoryState.Episodic.Count++
+				s.MemoryState.Episodic.TotalTokens += res.TokensUsed
+				s.MemoryState.Episodic.LastUpdated = time.Now().Format("15:04:05")
+			}
+			
+			// Update tools state
+			if s.ModuleState.Tools != nil {
+				s.ModuleState.Tools.Details["toolsLoaded"] = len(toolsReg.List())
+			}
+			
+			// Update budget state (simulated)
+			if s.ModuleState.Budget != nil {
+				usagePct := float64(s.Stats.SessionTokens) / float64(s.Stats.TotalLimit) * 100
+				if usagePct > 80 {
+					s.ModuleState.Budget.Details["warningLevel"] = "critical"
+				} else if usagePct > 60 {
+					s.ModuleState.Budget.Details["warningLevel"] = "warn"
+				} else {
+					s.ModuleState.Budget.Details["warningLevel"] = "ok"
+				}
+			}
+		}
+		a.mu.Unlock()
+
+		// Save checkpoint every 3 steps
 
 		// Save checkpoint every 3 steps
 		if (i+1)%3 == 0 {
@@ -232,6 +323,19 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	// === Reflect ===
 	s.Status = "reflecting"
+	
+	// Update module states
+	a.mu.Lock()
+	if s.ModuleState != nil {
+		if s.ModuleState.Controller != nil {
+			s.ModuleState.Controller.Details["fsmState"] = "Reflecting"
+		}
+		if s.ModuleState.Reflector != nil {
+			s.ModuleState.Reflector.Status = "active"
+		}
+	}
+	a.mu.Unlock()
+	
 	a.appendLog(s, "refl", "Reflecting on progress", "score=?")
 	a.emitSession(s)
 	logger.LogWithLoop(len(plan.Steps), "refl", "reflect_start", nil)
@@ -242,12 +346,46 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 	if err != nil || assess == nil {
 		a.appendLog(s, "refl", "Reflection failed", pkg.ErrString(err))
 		logger.LogWithLoop(len(plan.Steps), "refl", "reflect_fail", map[string]string{"error": pkg.ErrString(err)})
+		
+		// Update module states
+		a.mu.Lock()
+		if s.ModuleState != nil && s.ModuleState.Reflector != nil {
+			s.ModuleState.Reflector.Status = "error"
+		}
+		a.mu.Unlock()
 	} else {
 		a.appendLog(s, "refl", fmt.Sprintf("Decision: %s (%.0f%%)", assess.Decision, assess.Confidence*100), assess.Reason)
 		logger.LogWithLoop(len(plan.Steps), "refl", "reflect_done", map[string]interface{}{
 			"decision":   assess.Decision.String(),
 			"confidence": assess.Confidence,
 		})
+		
+		// Update module states after reflection
+		a.mu.Lock()
+		if s.ModuleState != nil {
+			if s.ModuleState.Reflector != nil {
+				s.ModuleState.Reflector.Status = "idle"
+				s.ModuleState.Reflector.Details["lastReflection"] = time.Now().Format("15:04:05")
+			}
+			
+			// Update learning state (simulated)
+			if s.LearningState != nil {
+				s.LearningState.CognitiveModel.Updated = true
+				s.LearningState.CognitiveModel.LastUpdate = time.Now().Format("15:04:05")
+				s.LearningState.CognitiveModel.Confidence = assess.Confidence
+				s.LearningState.LastLearning = time.Now().Format("15:04:05")
+				s.LearningState.SuccessPatterns = countCompleted(s.Plan)
+			}
+			
+			// Update memory state (simulated)
+			if s.MemoryState != nil {
+				s.MemoryState.Procedural.Count++
+				s.MemoryState.Procedural.SuccessRate = float64(countCompleted(s.Plan)) / float64(len(s.Plan))
+				s.MemoryState.Procedural.LastUpdated = time.Now().Format("15:04:05")
+			}
+		}
+		a.mu.Unlock()
+		
 		for _, f := range assess.Findings {
 			s.Messages = append(s.Messages, MessageDTO{
 				ID:      fmt.Sprintf("f%d", time.Now().UnixNano()),
@@ -275,6 +413,18 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 		Time:    time.Now(),
 	})
 	s.Status = "done"
+	
+	// Update module states on completion
+	a.mu.Lock()
+	if s.ModuleState != nil {
+		if s.ModuleState.Controller != nil {
+			s.ModuleState.Controller.Details["fsmState"] = "Done"
+		}
+		if s.ModuleState.Executor != nil {
+			s.ModuleState.Executor.Status = "idle"
+		}
+	}
+	a.mu.Unlock()
 
 	// Save final checkpoint
 	chkStore.Save(&checkpoint.Checkpoint{

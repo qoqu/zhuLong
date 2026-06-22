@@ -79,6 +79,10 @@ type SessionState struct {
 	Approval *ApprovalRequestDTO    `json:"approval,omitempty"`
 	Created  time.Time              `json:"created"`
 	Updated  time.Time              `json:"updated"`
+	// New fields for enhanced UI
+	MemoryState *MemoryStateDTO     `json:"memoryState,omitempty"`
+	LearningState *LearningStateDTO `json:"learningState,omitempty"`
+	ModuleState *ModuleStateDTO     `json:"moduleState,omitempty"`
 }
 
 // MessageDTO is a single transcript message.
@@ -152,6 +156,95 @@ type ApprovalRequestDTO struct {
 	Risk      string            `json:"risk"` // low|medium|high
 	Reason    string            `json:"reason"`
 	CreatedAt time.Time         `json:"createdAt"`
+}
+
+// MemoryStateDTO is the memory state sent to the frontend.
+type MemoryStateDTO struct {
+	Episodic   MemoryEpisodicDTO   `json:"episodic"`
+	Semantic   MemorySemanticDTO   `json:"semantic"`
+	Procedural MemoryProceduralDTO `json:"procedural"`
+}
+
+type MemoryEpisodicDTO struct {
+	Count       int    `json:"count"`
+	TotalTokens int    `json:"totalTokens"`
+	LastUpdated string `json:"lastUpdated"`
+}
+
+type MemorySemanticDTO struct {
+	Count       int      `json:"count"`
+	Categories  []string `json:"categories"`
+	LastUpdated string   `json:"lastUpdated"`
+}
+
+type MemoryProceduralDTO struct {
+	Count        int     `json:"count"`
+	SuccessRate  float64 `json:"successRate"`
+	LastUpdated  string  `json:"lastUpdated"`
+}
+
+// LearningStateDTO is the learning state sent to the frontend.
+type LearningStateDTO struct {
+	CognitiveModel  LearningCognitiveModelDTO `json:"cognitiveModel"`
+	Diversity      LearningDiversityDTO      `json:"diversity"`
+	ExplorationRate float64               `json:"explorationRate"`
+	UtilizationRate float64               `json:"utilizationRate"`
+	SuccessPatterns  int                  `json:"successPatterns"`
+	LastLearning    string                `json:"lastLearning"`
+}
+
+type LearningCognitiveModelDTO struct {
+	Updated     bool    `json:"updated"`
+	LastUpdate  string  `json:"lastUpdate"`
+	Confidence  float64 `json:"confidence"`
+}
+
+type LearningDiversityDTO struct {
+	Score      float64  `json:"score"`
+	Strategies []string `json:"strategies"`
+}
+
+// ModuleStateDTO is the module state sent to the frontend.
+type ModuleStateDTO struct {
+	// P0 modules
+	Controller *ModuleItemDTO `json:"controller,omitempty"`
+	Planner    *ModuleItemDTO `json:"planner,omitempty"`
+	Executor   *ModuleItemDTO `json:"executor,omitempty"`
+	Reflector  *ModuleItemDTO `json:"reflector,omitempty"`
+	Memory     *ModuleItemDTO `json:"memory,omitempty"`
+	Compressor *ModuleItemDTO `json:"compressor,omitempty"`
+	Checkpoint *ModuleItemDTO `json:"checkpoint,omitempty"`
+	Budget     *ModuleItemDTO `json:"budget,omitempty"`
+	Trace      *ModuleItemDTO `json:"trace,omitempty"`
+	Human      *ModuleItemDTO `json:"human,omitempty"`
+	Tools      *ModuleItemDTO `json:"tools,omitempty"`
+	DeepSeek   *ModuleItemDTO `json:"deepseek,omitempty"`
+	
+	// P1 modules
+	Stagnation  *ModuleItemDTO `json:"stagnation,omitempty"`
+	Exploration *ModuleItemDTO `json:"exploration,omitempty"`
+	Stability   *ModuleItemDTO `json:"stability,omitempty"`
+	Information *ModuleItemDTO `json:"information,omitempty"`
+	Synergetics *ModuleItemDTO `json:"synergetics,omitempty"`
+	Learning    *ModuleItemDTO `json:"learningModule,omitempty"`
+	
+	// P2 modules
+	AltPlanner *ModuleItemDTO `json:"altPlanner,omitempty"`
+	EnvMonitor *ModuleItemDTO `json:"envMonitor,omitempty"`
+	NoiseHandler *ModuleItemDTO `json:"noiseHandler,omitempty"`
+	Redundancy  *ModuleItemDTO `json:"redundancy,omitempty"`
+	
+	// P3 modules
+	I18N      *ModuleItemDTO `json:"i18n,omitempty"`
+	Plugins   *ModuleItemDTO `json:"plugins,omitempty"`
+	Dashboard *ModuleItemDTO `json:"dashboard,omitempty"`
+	Models    *ModuleItemDTO `json:"models,omitempty"`
+	Backup    *ModuleItemDTO `json:"backup,omitempty"`
+}
+
+type ModuleItemDTO struct {
+	Status  string         `json:"status"` // active|idle|error
+	Details map[string]any `json:"details,omitempty"`
 }
 
 // NewApp creates a new App with sane defaults.
@@ -248,6 +341,9 @@ func (a *App) NewSession() *SessionState {
 		Messages: []MessageDTO{}, Logs: []LogDTO{}, Plan: []PlanStepDTO{},
 		Created: time.Now(), Updated: time.Now(),
 		Stats: a.zeroStats(),
+		MemoryState:  a.initMemoryState(),
+		LearningState: a.initLearningState(),
+		ModuleState:  a.initModuleState(),
 	}
 	a.sessions[id] = st
 	// Inject into Global project
@@ -556,6 +652,42 @@ func (a *App) zeroStats() RuntimeStatsDTO {
 		AvgHit:        "未命中",
 		SessionCost:   "$0.0000",
 		Remaining:     "¥73.23",
+	}
+}
+
+func (a *App) initMemoryState() *MemoryStateDTO {
+	return &MemoryStateDTO{
+		Episodic:  MemoryEpisodicDTO{Count: 0, TotalTokens: 0, LastUpdated: "从未"},
+		Semantic:  MemorySemanticDTO{Count: 0, Categories: []string{}, LastUpdated: "从未"},
+		Procedural: MemoryProceduralDTO{Count: 0, SuccessRate: 0.0, LastUpdated: "从未"},
+	}
+}
+
+func (a *App) initLearningState() *LearningStateDTO {
+	return &LearningStateDTO{
+		CognitiveModel:  LearningCognitiveModelDTO{Updated: false, LastUpdate: "从未", Confidence: 0.0},
+		Diversity:      LearningDiversityDTO{Score: 0.0, Strategies: []string{}},
+		ExplorationRate: 0.3,
+		UtilizationRate: 0.7,
+		SuccessPatterns:  0,
+		LastLearning:    "从未",
+	}
+}
+
+func (a *App) initModuleState() *ModuleStateDTO {
+	return &ModuleStateDTO{
+		Controller: &ModuleItemDTO{Status: "idle", Details: map[string]any{"fsmState": "Idle"}},
+		Planner:    &ModuleItemDTO{Status: "idle", Details: map[string]any{}},
+		Executor:   &ModuleItemDTO{Status: "idle", Details: map[string]any{"toolsLoaded": 0}},
+		Reflector:  &ModuleItemDTO{Status: "idle", Details: map[string]any{}},
+		Memory:     &ModuleItemDTO{Status: "idle", Details: map[string]any{"compactionEnabled": true}},
+		Compressor: &ModuleItemDTO{Status: "idle", Details: map[string]any{"compressThreshold": 0.8}},
+		Checkpoint: &ModuleItemDTO{Status: "idle", Details: map[string]any{}},
+		Budget:     &ModuleItemDTO{Status: "idle", Details: map[string]any{"warningLevel": "ok"}},
+		Trace:      &ModuleItemDTO{Status: "idle", Details: map[string]any{"traceEnabled": true}},
+		Human:      &ModuleItemDTO{Status: "idle", Details: map[string]any{"approvalPending": false}},
+		Tools:      &ModuleItemDTO{Status: "idle", Details: map[string]any{"mcpConnected": false}},
+		DeepSeek:   &ModuleItemDTO{Status: "idle", Details: map[string]any{"cacheHitRate": 0.0}},
 	}
 }
 
