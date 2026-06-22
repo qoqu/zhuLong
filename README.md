@@ -15,6 +15,7 @@ Zhulong（烛龙）是一个基于 DeepSeek 的通用自主循环 Agent 框架�
 - **高效上下文管理**：深度优化 DeepSeek prefix-cache，最大化缓存命中率
 - **自适应学习**：成功策略复用、认知模型更新、探索/利用平衡
 - **生产级可靠性**：检查点恢复、成本控制、人机协作断点、完整可观测性
+- **完整桌面端 UI**：6 个右侧 tab + 27 个模块实时状态 + Web Dashboard + 插件系统
 
 ### 设计目标
 
@@ -113,9 +114,35 @@ cd desktop
 # 安装前端依赖
 cd frontend && npm install && cd ..
 
-# 运行桌面端
-go run .
+# 构建 Wails 桌面应用
+wails build
+
+# 运行
+./build/bin/zhulong.exe
 ```
+
+#### 桌面端功能
+
+- **6 个右侧 tab**: Overview / Files / Changes / Memory / Learning / Modules
+- **3 层记忆可视化**: 情景记忆 / 语义记忆 / 程序记忆
+- **27 个模块状态**: P0×12 + P1×6 + P2×4 + P3×5 全部实时联动
+- **执行模式**: ask / auto / yolo 三种模式切换
+- **输入模式**: normal / plan / goal 三种规划策略
+- **温度控制**: auto / 0.0 / 0.3 / 0.7 / 1.0 采样温度
+- **文件树**: 实时监视工作区（深度 2，跳过 node_modules/.git 等）
+- **审批弹窗**: 危险操作前弹出确认（ask/auto 模式）
+- **Web Dashboard**: 浏览器实时监控（端口 7788）
+- **自动备份**: off / immediate / on-completion 三种模式
+- **i18n**: 中英双语实时切换
+
+#### 桌面端设置面板
+
+侧边栏 → 设置 可配置：
+- **环境监控路径**: 修改 envMonitor 监视目录
+- **自动备份模式**: off / immediate / on-completion + 失败时是否备份
+- **Web Dashboard 端口**: 自定义端口（启动/停止）
+- **手动备份**: 立即创建 backup snapshot
+- **语言切换**: 中文 / English
 
 ### 编程接口使用
 
@@ -170,6 +197,48 @@ func main() {
 - **停滞检测**：窗口大小、熵阈值
 - **探索**：基础温度、最大温度
 - **学习**：积木块、内部模型、多样性、混沌边缘
+
+## Web Dashboard
+
+桌面端启动后可启用 Web Dashboard，浏览器访问 `http://localhost:7788`（默认端口）查看：
+
+- **系统状态卡片**: 服务/端口/运行时长/版本
+- **活跃 Session 表格**: ID/目标/状态/tokens
+- **模块状态表**: 控制器/规划器/执行器等 10 个核心模块
+
+前端原生 JS 实现，3 秒轮询刷新。HTML 通过 `//go:embed` 嵌入二进制，无需外部文件依赖。
+
+## 插件系统
+
+Zhulong 支持 Go plugin 动态加载：
+
+```go
+// 1. 编写插件，导出 NewPlugin 函数
+package main
+
+import "github.com/qoqu/zhuLong/internal/plugins"
+
+type MyPlugin struct{}
+
+func (p *MyPlugin) Name() string    { return "my-plugin" }
+func (p *MyPlugin) Version() string { return "0.1.0" }
+func (p *MyPlugin) Init() error     { return nil }
+func (p *MyPlugin) Shutdown() error { return nil }
+
+func NewPlugin() plugins.Plugin { return &MyPlugin{} }
+```
+
+```bash
+# 2. 编译
+go build -buildmode=plugin -o my-plugin.so my-plugin.go
+
+# 3. 放到插件目录
+cp my-plugin.so %TEMP%/zhulong-plugins/
+
+# 4. 桌面端设置 → 修改 Plugins 目录 → 重新扫描
+```
+
+支持 `.so` (Linux) / `.dll` (Windows) / `.dylib` (macOS)。
 
 ## 无限画布功能
 
@@ -274,8 +343,8 @@ Zhulong 融合六大系统科学理论：
 - **Phase 1**: MVP（状态机+三阶段循环+基础配置）✅ 已完成
 - **Phase 2**: 上下文优化（Memory+裁剪+预算）✅ 已完成
 - **Phase 3**: 生产级特性（检查点+Trace+人机断点+并行+骨架压缩）✅ 已完成
-- **Phase 4**: 多模型+工具生态 🚧 进行中
-- **Phase 5**: 打磨+文档 📋 计划中
+- **Phase 4**: 多模型+工具生态 ✅ 已完成（含 53 个后端模块 + 桌面端 UI 100% 联通）
+- **Phase 5**: 打磨+文档 ✅ 已完成（含 Web Dashboard + 插件系统）
 
 ## 贡献
 

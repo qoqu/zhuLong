@@ -14,7 +14,8 @@ Zhulong (烛龙, "Torch Dragon") is a DeepSeek-powered autonomous loop agent fra
 - **Autonomous Multi-round Loop**: Plan → Execute → Reflect → Replan
 - **High Cache Hit Rate**: DeepSeek prefix-cache optimized; append-only context layout
 - **Adaptive Learning**: Strategy reuse, cognitive model updates, explore/exploit balance
-- **Production-grade**: Checkpoint recovery, cost control, human breakpoints, full observability
+- **Production-grade Reliability**: Checkpoint recovery, cost control, human-in-the-loop, full observability
+- **Complete Desktop UI**: 6 right tabs + 27 modules live status + Web Dashboard + plugin system
 
 ### Design Goals
 
@@ -90,7 +91,81 @@ export DEEPSEEK_API_KEY="sk-..."
 ### Test
 
 ```bash
-go test -short ./...
+go test -count=1 -short ./...
+```
+
+## Desktop (Wails)
+
+```bash
+cd desktop
+wails build
+./build/bin/zhulong.exe
+```
+
+#### Desktop Features
+
+- **6 right tabs**: Overview / Files / Changes / Memory / Learning / Modules
+- **3-tier memory visualization**: Episodic / Semantic / Procedural
+- **27 modules live status**: P0×12 + P1×6 + P2×4 + P3×5 all in real-time
+- **Execution modes**: ask / auto / yolo
+- **Input modes**: normal / plan / goal
+- **Temperature control**: auto / 0.0 / 0.3 / 0.7 / 1.0
+- **File tree**: Real-time workspace watching (depth 2, skipping node_modules/.git)
+- **Approval modal**: For risky operations (ask/auto mode)
+- **Web Dashboard**: Browser-based real-time monitor (port 7788)
+- **Auto backup**: off / immediate / on-completion
+- **i18n**: Chinese / English real-time switching
+
+#### Desktop Settings
+
+Sidebar → Settings configures:
+- **Monitor path**: envMonitor watch directory
+- **Backup mode**: off / immediate / on-completion + backup-on-failure toggle
+- **Web Dashboard port**: Custom port (start/stop)
+- **Manual backup**: Create backup snapshot now
+- **Language**: Chinese / English
+
+## Web Dashboard
+
+After enabling in desktop settings, browse to `http://localhost:7788` (default port) to see:
+
+- **System status card**: service / port / uptime / version
+- **Active Sessions table**: id / goal / status / tokens
+- **Modules table**: controller / planner / executor / 10 core modules
+
+Native JS frontend, 3-second polling. HTML embedded via `//go:embed`, no external file dependencies.
+
+## Plugin System
+
+Zhulong supports Go plugin dynamic loading:
+
+```go
+// 1. Write a plugin that exports NewPlugin
+package main
+
+import "github.com/qoqu/zhuLong/internal/plugins"
+
+type MyPlugin struct{}
+
+func (p *MyPlugin) Name() string    { return "my-plugin" }
+func (p *MyPlugin) Version() string { return "0.1.0" }
+func (p *MyPlugin) Init() error     { return nil }
+func (p *MyPlugin) Shutdown() error { return nil }
+
+func NewPlugin() plugins.Plugin { return &MyPlugin{} }
+```
+
+```bash
+# 2. Build
+go build -buildmode=plugin -o my-plugin.so my-plugin.go
+
+# 3. Place in plugins directory
+cp my-plugin.so $TMP/zhulong-plugins/
+
+# 4. Desktop settings → Change Plugins dir → Re-scan
+```
+
+Supports `.so` (Linux) / `.dll` (Windows) / `.dylib` (macOS).go test -short ./...
 # 54/54 packages passing
 ```
 
@@ -151,6 +226,9 @@ React Flow-based canvas with 6 node types (Plan, Step, Text, Image, Video, Confi
 - **Tests passing**: 54/54
 - **Build**: `go build ./...` ✅
 - **Vet**: `go vet ./...` ✅
+- **Desktop UI ↔ backend connectivity**: 100% ✅
+- **Web Dashboard**: running, real-time monitor
+- **Plugin system**: real `plugin.Open` loader
 
 ## Documentation
 
