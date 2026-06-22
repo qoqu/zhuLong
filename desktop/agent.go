@@ -110,13 +110,14 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	// === Planning ===
 	s.Status = "planning"
-	
-	// Update module states
+
+	// Update module states + 同步 stats.fsmState 给 StatusBar
 	a.mu.Lock()
 	if s.ModuleState != nil && s.ModuleState.Controller != nil {
 		s.ModuleState.Controller.Details["fsmState"] = "Planning"
 		s.ModuleState.Planner.Details["lastPlan"] = pkg.TruncateStr(s.Goal, 30)
 	}
+	s.Stats.FsmState = "Planning" // 同步给 StatusBar
 	a.mu.Unlock()
 	
 	a.appendLog(s, "plan", "Planning...", "goal="+pkg.TruncateStr(s.Goal, 60))
@@ -172,8 +173,8 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	// === Execution loop ===
 	s.Status = "executing"
-	
-	// Update module states
+
+	// Update module states + 同步 stats.fsmState
 	a.mu.Lock()
 	if s.ModuleState != nil {
 		if s.ModuleState.Controller != nil {
@@ -184,20 +185,22 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			s.ModuleState.Executor.Details["toolsLoaded"] = len(toolsReg.List())
 		}
 	}
+	s.Stats.FsmState = "Executing"
 	a.mu.Unlock()
 	
 	for i, step := range plan.Steps {
 		if err := ctx.Err(); err != nil {
 			a.appendLog(s, "system", "Cancelled", pkg.ErrString(err))
 			s.Status = "cancelled"
-			
+
 			// Update module states
 			a.mu.Lock()
 			if s.ModuleState != nil && s.ModuleState.Controller != nil {
 				s.ModuleState.Controller.Details["fsmState"] = "Cancelled"
 			}
+			s.Stats.FsmState = "Cancelled"
 			a.mu.Unlock()
-			
+
 			a.emitSession(s)
 			logger.LogWithLoop(i + 1, "system", "cancelled", nil)
 			return
@@ -285,16 +288,22 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 				s.ModuleState.Tools.Details["toolsLoaded"] = len(toolsReg.List())
 			}
 			
-			// Update budget state (simulated)
-			if s.ModuleState.Budget != nil {
+			// Update budget state (simulated) + 联动 stats.budgetWarning
+			if s.ModuleState != nil && s.ModuleState.Budget != nil {
 				usagePct := float64(s.Stats.SessionTokens) / float64(s.Stats.TotalLimit) * 100
+				var warnLevel string
 				if usagePct > 80 {
-					s.ModuleState.Budget.Details["warningLevel"] = "critical"
+					warnLevel = "critical"
 				} else if usagePct > 60 {
-					s.ModuleState.Budget.Details["warningLevel"] = "warn"
+					warnLevel = "warn"
 				} else {
-					s.ModuleState.Budget.Details["warningLevel"] = "ok"
+					warnLevel = "ok"
 				}
+				s.ModuleState.Budget.Details["warningLevel"] = warnLevel
+				s.ModuleState.Budget.Details["tokensUsed"] = s.Stats.SessionTokens
+				s.Stats.BudgetUsed = s.Stats.SessionTokens
+				s.Stats.BudgetLimit = s.Stats.TotalLimit
+				s.Stats.BudgetWarning = warnLevel != "ok"
 			}
 		}
 		a.mu.Unlock()
@@ -323,8 +332,8 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	// === Reflect ===
 	s.Status = "reflecting"
-	
-	// Update module states
+
+	// Update module states + 同步 stats.fsmState
 	a.mu.Lock()
 	if s.ModuleState != nil {
 		if s.ModuleState.Controller != nil {
@@ -334,6 +343,7 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			s.ModuleState.Reflector.Status = "active"
 		}
 	}
+	s.Stats.FsmState = "Reflecting"
 	a.mu.Unlock()
 	
 	a.appendLog(s, "refl", "Reflecting on progress", "score=?")
@@ -424,6 +434,7 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			s.ModuleState.Executor.Status = "idle"
 		}
 	}
+	s.Stats.FsmState = "Done"
 	a.mu.Unlock()
 
 	// Save final checkpoint

@@ -139,6 +139,12 @@ type RuntimeStatsDTO struct {
 	ContextUsed    int     `json:"contextUsed"`
 	CompressPct    int     `json:"compressPct"`
 	Remaining      string  `json:"remaining"`
+	// 同步 FSM 状态（Controller.Details.fsmState 的镜像，给 StatusBar 显示）
+	FsmState string `json:"fsmState,omitempty"`
+	// 预算联动字段
+	BudgetUsed     int  `json:"budgetUsed,omitempty"`
+	BudgetLimit    int  `json:"budgetLimit,omitempty"`
+	BudgetWarning  bool `json:"budgetWarning,omitempty"`
 }
 
 // ChangeDTO is a file-system change event from the EnvironmentMonitor.
@@ -676,18 +682,40 @@ func (a *App) initLearningState() *LearningStateDTO {
 
 func (a *App) initModuleState() *ModuleStateDTO {
 	return &ModuleStateDTO{
-		Controller: &ModuleItemDTO{Status: "idle", Details: map[string]any{"fsmState": "Idle"}},
-		Planner:    &ModuleItemDTO{Status: "idle", Details: map[string]any{}},
-		Executor:   &ModuleItemDTO{Status: "idle", Details: map[string]any{"toolsLoaded": 0}},
-		Reflector:  &ModuleItemDTO{Status: "idle", Details: map[string]any{}},
-		Memory:     &ModuleItemDTO{Status: "idle", Details: map[string]any{"compactionEnabled": true}},
-		Compressor: &ModuleItemDTO{Status: "idle", Details: map[string]any{"compressThreshold": 0.8}},
-		Checkpoint: &ModuleItemDTO{Status: "idle", Details: map[string]any{}},
-		Budget:     &ModuleItemDTO{Status: "idle", Details: map[string]any{"warningLevel": "ok"}},
-		Trace:      &ModuleItemDTO{Status: "idle", Details: map[string]any{"traceEnabled": true}},
-		Human:      &ModuleItemDTO{Status: "idle", Details: map[string]any{"approvalPending": false}},
-		Tools:      &ModuleItemDTO{Status: "idle", Details: map[string]any{"mcpConnected": false}},
-		DeepSeek:   &ModuleItemDTO{Status: "idle", Details: map[string]any{"cacheHitRate": 0.0}},
+		// === P0 核心模块（12 个） ===
+		Controller: &ModuleItemDTO{Status: "idle", Details: map[string]any{"fsmState": "Idle", "loop": 0}},
+		Planner:    &ModuleItemDTO{Status: "idle", Details: map[string]any{"lastPlan": "未规划"}},
+		Executor:   &ModuleItemDTO{Status: "idle", Details: map[string]any{"toolsLoaded": 0, "currentStep": 0}},
+		Reflector:  &ModuleItemDTO{Status: "idle", Details: map[string]any{"lastReflection": "从未"}},
+		Memory:     &ModuleItemDTO{Status: "idle", Details: map[string]any{"compactionEnabled": true, "itemsCount": 0}},
+		Compressor: &ModuleItemDTO{Status: "idle", Details: map[string]any{"compressThreshold": 0.8, "lastPruneAt": "从未"}},
+		Checkpoint: &ModuleItemDTO{Status: "idle", Details: map[string]any{"lastCheckpointId": "", "restoredFrom": ""}},
+		Budget:     &ModuleItemDTO{Status: "idle", Details: map[string]any{"warningLevel": "ok", "tokensUsed": 0, "tokensLimit": 1000000}},
+		Trace:      &ModuleItemDTO{Status: "idle", Details: map[string]any{"traceEnabled": true, "eventsLogged": 0}},
+		Human:      &ModuleItemDTO{Status: "idle", Details: map[string]any{"approvalPending": false, "breakpointCount": 0}},
+		Tools:      &ModuleItemDTO{Status: "idle", Details: map[string]any{"mcpConnected": false, "toolsLoaded": 0}},
+		DeepSeek:   &ModuleItemDTO{Status: "idle", Details: map[string]any{"cacheHitRate": 0.0, "prefixCacheStable": true}},
+
+		// === P1 核心增强（6 个） ===
+		Stagnation:  &ModuleItemDTO{Status: "idle", Details: map[string]any{"isStagnating": false, "consecutiveNoProgress": 0, "lastCheckAt": "从未"}},
+		Exploration: &ModuleItemDTO{Status: "idle", Details: map[string]any{"explorationRate": 0.3, "lastTriggered": "从未", "triggerCount": 0}},
+		Stability:   &ModuleItemDTO{Status: "idle", Details: map[string]any{"isOscillating": false, "divergenceScore": 0.0, "snapshotsCount": 0}},
+		Information: &ModuleItemDTO{Status: "idle", Details: map[string]any{"avgGain": 0.0, "toolsTracked": 0, "lastGain": 0.0}},
+		Synergetics: &ModuleItemDTO{Status: "idle", Details: map[string]any{"orderParameter": "—", "slavedCount": 0, "misalignedCount": 0}},
+		Learning:    &ModuleItemDTO{Status: "idle", Details: map[string]any{"buildingBlocksCount": 0, "diversityScore": 0.0, "patternsSaved": 0}},
+
+		// === P2 扩展模块（4 个） ===
+		AltPlanner:   &ModuleItemDTO{Status: "idle", Details: map[string]any{"alternativesGenerated": 0, "lastFallbackAt": "从未"}},
+		EnvMonitor:   &ModuleItemDTO{Status: "idle", Details: map[string]any{"polling": false, "pollIntervalSec": 60, "changesDetected": 0}},
+		NoiseHandler: &ModuleItemDTO{Status: "idle", Details: map[string]any{"noiseFiltered": 0, "redundancyMerged": 0}},
+		Redundancy:   &ModuleItemDTO{Status: "idle", Details: map[string]any{"duplicatesRemoved": 0, "dedupRatio": 0.0}},
+
+		// === P3 增强模块（5 个） ===
+		I18N:      &ModuleItemDTO{Status: "idle", Details: map[string]any{"currentLang": "zh", "bundleLoaded": true, "keysCount": 0}},
+		Plugins:   &ModuleItemDTO{Status: "idle", Details: map[string]any{"loadedPlugins": 0, "pluginList": []string{}}},
+		Dashboard: &ModuleItemDTO{Status: "idle", Details: map[string]any{"enabled": false, "port": 0, "url": ""}},
+		Models:    &ModuleItemDTO{Status: "idle", Details: map[string]any{"poolSize": 0, "availableModels": []string{"deepseek-v4-flash"}}},
+		Backup:    &ModuleItemDTO{Status: "idle", Details: map[string]any{"autoBackupEnabled": false, "lastSnapshot": "从未", "snapshotCount": 0}},
 	}
 }
 

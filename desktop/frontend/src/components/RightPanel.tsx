@@ -491,17 +491,18 @@ function LearningTab(props: { language: Language; learningState?: LearningState 
 
 // Modules Tab - 模块状态
 function ModulesTab(props: { language: Language; moduleState?: ModuleState | null }) {
+  const t = useT(props.language)
   const modules = props.moduleState
-  
+
   if (!modules) {
     return (
       <div className="panel-placeholder">
         <p>⚙️</p>
-        <p>{props.language === 'zh' ? '暂无模块数据' : 'No module data'}</p>
+        <p>{t.noModuleData}</p>
       </div>
     )
   }
-  
+
   const statusColor = (status: string) => {
     switch (status) {
       case 'active': return 'var(--ok)'
@@ -510,23 +511,18 @@ function ModulesTab(props: { language: Language; moduleState?: ModuleState | nul
       default: return 'var(--fg-faint)'
     }
   }
-  
+
   const statusLabel = (status: string) => {
-    if (props.language === 'en') {
-      return status.charAt(0).toUpperCase() + status.slice(1)
-    }
-    switch (status) {
-      case 'active': return '活跃'
-      case 'idle': return '空闲'
-      case 'error': return '错误'
-      default: return status
-    }
+    if (status === 'active') return t.moduleStatusActive
+    if (status === 'idle') return t.moduleStatusIdle
+    if (status === 'error') return t.moduleStatusError
+    return status
   }
   
   return (
     <div className="modules-tab">
       <section className="overview-section">
-        <h3>P0 {props.language === 'zh' ? '核心模块' : 'Core Modules'}</h3>
+        <h3>{t.p0CoreModules}</h3>
         <div className="module-list">
           <ModuleItem name="Controller" module={modules.controller} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
           <ModuleItem name="Planner" module={modules.planner} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
@@ -542,50 +538,44 @@ function ModulesTab(props: { language: Language; moduleState?: ModuleState | nul
           <ModuleItem name="DeepSeek" module={modules.deepseek} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
         </div>
       </section>
-      
-      {(modules.stagnation || modules.exploration || modules.stability || modules.information || modules.synergetics || modules.learningModule) && (
-        <section className="overview-section">
-          <h3>P1 {props.language === 'zh' ? '核心增强' : 'Core Enhancement'}</h3>
-          <div className="module-list">
-            {modules.stagnation && <ModuleItem name="Stagnation" module={modules.stagnation} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-            {modules.exploration && <ModuleItem name="Exploration" module={modules.exploration} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-            {modules.stability && <ModuleItem name="Stability" module={modules.stability} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-            {modules.information && <ModuleItem name="Information" module={modules.information} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-            {modules.synergetics && <ModuleItem name="Synergetics" module={modules.synergetics} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-            {modules.learningModule && <ModuleItem name="Learning" module={modules.learningModule} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-          </div>
-        </section>
-      )}
-      
-      {(modules.altPlanner || modules.envMonitor || modules.noiseHandler || modules.redundancy) && (
-        <section className="overview-section">
-          <h3>P2 {props.language === 'zh' ? '扩展模块' : 'Extension Modules'}</h3>
-          <div className="module-list">
-            {modules.altPlanner && <ModuleItem name="AltPlanner" module={modules.altPlanner} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-            {modules.envMonitor && <ModuleItem name="EnvMonitor" module={modules.envMonitor} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-            {modules.noiseHandler && <ModuleItem name="NoiseHandler" module={modules.noiseHandler} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-            {modules.redundancy && <ModuleItem name="Redundancy" module={modules.redundancy} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-          </div>
-        </section>
-      )}
-      
-      {(modules.i18n || modules.plugins || modules.dashboard || modules.models || modules.backup) && (
-        <section className="overview-section">
-          <h3>P3 {props.language === 'zh' ? '扩展功能' : 'Extended Features'}</h3>
-          <div className="module-list">
-            {modules.i18n && <ModuleItem name="i18n" module={modules.i18n} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-            {modules.plugins && <ModuleItem name="Plugins" module={modules.plugins} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-            {modules.dashboard && <ModuleItem name="Dashboard" module={modules.dashboard} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-            {modules.models && <ModuleItem name="Models" module={modules.models} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-            {modules.backup && <ModuleItem name="Backup" module={modules.backup} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
-          </div>
-        </section>
-      )}
+
+      <section className="overview-section">
+        <h3>{t.p1Enhancement}</h3>
+        <div className="module-list">
+          {modules.stagnation && <ModuleItem name="Stagnation" module={modules.stagnation} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          {modules.exploration && <ModuleItem name="Exploration" module={modules.exploration} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          {modules.stability && <ModuleItem name="Stability" module={modules.stability} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          {modules.information && <ModuleItem name="Information" module={modules.information} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          {modules.synergetics && <ModuleItem name="Synergetics" module={modules.synergetics} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          {modules.learningModule && <ModuleItem name="Learning" module={modules.learningModule} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+        </div>
+      </section>
+
+      <section className="overview-section">
+        <h3>{t.p2Extension}</h3>
+        <div className="module-list">
+          {modules.altPlanner && <ModuleItem name="AltPlanner" module={modules.altPlanner} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          {modules.envMonitor && <ModuleItem name="EnvMonitor" module={modules.envMonitor} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          {modules.noiseHandler && <ModuleItem name="NoiseHandler" module={modules.noiseHandler} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          {modules.redundancy && <ModuleItem name="Redundancy" module={modules.redundancy} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+        </div>
+      </section>
+
+      <section className="overview-section">
+        <h3>{t.p3Advanced}</h3>
+        <div className="module-list">
+          {modules.i18n && <ModuleItem name="I18N" module={modules.i18n} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          {modules.plugins && <ModuleItem name="Plugins" module={modules.plugins} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          {modules.dashboard && <ModuleItem name="Dashboard" module={modules.dashboard} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          {modules.models && <ModuleItem name="Models" module={modules.models} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          {modules.backup && <ModuleItem name="Backup" module={modules.backup} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+        </div>
+      </section>
     </div>
   )
 }
 
-function ModuleItem(props: { 
+function ModuleItem(props: {
   name: string
   module: any
   statusColor: (status: string) => string
