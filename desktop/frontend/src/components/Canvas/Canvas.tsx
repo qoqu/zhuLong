@@ -22,6 +22,7 @@ import { TextNode } from './nodes/TextNode';
 import { ImageNode } from './nodes/ImageNode';
 import { VideoNode } from './nodes/VideoNode';
 import { ConfigNode } from './nodes/ConfigNode';
+import { BoardNode } from './nodes/BoardNode';
 import { CanvasToolbar } from './CanvasToolbar';
 import { NodePanel } from './NodePanel';
 import { AssetPanel } from './AssetPanel';
@@ -44,6 +45,7 @@ const nodeTypes = {
   image: ImageNode,
   video: VideoNode,
   config: ConfigNode,
+  board: BoardNode,
 };
 
 // 画布内部组件

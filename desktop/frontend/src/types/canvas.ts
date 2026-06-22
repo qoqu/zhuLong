@@ -19,10 +19,17 @@ export enum CanvasNodeType {
   // 资产节点
   Asset = 'asset',
   Reference = 'reference',
+
+  // 看板节点
+  Board = 'board',
+  BoardWorker = 'board_worker',
 }
 
 // 节点状态
 export type NodeStatus = 'idle' | 'loading' | 'success' | 'error' | 'pending' | 'running' | 'completed' | 'failed';
+
+// 看板状态（参考Hermes Kanban）
+export type BoardStatus = 'triage' | 'todo' | 'ready' | 'running' | 'blocked' | 'review' | 'done' | 'archived';
 
 // 基础节点数据
 export interface BaseNodeData {
@@ -152,6 +159,27 @@ export interface ReferenceNodeData extends BaseNodeData {
   targetId: string;
 }
 
+// 看板节点数据（参考Hermes Kanban）
+export interface BoardNodeData extends BaseNodeData {
+  type: CanvasNodeType.Board;
+  boardStatus: BoardStatus;
+  assignee?: string;
+  dependsOn: string[];
+  priority: number;
+  result?: string;
+  artifacts: string[];
+  consecutiveFails: number;
+}
+
+// Worker节点数据
+export interface BoardWorkerNodeData extends BaseNodeData {
+  type: CanvasNodeType.BoardWorker;
+  taskId: string;
+  profile: string;
+  pid?: number;
+  workerStatus: 'idle' | 'working' | 'crashed';
+}
+
 // 联合节点数据类型
 export type CanvasNodeData =
   | TextNodeData
@@ -165,7 +193,9 @@ export type CanvasNodeData =
   | ToolNodeData
   | ResultNodeData
   | AssetNodeData
-  | ReferenceNodeData;
+  | ReferenceNodeData
+  | BoardNodeData
+  | BoardWorkerNodeData;
 
 // 画布操作类型
 export type CanvasOp =
