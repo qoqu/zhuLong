@@ -11,6 +11,7 @@ import (
 
 	"github.com/qoqu/zhuLong/internal/checkpoint"
 	"github.com/qoqu/zhuLong/internal/executor"
+	"github.com/qoqu/zhuLong/internal/memento"
 	"github.com/qoqu/zhuLong/internal/memory"
 	"github.com/qoqu/zhuLong/internal/planner"
 	"github.com/qoqu/zhuLong/internal/provider"
@@ -26,6 +27,7 @@ type Agent struct {
 	options      *Options
 	provider     Provider
 	skillPipeline *skills.Pipeline
+	memoryStore  *memento.MemoryStore
 }
 
 // Provider is the interface for LLM providers
@@ -141,10 +143,17 @@ func NewAgent(opts ...Option) (*Agent, error) {
 		return nil, fmt.Errorf("skill pipeline init: %w", err)
 	}
 
+	// Initialize memento (MEMORY.md + USER.md)
+	memStore := memento.NewMemoryStore(options.DataDir)
+	if err := memStore.Init(); err != nil {
+		return nil, fmt.Errorf("memory store init: %w", err)
+	}
+
 	return &Agent{
 		goal:          options.Goal,
 		options:       options,
 		skillPipeline: skillPipeline,
+		memoryStore:   memStore,
 	}, nil
 }
 
@@ -198,8 +207,23 @@ func (a *Agent) Run() (*AgentResult, error) {
 	toolsReg.Register(&SkillViewTool{Pipeline: a.skillPipeline})
 	toolsReg.Register(&SkillSearchTool{Pipeline: a.skillPipeline})
 
-	// Build system prompt with skill context
+	// Register memory tools
+	toolsReg.Register(&MemoryNoteTool{Store: a.memoryStore})
+	toolsReg.Register(&MemoryProfileTool{Store: a.memoryStore})
+
+	// Build system prompt with skill context and memory
 	systemPrompt := "You are Zhulong, an autonomous agent."
+
+	// Inject MEMORY.md (Agent notes) - frozen snapshot
+	agentNote, userProfile := a.memoryStore.GetSnapshot()
+	if agentNote != "" {
+		systemPrompt += "\n\n## Agent Notes\n" + agentNote
+	}
+	if userProfile != "" {
+		systemPrompt += "\n\n## User Profile\n" + userProfile
+	}
+
+	// Inject skill list
 	skillList := a.skillPipeline.GetSkillList()
 	if skillList != "" {
 		systemPrompt += "\n" + skillList
@@ -810,4 +834,50 @@ func (s *SkillSearchTool) Call(ctx context.Context, params map[string]interface{
 		return "", fmt.Errorf("search query is required")
 	}
 	return s.Pipeline.SkillSearchTool(query), nil
+}
+
+// MemoryNoteTool 记忆笔记工具 - 更新MEMORY.md
+type MemoryNoteTool struct {
+	Store *memento.MemoryStore
+}
+
+func (m *MemoryNoteTool) Name() string { return "memory_note" }
+
+func (m *MemoryNoteTool) Description() string {
+	return "Save a note to MEMORY.md (agent personal notes, max 2200 chars). Usage: memory_note <content>"
+}
+
+func (m *MemoryNoteTool) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	content, _ := params["content"].(string)
+	if content == "" {
+		return "", fmt.Errorf("content is required")
+	}
+
+	if err := m.Store.SaveAgentNote(content); err != nil {
+		return "", err
+	}
+	return "Agent note saved.", nil
+}
+
+// MemoryProfileTool 用户画像工具 - 更新USER.md
+type MemoryProfileTool struct {
+	Store *memento.MemoryStore
+}
+
+func (m *MemoryProfileTool) Name() string { return "memory_profile" }
+
+func (m *MemoryProfileTool) Description() string {
+	return "Save user profile to USER.md (preferences, style, max 1375 chars). Usage: memory_profile <content>"
+}
+
+func (m *MemoryProfileTool) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	content, _ := params["content"].(string)
+	if content == "" {
+		return "", fmt.Errorf("content is required")
+	}
+
+	if err := m.Store.SaveUserProfile(content); err != nil {
+		return "", err
+	}
+	return "User profile saved.", nil
 }
