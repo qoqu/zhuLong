@@ -4453,3 +4453,49 @@ func ParseSchedule(s string) (*Schedule, error) {
 3. **渐进式实现** - 分阶段实现，逐步增强
 4. **可配置性** - 所有功能可配置、可禁用
 5. **用户同意优先** - 自进化和建议系统需要用户确认
+
+### H.9 最终差距分析
+
+基于对 Hermes-Agent 项目的全面深度代码研究（12,493次提交），烛龙已完成核心功能对标，但存在以下架构级差距：
+
+| 优先级 | 差距 | 说明 | 烛龙状态 |
+|--------|------|------|---------|
+| **P0** | 消息网关 | 20+平台适配器（Telegram/钉钉/飞书/Slack等），统一的GatewayRunner管理 | ❌ 缺失 |
+| **P0** | 双文件记忆系统 | MEMORY.md（Agent笔记）+ USER.md（用户画像）+ 8种外部记忆提供者 | ❌ 缺失 |
+| **P0** | 终端执行后端 | Docker容器隔离/SSH远程/Singularity HPC/Modal云端，仅本地执行不够 | ❌ 缺失 |
+| **P1** | 7层安全模型 | 容器隔离/SSRF保护/输入清理/上下文文件扫描/MCP凭据过滤/文件突变验证/供应链审计 | ⚠️ 基础 |
+| **P1** | Electron桌面应用 | 流式聊天+并排预览+文件浏览器+语音交互+自动更新 | ❌ 缺失 |
+| **P1** | Web Dashboard | 管理配置/API密钥/会话/Profile，支持远程部署 | ❌ 缺失 |
+| **P1** | Skills Hub生态 | 10种技能来源市场（official/github/claude-marketplace等）+安全扫描+信任等级 | ❌ 缺失 |
+| **P1** | 国际化(i18n) | 17种语言YAML翻译文件 + React useI18n hook | ⚠️ 部分 |
+| **P2** | Cron高级特性 | 无Agent模式（零Token消耗）/wakeAgent门控/任务链/广播投递/SILENT静默 | ⚠️ 基础 |
+| **P2** | 18+模型提供者 | Nous Portal(300+)/OpenRouter(200+)/国产全线/凭据池轮换/回退链 | ⚠️ 基础 |
+| **P2** | 可观测性 | Langfuse集成/trace&span/insights分析/doctor诊断/dump调试 | ⚠️ 基础 |
+| **P2** | 插件系统 | 18个插件目录（browser/cron/memory/model-providers等），3种发现源 | ❌ 缺失 |
+| **P2** | ACP协议 | 基于stdio/JSON-RPC的编辑器原生集成（VS Code/Zed/JetBrains） | ❌ 缺失 |
+| **P3** | 批量轨迹生成 | ShareGPT格式轨迹，用于训练下一代工具调用模型 | ❌ 缺失 |
+| **P3** | 备份与恢复 | hermes backup/import/checkpoints，原子写入 | ❌ 缺失 |
+| **P3** | Profile隔离 | 独立HERMES_HOME，可并发运行，导入/导出/别名 | ❌ 缺失 |
+| **P3** | 语音交互 | 语音备忘录转录(STT)+文字转语音(TTS)+CLI语音模式 | ❌ 缺失 |
+
+### H.10 烛龙领先于 Hermes 的特性
+
+| 特性 | 烛龙 | Hermes |
+|------|------|--------|
+| **自动化建议引擎** | ✅ SuggestionEngine（Phase 3） | ❌ 无独立引擎 |
+| **骨架压缩** | ✅ 4预设+5焦点+3密度 | ❌ 无 |
+| **缓存命中率铁律** | ✅ 系统级约束，prefix永不改写 | ❌ 无 |
+| **Ops操作抽象** | ✅ 原子操作接口，撤销/重做 | ❌ 无 |
+| **@引用机制** | ✅ 画布内@[node/asset]资源引用 | ❌ 无 |
+| **无限画布可视化** | ✅ React Flow + 12种面板 | ⚠️ 仅Kanban看板 |
+
+### H.11 推荐开发路线
+
+```
+Phase 4: 消息网关（P0）      — 20+平台适配器 + GatewayRunner
+Phase 5: 记忆系统（P0）      — MEMORY.md + USER.md + 外部提供者
+Phase 6: 终端后端（P0）      — Docker/SSH/云端隔离执行
+Phase 7: 安全增强（P1）      — 7层安全模型
+Phase 8: 桌面完善（P1）      — Electron应用 + Web Dashboard
+Phase 9: Skills Hub（P1）    — 技能市场生态
+```
