@@ -383,14 +383,34 @@ func (sm *SkillManager) loadMetadata(path string) (*Skill, error) {
 	skill := &Skill{}
 	lines := strings.Split(string(content), "\n")
 	inFrontMatter := false
+	var requiresBuilder strings.Builder
+	inRequires := false
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "---" {
 			inFrontMatter = !inFrontMatter
+			inRequires = false
 			continue
 		}
 		if inFrontMatter {
+			// Handle multi-line requires section (OpenClaw: requires.bins, Hermes: prerequisites.commands)
+			if inRequires {
+				if strings.HasPrefix(line, "-") || strings.HasPrefix(line, "  -") {
+					bin := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "-"))
+					bin = strings.Trim(bin, "\"' ")
+					if bin != "" {
+						if requiresBuilder.Len() > 0 {
+							requiresBuilder.WriteString(",")
+						}
+						requiresBuilder.WriteString(bin)
+					}
+					continue
+				} else {
+					inRequires = false
+				}
+			}
+
 			switch {
 			case strings.HasPrefix(line, "name:"):
 				skill.Name = strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "name:")), "\"'")
@@ -398,8 +418,9 @@ func (sm *SkillManager) loadMetadata(path string) (*Skill, error) {
 				skill.Description = strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "description:")), "\"'")
 			case strings.HasPrefix(line, "version:"):
 				skill.Version = strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "version:")), "\"'")
+			case strings.HasPrefix(line, "author:"):
+				// Hermes兼容
 			case strings.HasPrefix(line, "tags:"):
-				// 解析 tags: [tag1, tag2]
 				tagStr := strings.TrimSpace(strings.TrimPrefix(line, "tags:"))
 				tagStr = strings.Trim(tagStr, "[]")
 				for _, t := range strings.Split(tagStr, ",") {
@@ -409,6 +430,43 @@ func (sm *SkillManager) loadMetadata(path string) (*Skill, error) {
 						skill.Tags = append(skill.Tags, t)
 					}
 				}
+			// OpenClaw: requires.bins / Hermes: prerequisites.commands 内联列表格式
+			case (strings.HasPrefix(line, "bins:") || strings.HasPrefix(line, "  bins:")) && strings.Contains(line, "["):
+				// bins: [op, jq] 内联列表
+				bins := extractBracketList(line)
+				for _, b := range bins {
+					if b != "" {
+						if requiresBuilder.Len() > 0 {
+							requiresBuilder.WriteString(",")
+						}
+						requiresBuilder.WriteString(b)
+					}
+				}
+			case (strings.HasPrefix(line, "commands:") || strings.HasPrefix(line, "  commands:")) && strings.Contains(line, "["):
+				// commands: [git, curl] 内联列表
+				cmds := extractBracketList(line)
+				for _, c := range cmds {
+					if c != "" {
+						if requiresBuilder.Len() > 0 {
+							requiresBuilder.WriteString(",")
+						}
+						requiresBuilder.WriteString(c)
+					}
+				}
+			// OpenClaw: requires: 块标记（后续行处理 multi-line）
+			case line == "requires:" || line == "prerequisites:":
+				inRequires = true
+			}
+		}
+	}
+
+	// 将依赖项作为标签存储
+	if requiresBuilder.Len() > 0 {
+		deps := strings.Split(requiresBuilder.String(), ",")
+		for _, d := range deps {
+			d = strings.TrimSpace(d)
+			if d != "" {
+				skill.Tags = append(skill.Tags, "req:"+d)
 			}
 		}
 	}
@@ -421,4 +479,25 @@ func (sm *SkillManager) loadMetadata(path string) (*Skill, error) {
 	}
 
 	return skill, nil
+}
+
+// extractBracketList 从 YAML 内联列表格式提取元素
+// 输入: "  bins: [op, jq]" → ["op", "jq"]
+func extractBracketList(line string) []string {
+	start := strings.Index(line, "[")
+	end := strings.Index(line, "]")
+	if start == -1 || end == -1 || end <= start {
+		return nil
+	}
+	inner := line[start+1 : end]
+	parts := strings.Split(inner, ",")
+	var result []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		p = strings.Trim(p, "\"' ")
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
