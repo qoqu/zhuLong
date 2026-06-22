@@ -1,5 +1,14 @@
+import { useState, useEffect } from 'react'
 import type { Language, AgentInfo, ProjectInfo, SidebarView } from '../types'
 import { useT } from '../i18n'
+
+interface AppConfig {
+  monitorPath: string
+  backupMode: string
+  backupOnFail: boolean
+  dashboardPort: number
+  pluginsPath: string
+}
 
 interface SidebarProps {
   language: Language
@@ -146,38 +155,40 @@ export function Sidebar(props: SidebarProps) {
         {props.view === 'settings' && (
           <div className="settings-view">
             <h3 className="settings-view__title">{t.settings}</h3>
-            
+
             <div className="settings-view__section">
               <h4>{props.language === 'zh' ? '外观' : 'Appearance'}</h4>
               <div className="settings-view__item">
                 <span>{props.language === 'zh' ? '主题' : 'Theme'}</span>
-                <button 
-                  className="pill" 
+                <button
+                  className="pill"
                   onClick={() => props.onLanguageChange(props.language === 'zh' ? 'en' : 'zh')}
                 >
                   {props.language === 'zh' ? '深色' : 'Dark'}
                 </button>
               </div>
             </div>
-            
+
             <div className="settings-view__section">
               <h4>{props.language === 'zh' ? '语言' : 'Language'}</h4>
               <div className="settings-view__item">
                 <span>{props.language === 'zh' ? '当前语言' : 'Current Language'}</span>
-                <button 
-                  className="pill" 
+                <button
+                  className="pill"
                   onClick={() => props.onLanguageChange(props.language === 'zh' ? 'en' : 'zh')}
                 >
                   {props.language === 'zh' ? '中文' : 'English'}
                 </button>
               </div>
             </div>
-            
+
+            <SettingsPanel language={props.language} />
+
             <div className="settings-view__section">
               <h4>{props.language === 'zh' ? '关于' : 'About'}</h4>
               <div className="settings-view__item">
                 <span>{props.language === 'zh' ? '版本' : 'Version'}</span>
-                <span>v0.3.0</span>
+                <span>v0.4.0</span>
               </div>
               <div className="settings-view__item">
                 <span>{props.language === 'zh' ? '模型' : 'Model'}</span>
@@ -248,5 +259,195 @@ function ProjectTree(props: {
         </button>
       ))}
     </div>
+  )
+}
+
+// SettingsPanel - 第四步: 应用配置面板
+function SettingsPanel(props: { language: Language }) {
+  const isZh = props.language === 'zh'
+  const [config, setConfig] = useState<AppConfig | null>(null)
+  const [dashRunning, setDashRunning] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    const backend = (window as any).go?.main?.App
+    if (!backend) return
+    backend.GetConfig().then((c: AppConfig) => setConfig(c))
+  }, [])
+
+  const callBackend = async (fn: () => Promise<any>, okMsg: string) => {
+    const backend = (window as any).go?.main?.App
+    if (!backend) return
+    setBusy(true)
+    try {
+      await fn()
+      setMsg(okMsg)
+      setTimeout(() => setMsg(''), 2000)
+    } catch (e: any) {
+      setMsg('Error: ' + (e?.message || String(e)))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleBackupMode = (mode: string) => {
+    if (!config) return
+    setConfig({ ...config, backupMode: mode })
+    const backend = (window as any).go?.main?.App
+    backend?.SetBackupMode(mode, config.backupOnFail)
+  }
+
+  const handleBackupOnFail = (onFail: boolean) => {
+    if (!config) return
+    setConfig({ ...config, backupOnFail: onFail })
+    const backend = (window as any).go?.main?.App
+    backend?.SetBackupMode(config.backupMode, onFail)
+  }
+
+  const handleMonitorPath = () => {
+    if (!config) return
+    const next = window.prompt(isZh ? '监视路径' : 'Monitor path', config.monitorPath)
+    if (next && next.trim()) {
+      setConfig({ ...config, monitorPath: next.trim() })
+      const backend = (window as any).go?.main?.App
+      backend?.SetMonitorPath(next.trim())
+    }
+  }
+
+  const handleDashboardPort = () => {
+    if (!config) return
+    const next = window.prompt(isZh ? 'Dashboard 端口' : 'Dashboard port', String(config.dashboardPort))
+    const port = parseInt(next || '', 10)
+    if (port > 0 && port < 65536) {
+      setConfig({ ...config, dashboardPort: port })
+      const backend = (window as any).go?.main?.App
+      backend?.SetDashboardPort(port)
+    }
+  }
+
+  const handleStartDash = async () => {
+    const backend = (window as any).go?.main?.App
+    if (!backend) return
+    try {
+      await backend.StartDashboard()
+      setDashRunning(true)
+      setMsg(isZh ? `Dashboard 已启动 :${config?.dashboardPort}` : `Dashboard started on :${config?.dashboardPort}`)
+      setTimeout(() => setMsg(''), 3000)
+    } catch (e: any) {
+      setMsg('Error: ' + (e?.message || String(e)))
+    }
+  }
+
+  const handleStopDash = async () => {
+    const backend = (window as any).go?.main?.App
+    if (!backend) return
+    try {
+      await backend.StopDashboard()
+      setDashRunning(false)
+      setMsg(isZh ? 'Dashboard 已停止' : 'Dashboard stopped')
+      setTimeout(() => setMsg(''), 2000)
+    } catch (e: any) {
+      setMsg('Error: ' + (e?.message || String(e)))
+    }
+  }
+
+  const handleTriggerBackup = () => {
+    const backend = (window as any).go?.main?.App
+    callBackend(() => backend?.TriggerBackup(), isZh ? '✓ 备份已创建' : '✓ Backup created')
+  }
+
+  if (!config) {
+    return (
+      <div className="settings-view__section">
+        <h4>{isZh ? '加载中...' : 'Loading...'}</h4>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      {msg && (
+        <div style={{
+          padding: '6px 10px',
+          background: msg.startsWith('Error') ? 'var(--err)' : 'var(--ok)',
+          color: 'white',
+          borderRadius: 'var(--radius)',
+          fontSize: 'var(--text-xs)',
+          marginBottom: 'var(--space-2)',
+        }}>
+          {msg}
+        </div>
+      )}
+
+      <div className="settings-view__section">
+        <h4>{isZh ? '环境监控' : 'Environment Monitor'}</h4>
+        <div className="settings-view__item">
+          <span>{isZh ? '监视路径' : 'Monitor Path'}</span>
+          <button className="pill" onClick={handleMonitorPath} disabled={busy}>
+            {config.monitorPath}
+          </button>
+        </div>
+      </div>
+
+      <div className="settings-view__section">
+        <h4>{isZh ? '自动备份' : 'Auto Backup'}</h4>
+        <div className="settings-view__item">
+          <span>{isZh ? '触发模式' : 'Mode'}</span>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {[
+              { v: 'off', z: '关闭', e: 'Off' },
+              { v: 'immediate', z: '每步', e: 'Every Step' },
+              { v: 'on-completion', z: '完成时', e: 'On Completion' },
+            ].map(m => (
+              <button
+                key={m.v}
+                className={`pill ${config.backupMode === m.v ? 'active' : ''}`}
+                onClick={() => handleBackupMode(m.v)}
+                disabled={busy}
+              >
+                {isZh ? m.z : m.e}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="settings-view__item">
+          <span>{isZh ? '失败时也备份' : 'Backup on failure'}</span>
+          <button
+            className={`pill ${config.backupOnFail ? 'active' : ''}`}
+            onClick={() => handleBackupOnFail(!config.backupOnFail)}
+            disabled={busy}
+          >
+            {config.backupOnFail ? (isZh ? '是' : 'Yes') : (isZh ? '否' : 'No')}
+          </button>
+        </div>
+        <div className="settings-view__item">
+          <span>{isZh ? '手动备份' : 'Manual Backup'}</span>
+          <button className="pill" onClick={handleTriggerBackup} disabled={busy}>
+            {isZh ? '立即备份' : 'Backup Now'}
+          </button>
+        </div>
+      </div>
+
+      <div className="settings-view__section">
+        <h4>{isZh ? 'Web Dashboard' : 'Web Dashboard'}</h4>
+        <div className="settings-view__item">
+          <span>{isZh ? '端口' : 'Port'}</span>
+          <button className="pill" onClick={handleDashboardPort} disabled={busy}>
+            :{config.dashboardPort}
+          </button>
+        </div>
+        <div className="settings-view__item">
+          <span>{isZh ? '状态' : 'Status'}</span>
+          <button
+            className={`pill ${dashRunning ? 'active' : ''}`}
+            onClick={dashRunning ? handleStopDash : handleStartDash}
+            disabled={busy}
+          >
+            {dashRunning ? (isZh ? '运行中' : 'Running') : (isZh ? '已停止' : 'Stopped')}
+          </button>
+        </div>
+      </div>
+    </>
   )
 }

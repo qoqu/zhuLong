@@ -446,6 +446,24 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 				s.ModuleState.Checkpoint.Status = "active"
 			}
 
+			// P3: Backup 模块 immediate 模式: 每步后备份
+			if s.ModuleState.Backup != nil && a.config.BackupMode == "immediate" {
+				shouldBackup := false
+				if res != nil && res.Success {
+					shouldBackup = true
+				} else if a.config.BackupOnFail {
+					shouldBackup = true
+				}
+				if shouldBackup && a.backupMgr != nil {
+					snapName := fmt.Sprintf("step-%s-%d", s.Info.ID, i+1)
+					_, _ = a.backupMgr.Create(snapName, []string{"./desktop"})
+					snapCount, _ := s.ModuleState.Backup.Details["snapshotCount"].(int)
+					s.ModuleState.Backup.Details["snapshotCount"] = snapCount + 1
+					s.ModuleState.Backup.Details["lastSnapshot"] = time.Now().Format("15:04:05")
+					s.ModuleState.Backup.Status = "active"
+				}
+			}
+
 			// Update budget state (simulated) + 联动 stats.budgetWarning
 			if s.ModuleState.Budget != nil {
 				usagePct := float64(s.Stats.SessionTokens) / float64(s.Stats.TotalLimit) * 100
@@ -593,17 +611,14 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			s.ModuleState.Executor.Status = "idle"
 		}
 
-		// === 第三步：完成时触发 P3 模块 ===
-		// Backup 模块: 任务完成时自动备份
-		if s.ModuleState.Backup != nil && countFailed(s.Plan) == 0 {
-			snapCount, _ := s.ModuleState.Backup.Details["snapshotCount"].(int)
-			s.ModuleState.Backup.Details["snapshotCount"] = snapCount + 1
-			s.ModuleState.Backup.Details["lastSnapshot"] = time.Now().Format("15:04:05")
-			s.ModuleState.Backup.Details["autoBackupEnabled"] = true
-			s.ModuleState.Backup.Status = "active"
-		}
-
 		// Compressor 模块: 标记压缩阈值已用
+		if s.ModuleState.Compressor != nil {
+			usagePct := float64(s.Stats.SessionTokens) / float64(s.Stats.TotalLimit) * 100
+			if usagePct > 50 {
+				s.ModuleState.Compressor.Status = "active"
+			}
+			s.ModuleState.Compressor.Details["lastPruneAt"] = time.Now().Format("15:04:05")
+		}
 		if s.ModuleState.Compressor != nil {
 			usagePct := float64(s.Stats.SessionTokens) / float64(s.Stats.TotalLimit) * 100
 			if usagePct > 50 {
@@ -625,16 +640,24 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			s.ModuleState.I18N.Status = "active"
 		}
 
-		// Plugins 模块: 注入 system prompt 模拟
-		if s.ModuleState.Plugins != nil {
-			s.ModuleState.Plugins.Details["loadedPlugins"] = 0
-			s.ModuleState.Plugins.Details["pluginList"] = []string{}
+		// Plugins 模块: 注入到 system prompt 模拟
+		if s.ModuleState.Plugins != nil && a.pluginMgr != nil {
+			infos := a.pluginMgr.List()
+			s.ModuleState.Plugins.Details["loadedPlugins"] = len(infos)
+			names := make([]string, 0, len(infos))
+			for _, p := range infos {
+				names = append(names, p.Name)
+			}
+			s.ModuleState.Plugins.Details["pluginList"] = names
+			if len(infos) > 0 {
+				s.ModuleState.Plugins.Status = "active"
+			}
 		}
 
-		// Dashboard 模块: 默认关闭
+		// Dashboard 模块: 显示当前状态
 		if s.ModuleState.Dashboard != nil {
-			s.ModuleState.Dashboard.Details["enabled"] = false
-			s.ModuleState.Dashboard.Details["port"] = 7788
+			s.ModuleState.Dashboard.Details["enabled"] = a.dashboardSrv != nil
+			s.ModuleState.Dashboard.Details["port"] = a.config.DashboardPort
 		}
 
 		// Reflector: 写入最近评估

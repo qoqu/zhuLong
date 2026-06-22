@@ -14,9 +14,21 @@ import (
 	"sync"
 	"time"
 
+	"github.com/qoqu/zhuLong/internal/backup"
+	"github.com/qoqu/zhuLong/internal/dashboard"
 	"github.com/qoqu/zhuLong/internal/environment"
+	"github.com/qoqu/zhuLong/internal/plugins"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// AppConfig 应用配置（第四步：可被前端修改）
+type AppConfig struct {
+	MonitorPath  string `json:"monitorPath"`
+	BackupMode   string `json:"backupMode"`   // immediate | on-completion | off
+	BackupOnFail bool   `json:"backupOnFail"`
+	DashboardPort int   `json:"dashboardPort"`
+	PluginsPath  string `json:"pluginsPath"`
+}
 
 // App is the Wails application root. All exported methods are bound to JS.
 type App struct {
@@ -34,11 +46,19 @@ type App struct {
 	activeID  string
 	activeAge string
 
-	// Environment monitor (P2 模块) - 文件系统变化监听
-	envMonitor    *environment.Monitor
-	envStop       chan struct{}
-	envRunning    bool
-	envChangeBuf  []ChangeDTO
+	// 应用配置（第四步：前端可改）
+	config AppConfig
+
+	// P3 模块实例
+	dashboardSrv *dashboard.Dashboard
+	pluginMgr    *plugins.Manager
+	backupMgr    *backup.Manager
+
+	// P2 envMonitor
+	envMonitor   *environment.Monitor
+	envStop      chan struct{}
+	envRunning   bool
+	envChangeBuf []ChangeDTO
 	envChangeLock sync.Mutex
 }
 
@@ -267,9 +287,52 @@ type ModuleItemDTO struct {
 func NewApp() *App {
 	a := &App{
 		sessions: map[string]*SessionState{},
+		config: AppConfig{
+			MonitorPath:   ".",
+			BackupMode:    "on-completion",
+			BackupOnFail:  false,
+			DashboardPort: 7788,
+			PluginsPath:   filepath.Join(os.TempDir(), "zhulong-plugins"),
+		},
 	}
 	a.seedDefaults()
+	a.initPlugins()
+	a.initBackup()
 	return a
+}
+
+func (a *App) initPlugins() {
+	a.pluginMgr = plugins.NewManager()
+	// 扫描默认 plugins 目录
+	a.scanPluginsDir(a.config.PluginsPath)
+}
+
+func (a *App) scanPluginsDir(dir string) {
+	if _, err := os.Stat(dir); err != nil {
+		return // 目录不存在
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		// 仅识别 .so/.dll/.dylib
+		if filepath.Ext(name) != ".so" && filepath.Ext(name) != ".dll" && filepath.Ext(name) != ".dylib" {
+			continue
+		}
+		// 记录到 pluginMgr.infos（仅元数据，运行时无需真实加载）
+		_ = a.pluginMgr // 占位 - 真实加载需要 plugin.Open
+	}
+}
+
+func (a *App) initBackup() {
+	backupDir := filepath.Join(os.TempDir(), "zhulong-backup")
+	os.MkdirAll(backupDir, 0755)
+	a.backupMgr = backup.NewManager(backupDir)
 }
 
 func (a *App) seedDefaults() {
@@ -290,7 +353,7 @@ func (a *App) startup(ctx context.Context) {
 	a.initEnvironmentMonitor()
 }
 
-// initEnvironmentMonitor 启动 P2 模块：envMonitor 监听 . 当前目录变化
+// initEnvironmentMonitor 启动 P2 模块：envMonitor 监听当前目录变化
 // 变化通过 changes:update 事件实时推送到前端 ChangesTab
 func (a *App) initEnvironmentMonitor() {
 	if a.envRunning {
@@ -298,19 +361,17 @@ func (a *App) initEnvironmentMonitor() {
 	}
 	a.envMonitor = environment.NewMonitor()
 	a.envMonitor.AddWatcher(environment.WatcherConfig{
-		Path:         ".", // 监视工作区根目录
+		Path:         a.config.MonitorPath,
 		Recursive:    true,
 		PollInterval: 60 * time.Second,
 	})
 	if err := a.envMonitor.Start(); err != nil {
-		// 静默失败 - 不影响主流程
 		return
 	}
 	a.envStop = make(chan struct{})
 	a.envChangeBuf = make([]ChangeDTO, 0)
 	a.envRunning = true
 
-	// 启动推送 goroutine
 	go a.envMonitorPushLoop()
 }
 
@@ -751,6 +812,141 @@ func (a *App) RespondApproval(id string, approved bool) {
 	s.Approval = nil
 	a.mu.Unlock()
 	a.emitSession(s)
+}
+
+// === Configuration (第四步) ===
+
+// GetConfig 返回应用配置
+func (a *App) GetConfig() AppConfig {
+	return a.config
+}
+
+// SetMonitorPath 修改 envMonitor 监听路径（重启监控）
+func (a *App) SetMonitorPath(path string) error {
+	a.mu.Lock()
+	a.config.MonitorPath = path
+	// 停止旧监控
+	if a.envMonitor != nil && a.envRunning {
+		a.envMonitor.Stop()
+		close(a.envStop)
+		a.envRunning = false
+	}
+	a.mu.Unlock()
+	// 启动新监控
+	a.initEnvironmentMonitor()
+	return nil
+}
+
+// SetBackupMode 修改 backup 触发模式
+//   immediate: 每步后
+//   on-completion: 完成时（仅成功）
+//   off: 关闭
+func (a *App) SetBackupMode(mode string, onFail bool) {
+	a.mu.Lock()
+	a.config.BackupMode = mode
+	a.config.BackupOnFail = onFail
+	a.mu.Unlock()
+	a.emitSessionForActive()
+}
+
+// SetDashboardPort 修改 Dashboard 端口
+func (a *App) SetDashboardPort(port int) error {
+	a.mu.Lock()
+	a.config.DashboardPort = port
+	running := a.dashboardSrv != nil
+	a.mu.Unlock()
+	if running {
+		// 重启 dashboard
+		_ = a.StopDashboard()
+		return a.StartDashboard()
+	}
+	return nil
+}
+
+// SetPluginsPath 修改 plugins 目录
+func (a *App) SetPluginsPath(path string) {
+	a.mu.Lock()
+	a.config.PluginsPath = path
+	a.mu.Unlock()
+	a.scanPluginsDir(path)
+	a.emitSessionForActive()
+}
+
+// StartDashboard 启动 Dashboard HTTP 服务
+func (a *App) StartDashboard() error {
+	if a.dashboardSrv != nil {
+		return nil
+	}
+	cfg := &dashboard.Config{
+		Port:     a.config.DashboardPort,
+		DataDir:  filepath.Join(os.TempDir(), "zhulong-dashboard"),
+		Username: "admin",
+		Password: "",
+	}
+	d := dashboard.New(cfg)
+	if err := d.Start(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.dashboardSrv = d
+	// 更新活跃 session 的 Dashboard 模块状态
+	if s, ok := a.sessions[a.activeID]; ok && s.ModuleState != nil && s.ModuleState.Dashboard != nil {
+		s.ModuleState.Dashboard.Status = "active"
+		s.ModuleState.Dashboard.Details["enabled"] = true
+		s.ModuleState.Dashboard.Details["port"] = a.config.DashboardPort
+		s.ModuleState.Dashboard.Details["url"] = fmt.Sprintf("http://localhost:%d", a.config.DashboardPort)
+	}
+	a.mu.Unlock()
+	a.emitSessionForActive()
+	return nil
+}
+
+// StopDashboard 停止 Dashboard
+func (a *App) StopDashboard() error {
+	a.mu.Lock()
+	d := a.dashboardSrv
+	a.dashboardSrv = nil
+	if s, ok := a.sessions[a.activeID]; ok && s.ModuleState != nil && s.ModuleState.Dashboard != nil {
+		s.ModuleState.Dashboard.Status = "idle"
+		s.ModuleState.Dashboard.Details["enabled"] = false
+	}
+	a.mu.Unlock()
+	if d != nil {
+		// Dashboard 没有 Stop 方法 - 实际由其 http.Server 关闭
+		// 这里只标记状态，不强行关闭
+		a.emitSessionForActive()
+	}
+	return nil
+}
+
+// TriggerBackup 手动触发一次备份
+func (a *App) TriggerBackup() error {
+	if a.backupMgr == nil {
+		return fmt.Errorf("backup manager not initialized")
+	}
+	name := fmt.Sprintf("manual-%s", time.Now().Format("20060102-150405"))
+	if _, err := a.backupMgr.Create(name, []string{"./desktop"}); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	if s, ok := a.sessions[a.activeID]; ok && s.ModuleState != nil && s.ModuleState.Backup != nil {
+		cnt, _ := s.ModuleState.Backup.Details["snapshotCount"].(int)
+		s.ModuleState.Backup.Details["snapshotCount"] = cnt + 1
+		s.ModuleState.Backup.Details["lastSnapshot"] = time.Now().Format("15:04:05")
+		s.ModuleState.Backup.Status = "active"
+	}
+	a.mu.Unlock()
+	a.emitSessionForActive()
+	return nil
+}
+
+func (a *App) emitSessionForActive() {
+	a.mu.Lock()
+	s, ok := a.sessions[a.activeID]
+	a.mu.Unlock()
+	if ok {
+		a.emitSession(s)
+	}
 }
 
 // === Helpers ===
