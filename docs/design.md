@@ -4167,3 +4167,289 @@ interface ProductionPipeline {
 5. **性能监控面板** - 实时监控性能指标
 
 **覆盖度**：15/15 完全实现 ✅
+
+---
+
+## 附录 H: 与 Hermes-Agent 的学习参考清单
+
+> **策略：学习设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。**
+
+### H.1 项目概述
+
+Hermes-Agent (NousResearch) 是一个 Python 实现的通用 Agent 框架/平台，12,000+ 次提交。核心理念是 **"与你共同成长的智能体"** ，具有自进化系统、Kanban看板、技能动态加载、自动化蓝图等特性。
+
+### H.2 核心架构差异：主动 vs 被动
+
+| 维度 | Hermes (主动) | 烛龙 (被动) |
+|------|-------------|------------|
+| **驱动方式** | 系统驱动AI，后台进程自动运行 | 用户驱动AI，等待指令 |
+| **自进化** | 每次对话后fork副本审查 + 守卫者定期扫描 | 无 |
+| **调度** | 看板tick每60秒轮询，自动spawn Worker | 无后台调度 |
+| **自动心跳** | 工具调用间隔自动写DB保活 | 无 |
+| **建议系统** | 检测重复需求，主动建议创建自动化 | 无 |
+
+**关键洞察**：烛龙变主动不需要重写架构，只需在现有框架上增加独立的主动层，与Agent循环解耦。
+
+### H.3 主动层架构设计
+
+```
+主动层（新增，独立于Agent循环）
+├── 调度器 (Scheduler)        — 看板tick / 守卫者扫描 / 自动化cron
+├── 事件总线 (EventBus)       — 任务就绪/完成/阻塞事件
+├── 看板引擎 (BoardEngine)    — 任务分解/委派/状态流转
+└── 建议引擎 (SuggestionEngine) — 检测重复需求/建议创建技能
+
+Agent循环（现有，缓存敏感区）
+└── Plan → Execute → Reflect  — prefix永不改写
+```
+
+**铁律遵循**：
+- 主动层的事件/调度数据**不进入Agent的prefix**
+- 调度器通过MCP工具调用触发Agent工作
+- 工具结果只进入当前循环的动态区间
+- 完全符合缓存命中率铁律
+
+### H.4 看板系统融合
+
+#### H.4.1 看板数据模型
+
+参考 Hermes 的看板系统，烛龙的画布节点扩展：
+
+```go
+// BoardNodeStatus 看板节点状态
+type BoardNodeStatus string
+
+const (
+    StatusTriage  BoardNodeStatus = "triage"   // 粗略想法
+    StatusTodo    BoardNodeStatus = "todo"     // 已规划
+    StatusReady   BoardNodeStatus = "ready"    // 依赖已完成，可执行
+    StatusRunning BoardNodeStatus = "running"  // 正在执行（已claim）
+    StatusBlocked BoardNodeStatus = "blocked"  // 阻塞，等待解阻
+    StatusReview  BoardNodeStatus = "review"   // 待审查
+    StatusDone    BoardNodeStatus = "done"     // 完成
+    StatusArchived BoardNodeStatus = "archived" // 归档
+)
+
+// BoardTask 看板任务
+type BoardTask struct {
+    ID               string
+    Title            string
+    Body             string
+    Assignee         string           // Worker profile
+    Status           BoardNodeStatus
+    Priority         int
+    DependsOn        []string         // 依赖的任务ID
+    ClaimLock        string           // 当前持有者
+    ClaimExpires     int64            // 声明到期时间
+    ConsecutiveFails int              // 连续失败计数器
+    MaxRetries       int              // 断路器阈值
+    WorkerPID        int              // Worker进程ID
+    Result           string
+    Artifacts        []string         // 产出文件
+}
+```
+
+#### H.4.2 看板→画布映射
+
+| Hermes看板 | 烛龙画布 | 融合方式 |
+|-----------|---------|---------|
+| 任务卡片 (Task) | 画布节点 (Node) | 增加Board类型节点 |
+| 依赖边 (task_links) | 画布连线 (Edge) | 复用现有连线系统 |
+| 状态流转 | 节点状态 (NodeStatus) | 扩展为8种看板状态 |
+| Worker委派 | Agent委派 | 调度器spawn子进程 |
+| 评论线程 (comments) | 画布助手 | 现有助手系统 |
+| 审计日志 (events) | Trace系统 | 复用 |
+| 附件 (attachments) | 资产系统 | 复用 |
+
+#### H.4.3 状态流转
+
+```
+triage ──(specify)──> todo ──(parents done)──> ready ──(claim)──> running
+                                                      ↑               │
+                                                      │         ┌─────┼──────┐
+                                                      │         │     │      │
+                                                      │    [complete] [block] [crash/timeout]
+                                                      │         │     │      │
+                                                      │         ▼     ▼      ▼
+                                                      │       done  blocked  ready (retry)
+                                                      │               │
+                                                      └──(unblock)───┘
+                                                      review ──(claim_review)──> running...
+                                                      archived (terminal)
+```
+
+### H.5 技能动态加载系统
+
+#### H.5.1 目录结构
+
+参考 Hermes 的 agentskills.io 兼容格式：
+
+```
+~/.zhulong/skills/
+├── my-skill/
+│   ├── SKILL.md           # 主指令文件（必需）
+│   ├── references/        # 参考文档、API文档
+│   ├── templates/         # 输出模板
+│   ├── scripts/           # 可执行脚本
+│   └── assets/            # 补充资源文件
+└── category/
+    └── another-skill/
+        └── SKILL.md
+```
+
+#### H.5.2 SKILL.md 格式
+
+```yaml
+---
+name: skill-name              # 必需，最长64字符
+description: Brief description # 必需，最长1024字符
+version: 1.0.0                # 可选
+platforms: [windows]          # 可选，OS限制
+environments: [desktop, cli]  # 可选，运行环境
+prerequisites:
+  env_vars: [API_KEY]
+  commands: [git, go]
+metadata:
+  tags: [coding, analysis]
+  related_skills: [code-review]
+---
+```
+
+#### H.5.3 加载流程
+
+```go
+// 技能加载器
+type Loader struct {
+    searchPaths []string  // 搜索路径（本地目录优先）
+}
+
+// Scan 扫描目录加载所有技能
+func (l *Loader) Scan() ([]Skill, error) {
+    // 遍历 ~/.zhulong/skills/*/SKILL.md
+    // 解析YAML前置元数据
+    // 验证安全性（路径遍历防护）
+    // 注册到Registry
+}
+
+// Watch 监听文件变更
+func (l *Loader) Watch(callback func(Skill)) {
+    // fsnotify 监听技能目录
+    // 新增/修改/删除时自动回调
+}
+```
+
+#### H.5.4 分级暴露
+
+参考 Hermes 的 Tier 1-3 设计：
+- **Tier 1**: 仅名称和描述（最小token消耗）
+- **Tier 2**: 完整 SKILL.md 内容
+- **Tier 3**: 完整内容 + 支持文件（references/templates/scripts/assets）
+
+#### H.5.5 自进化（参考Hermes background_review + curator）
+
+```go
+// BackgroundReviewer 后台审查器
+type BackgroundReviewer struct {
+    provider Provider
+}
+
+// Review 审查会话快照，判断是否需要创建/更新技能
+func (r *BackgroundReviewer) Review(snapshot SessionSnapshot) (*SkillChange, error) {
+    // fork副本Agent
+    // 回放会话快照
+    // 执行自我审查
+    // 工具权限严格限制（只允许memory和skill_manage）
+}
+
+// Curator 守卫者
+type Curator struct {
+    interval time.Duration // 默认7天
+}
+
+// Maintain 维护技能库
+func (c *Curator) Maintain() error {
+    // 标记过时技能（30天未使用）
+    // 归档旧技能（90天未使用）
+    // 合并相似技能（可选）
+}
+```
+
+### H.6 自动化工作流模板
+
+#### H.6.1 蓝图系统
+
+参考 Hermes 的 14 个内置蓝图模板：
+
+```go
+// BlueprintSlot 蓝图插槽
+type BlueprintSlot struct {
+    Name     string   `yaml:"name"`
+    Type     string   `yaml:"type"`     // time/enum/text/weekdays
+    Label    string   `yaml:"label"`
+    Default  string   `yaml:"default"`
+    Options  []string `yaml:"options,omitempty"`
+    Required bool     `yaml:"required"`
+    Desc     string   `yaml:"desc"`
+}
+
+// Blueprint 自动化蓝图
+type Blueprint struct {
+    Key              string          `yaml:"key"`
+    Title            string          `yaml:"title"`
+    Description      string          `yaml:"description"`
+    Category         string          `yaml:"category"`  // daily/weekly/email/general
+    ScheduleTemplate string          `yaml:"schedule"`  // 带{slot}的cron表达式
+    PromptTemplate   string          `yaml:"prompt"`    // 带{slot}的种子指令
+    Slots            []BlueprintSlot `yaml:"slots"`
+    Skills           []string        `yaml:"skills,omitempty"` // 运行前加载的技能
+}
+```
+
+#### H.6.2 内置蓝图
+
+| 蓝图 | 分类 | 说明 |
+|------|------|------|
+| `morning-brief` | daily | 每日晨间简报 |
+| `weekly-review` | weekly | 每周项目回顾 |
+| `news-digest` | general | 主题新闻摘要 |
+| `code-health` | daily | 代码健康扫描 |
+| `dependency-check` | weekly | 依赖更新检查 |
+| `test-runner` | general | 定时运行测试 |
+| `backup` | daily | 自动备份 |
+| `report-gen` | general | 定时生成报告 |
+
+#### H.6.3 Cron调度
+
+```go
+// Schedule 调度计划
+type Schedule struct {
+    Expression string // cron表达式 / 间隔 / 一次性时间
+    Type       string // cron / interval / once
+}
+
+// ParseSchedule 解析调度计划
+func ParseSchedule(s string) (*Schedule, error) {
+    // "30m" / "2h" / "1d" → 一次性间隔
+    // "every 30m" / "every 2h" → 重复间隔
+    // "0 9 * * *" → 标准cron
+    // "2026-06-22T14:00" → 一次性指定时间
+}
+```
+
+### H.7 实现阶段
+
+| Phase | 任务 | 时间 | 说明 |
+|-------|------|------|------|
+| **Phase 1** | 看板→画布融合 | 2-3天 | 扩展节点状态、添加看板节点、状态流转引擎 |
+| **Phase 1** | 主动层调度器 | 2-3天 | 事件总线、调度器tick、Worker spawn |
+| **Phase 2** | 技能目录加载 | 1-2天 | SKILL.md解析、目录扫描、动态注册、Watch |
+| **Phase 2** | 自动化蓝图模板 | 2-3天 | 内置模板、参数化插槽、cron解析 |
+| **Phase 3** | 自进化系统 | 3-5天 | 后台审查器、守卫者、建议引擎 |
+
+### H.8 设计原则
+
+1. **不抄袭代码** - 学习设计思路，从零实现
+2. **缓存命中率铁律** - 主动层独立于Agent循环，不影响缓存
+3. **渐进式实现** - 分阶段实现，逐步增强
+4. **可配置性** - 所有功能可配置、可禁用
+5. **用户同意优先** - 自进化和建议系统需要用户确认
