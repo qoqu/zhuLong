@@ -3,6 +3,10 @@ package plugins
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"plugin"
+	"strings"
 	"sync"
 )
 
@@ -106,4 +110,82 @@ func (m *Manager) Count() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.plugins)
+}
+
+// LoadFromFile 真实加载插件文件（plugin.Open）
+// 期望符号: NewPlugin func() Plugin  (或 NewPlugin func() (Plugin, error))
+func (m *Manager) LoadFromFile(path string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 平台限制
+	if !isPluginExt(path) {
+		return fmt.Errorf("unsupported extension: %s", filepath.Ext(path))
+	}
+
+	p, err := plugin.Open(path)
+	if err != nil {
+		return fmt.Errorf("plugin.Open: %w", err)
+	}
+
+	// 查找 NewPlugin 符号
+	sym, err := p.Lookup("NewPlugin")
+	if err != nil {
+		return fmt.Errorf("lookup NewPlugin: %w", err)
+	}
+
+	var pl Plugin
+	switch v := sym.(type) {
+	case func() Plugin:
+		pl = v()
+	case func() (Plugin, error):
+		pl2, err := v()
+		if err != nil {
+			return fmt.Errorf("call NewPlugin: %w", err)
+		}
+		pl = pl2
+	default:
+		return fmt.Errorf("unsupported NewPlugin signature: %T", sym)
+	}
+
+	if err := pl.Init(); err != nil {
+		return fmt.Errorf("init %s: %w", pl.Name(), err)
+	}
+
+	m.plugins[pl.Name()] = pl
+	m.infos[pl.Name()] = Info{
+		Name:    pl.Name(),
+		Version: pl.Version(),
+		Type:    TypeTool, // 默认
+		Status:  "active",
+	}
+	return nil
+}
+
+// LoadFromDir 扫描目录加载所有插件
+func (m *Manager) LoadFromDir(dir string) (loaded []string, errs []error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, []error{err}
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if !isPluginExt(e.Name()) {
+			continue
+		}
+		full := filepath.Join(dir, e.Name())
+		if err := m.LoadFromFile(full); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", e.Name(), err))
+			continue
+		}
+		loaded = append(loaded, e.Name())
+	}
+	return loaded, errs
+}
+
+func isPluginExt(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".so" || ext == ".dll" || ext == ".dylib"
 }

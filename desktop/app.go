@@ -303,30 +303,32 @@ func NewApp() *App {
 
 func (a *App) initPlugins() {
 	a.pluginMgr = plugins.NewManager()
-	// 扫描默认 plugins 目录
-	a.scanPluginsDir(a.config.PluginsPath)
+	// 真实加载目录中的插件
+	if loaded, _ := a.pluginMgr.LoadFromDir(a.config.PluginsPath); len(loaded) > 0 {
+		fmt.Printf("[plugins] loaded: %v\n", loaded)
+	}
 }
 
 func (a *App) scanPluginsDir(dir string) {
 	if _, err := os.Stat(dir); err != nil {
 		return // 目录不存在
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
+	// 真实加载 + 同步到活跃 session 的 Plugins 模块
+	loaded, _ := a.pluginMgr.LoadFromDir(dir)
+	a.mu.Lock()
+	if s, ok := a.sessions[a.activeID]; ok && s.ModuleState != nil && s.ModuleState.Plugins != nil {
+		s.ModuleState.Plugins.Details["loadedPlugins"] = len(loaded)
+		infos := a.pluginMgr.List()
+		names := make([]string, 0, len(infos))
+		for _, p := range infos {
+			names = append(names, p.Name)
 		}
-		name := e.Name()
-		// 仅识别 .so/.dll/.dylib
-		if filepath.Ext(name) != ".so" && filepath.Ext(name) != ".dll" && filepath.Ext(name) != ".dylib" {
-			continue
+		s.ModuleState.Plugins.Details["pluginList"] = names
+		if len(loaded) > 0 {
+			s.ModuleState.Plugins.Status = "active"
 		}
-		// 记录到 pluginMgr.infos（仅元数据，运行时无需真实加载）
-		_ = a.pluginMgr // 占位 - 真实加载需要 plugin.Open
 	}
+	a.mu.Unlock()
 }
 
 func (a *App) initBackup() {
@@ -884,12 +886,32 @@ func (a *App) StartDashboard() error {
 		Password: "",
 	}
 	d := dashboard.New(cfg)
+	// 注册所有已知模块
+	d.RegisterModule("controller", "0.4.0")
+	d.RegisterModule("planner", "0.4.0")
+	d.RegisterModule("executor", "0.4.0")
+	d.RegisterModule("reflector", "0.4.0")
+	d.RegisterModule("memory", "0.4.0")
+	d.RegisterModule("compressor", "0.4.0")
+	d.RegisterModule("checkpoint", "0.4.0")
+	d.RegisterModule("budget", "0.4.0")
+	d.RegisterModule("trace", "0.4.0")
+	d.RegisterModule("deepseek", "0.4.0")
+	// 注入 session provider
+	d.SetSessionProvider(func() interface{} {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		out := make([]*SessionState, 0, len(a.sessions))
+		for _, s := range a.sessions {
+			out = append(out, s)
+		}
+		return out
+	})
 	if err := d.Start(); err != nil {
 		return err
 	}
 	a.mu.Lock()
 	a.dashboardSrv = d
-	// 更新活跃 session 的 Dashboard 模块状态
 	if s, ok := a.sessions[a.activeID]; ok && s.ModuleState != nil && s.ModuleState.Dashboard != nil {
 		s.ModuleState.Dashboard.Status = "active"
 		s.ModuleState.Dashboard.Details["enabled"] = true

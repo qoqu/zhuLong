@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Zhulong Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0d0d10; color: #e5e5ea; padding: 24px; }
+h1 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+.subtitle { color: #8e8e93; font-size: 13px; margin-bottom: 24px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.card { background: #1c1c1f; border: 1px solid #2c2c2e; border-radius: 12px; padding: 18px; }
+.card h3 { font-size: 13px; color: #8e8e93; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+.stat { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2c2c2e; font-size: 14px; }
+.stat:last-child { border: none; }
+.stat-label { color: #98989f; }
+.stat-value { color: #ffffff; font-weight: 500; }
+.stat-value.ok { color: #30d158; }
+.stat-value.warn { color: #ff9f0a; }
+.stat-value.err { color: #ff453a; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.dot.ok { background: #30d158; }
+.dot.idle { background: #8e8e93; }
+.dot.active { background: #0a84ff; }
+.dot.err { background: #ff453a; }
+.section-title { font-size: 16px; font-weight: 600; margin: 24px 0 12px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #2c2c2e; font-size: 13px; }
+th { color: #8e8e93; font-weight: 500; }
+.toolbar { display: flex; gap: 8px; margin-bottom: 16px; }
+button { background: #2c2c2e; color: #fff; border: none; padding: 8px 14px;
+  border-radius: 8px; font-size: 13px; cursor: pointer; }
+button:hover { background: #3a3a3c; }
+</style>
+</head>
+<body>
+<h1>🐉 Zhulong Dashboard</h1>
+<div class="subtitle">自主循环 Agent · 实时状态监控</div>
+
+<div class="toolbar">
+  <button onclick="loadAll()">🔄 刷新</button>
+  <button onclick="window.close()">关闭</button>
+</div>
+
+<div class="grid" id="status-cards"></div>
+
+<h2 class="section-title">活跃 Session</h2>
+<div id="sessions"></div>
+
+<h2 class="section-title">模块状态</h2>
+<table>
+<thead><tr><th>模块</th><th>状态</th><th>版本</th><th>运行时间</th></tr></thead>
+<tbody id="modules-table"></tbody>
+</table>
+
+<script>
+async function fetchJSON(url) {
+  try { const r = await fetch(url); return await r.json(); }
+  catch (e) { return null; }
+}
+
+function statusDot(s) {
+  var cls = s === 'running' || s === 'active' ? 'active'
+            : s === 'stopped' || s === 'idle' ? 'idle'
+            : s === 'error' ? 'err' : 'ok';
+  return '<span class="dot '+cls+'"></span>'+s;
+}
+
+async function loadAll() {
+  var status = await fetchJSON('/api/status');
+  var modules = await fetchJSON('/api/modules');
+  var sessions = await fetchJSON('/api/sessions');
+
+  var cards = document.getElementById('status-cards');
+  if (status) {
+    var port = status.port || '—';
+    var st = status.status || '—';
+    var up = status.uptime || '—';
+    var ver = status.version || '—';
+    cards.innerHTML = '<div class="card">' +
+      '<h3>系统状态</h3>' +
+      '<div class="stat"><span class="stat-label">服务</span><span class="stat-value ok">'+st+'</span></div>' +
+      '<div class="stat"><span class="stat-label">端口</span><span class="stat-value">:'+port+'</span></div>' +
+      '<div class="stat"><span class="stat-label">运行时长</span><span class="stat-value">'+up+'</span></div>' +
+      '<div class="stat"><span class="stat-label">版本</span><span class="stat-value">'+ver+'</span></div>' +
+      '</div>';
+  }
+
+  var sessDiv = document.getElementById('sessions');
+  if (sessions && Array.isArray(sessions) && sessions.length > 0) {
+    var rows = sessions.map(function(s) {
+      var id = (s.info && s.info.id || '').slice(0, 12);
+      var goal = (s.goal || '').slice(0, 40);
+      var stt = statusDot(s.status || 'idle');
+      var tk = (s.stats && s.stats.sessionTokens) || 0;
+      return '<tr><td>'+id+'</td><td>'+goal+'</td><td>'+stt+'</td><td>'+tk+'</td></tr>';
+    }).join('');
+    sessDiv.innerHTML = '<table><thead><tr><th>ID</th><th>目标</th><th>状态</th><th>Tokens</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  } else {
+    sessDiv.innerHTML = '<div class="card">暂无活跃 Session</div>';
+  }
+
+  var tbody = document.getElementById('modules-table');
+  if (modules && Array.isArray(modules) && modules.length > 0) {
+    var mrows = modules.map(function(m) {
+      return '<tr><td>'+(m.name||'')+'</td><td>'+statusDot(m.status||'idle')+'</td><td>'+(m.version||'—')+'</td><td>'+(m.uptime||'—')+'</td></tr>';
+    }).join('');
+    tbody.innerHTML = mrows;
+  } else {
+    tbody.innerHTML = '<tr><td colspan="4">尚未注册模块</td></tr>';
+  }
+}
+
+loadAll();
+setInterval(loadAll, 3000);
+</script>
+</body>
+</html>
