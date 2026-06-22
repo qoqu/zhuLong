@@ -438,7 +438,7 @@ function App() {
     <div
       className={`app ${darkMode ? 'theme--dark' : 'theme--light'}`}
       style={{
-        gridTemplateColumns: `${sidebarWidth}px 1fr ${rightPanelWidth}px`,
+        gridTemplateColumns: `${sidebarWidth}px 6px 1fr 6px ${rightPanelWidth}px`,
       }}
     >
       <Sidebar

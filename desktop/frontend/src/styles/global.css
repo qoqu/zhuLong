@@ -432,8 +432,11 @@ select {
   border-top: 1px solid var(--border-soft);
   padding: var(--space-2);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-1);
+  flex-shrink: 0;
 }
 
 /* Agent tabs */
@@ -2185,13 +2188,12 @@ select {
 }
 
 .settings-view__section h4 {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   font-weight: 700;
-  color: var(--fg-soft);
-  margin-bottom: var(--space-2);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  opacity: 0.95;
+  color: var(--fg);
+  margin-bottom: var(--space-3);
+  letter-spacing: 0.02em;
+  opacity: 1;
 }
 
 .settings-view__item {
@@ -2204,6 +2206,8 @@ select {
   border-radius: var(--radius);
   margin-bottom: var(--space-2);
   font-size: var(--text-sm);
+  color: var(--fg);
+}
   color: var(--fg-soft);
 }
 
