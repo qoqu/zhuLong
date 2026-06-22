@@ -97,7 +97,6 @@ type SessionState struct {
 	Goal        string              `json:"goal"`
 	Status      string              `json:"status"` // idle|planning|executing|...
 	Mode        string              `json:"mode"`   // ask|auto|yolo
-	InputMode   string              `json:"inputMode"`   // normal|plan|goal
 	Temperature string              `json:"temperature"` // auto|0.0|0.3|0.7|1.0
 	Model       string              `json:"model"`
 	Messages    []MessageDTO        `json:"messages"`
@@ -499,7 +498,6 @@ func (a *App) NewSession() *SessionState {
 		Info:        info,
 		Status:      "idle",
 		Mode:        "auto",
-		InputMode:   "normal",
 		Temperature: "auto",
 		Model:       a.modelFor(a.activeAge),
 		Messages:    []MessageDTO{},
@@ -660,17 +658,6 @@ func (a *App) SetExecutionMode(mode string) {
 	defer a.mu.Unlock()
 	if s, ok := a.sessions[a.activeID]; ok {
 		s.Mode = mode
-		a.emitSession(s)
-	}
-}
-
-// SetInputMode updates the input mode (normal|plan|goal) for the active session.
-// normal = 直接对话；plan = 始终先 plan；goal = 拆解长目标
-func (a *App) SetInputMode(mode string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if s, ok := a.sessions[a.activeID]; ok {
-		s.InputMode = mode
 		a.emitSession(s)
 	}
 }

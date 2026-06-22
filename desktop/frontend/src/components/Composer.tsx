@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import type { ExecutionMode, InputMode, Language, AgentStatus } from '../types'
+import type { ExecutionMode, Language, AgentStatus } from '../types'
 import { useT } from '../i18n'
 
 interface ComposerProps {
@@ -7,8 +7,6 @@ interface ComposerProps {
   status: AgentStatus
   executionMode: ExecutionMode
   onChangeExecutionMode: (m: ExecutionMode) => void
-  inputMode: InputMode
-  onChangeInputMode: (m: InputMode) => void
   model: string
   onChangeModel: (m: string) => void
   temperature: string
@@ -94,19 +92,6 @@ export function Composer(props: ComposerProps) {
               onClick={() => props.onChangeExecutionMode(m)}
             >
               {m === 'ask' ? t.modeAsk : m === 'auto' ? t.modeAuto : t.modeYolo}
-            </button>
-          ))}
-        </div>
-
-        <div className="composer__group">
-          {(['normal', 'plan', 'goal'] as InputMode[]).map((m) => (
-            <button
-              key={m}
-              className={`pill ${props.inputMode === m ? 'active' : ''}`}
-              onClick={() => props.onChangeInputMode(m)}
-              title={m}
-            >
-              {m === 'normal' ? t.modeNormal : m === 'plan' ? t.modePlan : t.modeGoal}
             </button>
           ))}
         </div>

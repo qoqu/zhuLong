@@ -11,7 +11,6 @@ export type AgentStatus =
   | 'error'
 
 export type ExecutionMode = 'ask' | 'auto' | 'yolo'
-export type InputMode = 'normal' | 'plan' | 'goal'
 export type RightPanelTab = 'overview' | 'files' | 'changes' | 'memory' | 'learning' | 'modules'
 
 export type SidebarView = 'projects' | 'agents' | 'history' | 'trash' | 'settings'

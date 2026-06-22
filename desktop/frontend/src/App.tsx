@@ -12,7 +12,6 @@ import type {
   AgentInfo,
   AgentStatus,
   ExecutionMode,
-  InputMode,
   Language,
   ProjectInfo,
   RightPanelTab,
@@ -126,7 +125,6 @@ function App() {
   // Active session runtime state
   const [status, setStatus] = useState<AgentStatus>('idle')
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('auto')
-  const [inputMode, setInputMode] = useState<InputMode>('normal')
   const [model, setModel] = useState('deepseek-v4-flash')
   const [temperature, setTemperature] = useState('auto')
   const [messages, setMessages] = useState<Message[]>([])
@@ -577,8 +575,6 @@ function App() {
                 status={status}
                 executionMode={executionMode}
                 onChangeExecutionMode={handleChangeMode}
-                inputMode={inputMode}
-                onChangeInputMode={setInputMode}
                 model={model}
                 onChangeModel={handleChangeModel}
                 temperature={temperature}
