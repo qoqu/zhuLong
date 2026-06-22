@@ -218,14 +218,14 @@ select {
 /* ========== App Layout - Apple Design ========== */
 .app {
   display: grid;
-  grid-template-columns: 280px 1fr 320px;
+  grid-template-columns: 280px 6px 1fr 6px 320px;
   grid-template-rows: 1fr auto;
   grid-template-areas:
-    "side   main   right"
-    "status status status";
+    "side   ldrag main   rdrag right"
+    "status status status status status";
   height: 100vh;
   background: var(--bg);
-  gap: 1px;
+  gap: 0;
   overflow: hidden;
 }
 
@@ -243,6 +243,37 @@ select {
   font-size: var(--text-base);
   padding: var(--space-4);
   gap: var(--space-4);
+}
+
+/* ===== Resizer (拖拽条) ===== */
+.resizer {
+  background: var(--border);
+  position: relative;
+  user-select: none;
+  z-index: 5;
+}
+
+.resizer:hover {
+  background: var(--accent);
+}
+
+.resizer--left {
+  grid-area: ldrag;
+  cursor: col-resize;
+}
+
+.resizer--right {
+  grid-area: rdrag;
+  cursor: col-resize;
+}
+
+.resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  right: -2px;
 }
 
 .sidebar--collapsed {
@@ -2155,22 +2186,30 @@ select {
 
 .settings-view__section h4 {
   font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--fg-faint);
+  font-weight: 700;
+  color: var(--fg-soft);
   margin-bottom: var(--space-2);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  opacity: 0.95;
 }
 
 .settings-view__item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   background: var(--bg-soft);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: var(--space-2);
   font-size: var(--text-sm);
+  color: var(--fg-soft);
+}
+
+.settings-view__item:hover {
+  border-color: var(--accent-soft, var(--border));
+  background: var(--bg-hover, var(--bg-soft));
 }
 
 /* ===== Agents View ===== */

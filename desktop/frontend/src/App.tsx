@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { Transcript } from './components/Transcript'
@@ -69,6 +69,48 @@ function App() {
   // Theme
   const [darkMode, setDarkMode] = useState(true)
   const [language, setLanguage] = useState<Language>('zh')
+
+  // 侧边栏宽度状态（可拖拽调整）
+  const [sidebarWidth, setSidebarWidth] = useState(280)
+  const [rightPanelWidth, setRightPanelWidth] = useState(320)
+  const dragStateRef = useRef<{ side: 'left' | 'right'; startX: number; startWidth: number } | null>(null)
+
+  // 拖拽侧边栏宽度（全局 mousedown/move/up）
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const ds = dragStateRef.current
+      if (!ds) return
+      const dx = e.clientX - ds.startX
+      if (ds.side === 'left') {
+        const w = Math.max(180, Math.min(560, ds.startWidth + dx))
+        setSidebarWidth(w)
+      } else {
+        const w = Math.max(220, Math.min(600, ds.startWidth - dx))
+        setRightPanelWidth(w)
+      }
+    }
+    const onUp = () => {
+      dragStateRef.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
+
+  const startDrag = (side: 'left' | 'right') => (e: React.MouseEvent) => {
+    dragStateRef.current = {
+      side,
+      startX: e.clientX,
+      startWidth: side === 'left' ? sidebarWidth : rightPanelWidth,
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
 
   // View mode
   const [viewMode, setViewMode] = useState<'chat' | 'canvas'>('chat')
@@ -393,7 +435,12 @@ function App() {
   }, [])
 
   return (
-    <div className={`app ${darkMode ? 'theme--dark' : 'theme--light'}`}>
+    <div
+      className={`app ${darkMode ? 'theme--dark' : 'theme--light'}`}
+      style={{
+        gridTemplateColumns: `${sidebarWidth}px 1fr ${rightPanelWidth}px`,
+      }}
+    >
       <Sidebar
         language={language}
         onLanguageChange={setLanguage}
@@ -409,6 +456,12 @@ function App() {
         onSelectSession={setActiveSessionId}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
+      />
+
+      <div
+        className="resizer resizer--left"
+        onMouseDown={startDrag('left')}
+        title="拖拽调整侧边栏宽度"
       />
 
       <main className="main">
@@ -545,6 +598,12 @@ function App() {
           </div>
         )}
       </main>
+
+      <div
+        className="resizer resizer--right"
+        onMouseDown={startDrag('right')}
+        title="拖拽调整右侧面板宽度"
+      />
 
       <RightPanel
         language={language}
