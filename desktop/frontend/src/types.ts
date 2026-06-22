@@ -91,36 +91,7 @@ export interface RuntimeStats {
   contextUsed: number
   compressPct: number
   remaining: string
-}
-
-export interface RuntimeStats {
-  totalUsed: number
-  totalLimit: number
-  usagePercent: number
-  prompt: number
-  completion: number
-  reasoning: number
-  other: number
-  elapsed: string
-  requestCount: number
-  sessionTokens: number
-  cacheHitRatio: number
-  mainCost: number
-  mainCount: number
-  subCost: number
-  subCount: number
-  balance: string
-  currentSession: number
-  sessionCost: string
-  model: string
-  cacheHit: string
-  avgHit: string
-  thisTokens: number
-  thisFee: string
-  contextUsed: number
-  compressPct: number
-  remaining: string
-  // New fields for enhanced UI
+  // Enhanced UI fields (FSM state, budget info)
   fsmState?: string
   budgetUsed?: number
   budgetLimit?: number

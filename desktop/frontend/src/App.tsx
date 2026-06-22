@@ -505,13 +505,15 @@ function App() {
                 onPick={(text) => setInput(text)}
               />
             ) : (
-              <Transcript
-                language={language}
-                messages={messages}
-                logs={logs}
-                plan={plan}
-                status={status}
-              />
+              <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                <Transcript
+                  language={language}
+                  messages={messages}
+                  logs={logs}
+                  plan={plan}
+                  status={status}
+                />
+              </div>
             )}
 
             <div className="main__composer">

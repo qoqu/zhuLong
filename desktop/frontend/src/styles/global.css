@@ -219,11 +219,14 @@ select {
 .app {
   display: grid;
   grid-template-columns: 280px 1fr 320px;
-  grid-template-rows: 1fr;
-  grid-template-areas: "side main right";
+  grid-template-rows: 1fr auto;
+  grid-template-areas:
+    "side   main   right"
+    "status status status";
   height: 100vh;
   background: var(--bg);
   gap: 1px;
+  overflow: hidden;
 }
 
 /* ========== Sidebar - Apple Design ========== */
@@ -2364,6 +2367,13 @@ select {
 
 .right-panel__tab-icon {
   font-size: var(--text-base);
+}
+
+/* ===== Main Composer (fixed at bottom) ===== */
+.main__composer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
 }
 
 /* ===== Status Bar (used by StatusBar.tsx) ===== */

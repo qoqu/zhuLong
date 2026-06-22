@@ -228,7 +228,7 @@ function ProjectTree(props: {
           <button title="Layout">▦</button>
         </div>
       </div>
-      {props.projects.flatMap((p) => p.sessions).map((s) => (
+      {props.projects.flatMap((p) => p.sessions || []).filter(Boolean).map((s) => (
         <button
           key={s.id}
           className={`session-item ${s.id === props.activeSessionId ? 'active' : ''}`}
