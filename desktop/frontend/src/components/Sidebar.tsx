@@ -95,16 +95,96 @@ export function Sidebar(props: SidebarProps) {
           />
         )}
         {props.view === 'agents' && (
-          <div className="sidebar__placeholder">{t.agentsView}</div>
+          <div className="agents-view">
+            <h3 className="agents-view__title">{t.agents}</h3>
+            <div className="agents-view__list">
+              {props.agents.map((agent) => (
+                <div 
+                  key={agent.id} 
+                  className={`agents-view__item ${props.activeAgentId === agent.id ? 'active' : ''}`}
+                  onClick={() => props.onSelectAgent(agent.id)}
+                >
+                  <div className="agents-view__avatar">{agent.name[0]}</div>
+                  <div className="agents-view__info">
+                    <div className="agents-view__name">{agent.name}</div>
+                    <div className="agents-view__model">{agent.model}</div>
+                  </div>
+                  {agent.yolo && <span className="agents-view__badge">YOLO</span>}
+                </div>
+              ))}
+            </div>
+          </div>
         )}
         {props.view === 'history' && (
-          <div className="sidebar__placeholder">{t.historyView}</div>
+          <div className="history-view">
+            <h3 className="history-view__title">{t.history}</h3>
+            <div className="history-view__list">
+              {props.projects.flatMap((p) => p.sessions).slice(0, 10).map((session) => (
+                <div 
+                  key={session.id}
+                  className={`history-view__item ${props.activeSessionId === session.id ? 'active' : ''}`}
+                  onClick={() => props.onSelectSession(session.id)}
+                >
+                  <div className="history-view__title-text">{session.title}</div>
+                  <div className="history-view__meta">
+                    {session.messageCount} {props.language === 'zh' ? '轮' : 'msgs'} · {session.updatedAt}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
         {props.view === 'trash' && (
-          <div className="sidebar__placeholder">{t.trashView}</div>
+          <div className="trash-view">
+            <h3 className="trash-view__title">{t.trash}</h3>
+            <div className="trash-view__empty">
+              <p>🗑</p>
+              <p>{props.language === 'zh' ? '回收站为空' : 'Trash is empty'}</p>
+            </div>
+          </div>
         )}
         {props.view === 'settings' && (
-          <div className="sidebar__placeholder">{t.settingsView}</div>
+          <div className="settings-view">
+            <h3 className="settings-view__title">{t.settings}</h3>
+            
+            <div className="settings-view__section">
+              <h4>{props.language === 'zh' ? '外观' : 'Appearance'}</h4>
+              <div className="settings-view__item">
+                <span>{props.language === 'zh' ? '主题' : 'Theme'}</span>
+                <button 
+                  className="pill" 
+                  onClick={() => props.onLanguageChange(props.language === 'zh' ? 'en' : 'zh')}
+                >
+                  {props.language === 'zh' ? '深色' : 'Dark'}
+                </button>
+              </div>
+            </div>
+            
+            <div className="settings-view__section">
+              <h4>{props.language === 'zh' ? '语言' : 'Language'}</h4>
+              <div className="settings-view__item">
+                <span>{props.language === 'zh' ? '当前语言' : 'Current Language'}</span>
+                <button 
+                  className="pill" 
+                  onClick={() => props.onLanguageChange(props.language === 'zh' ? 'en' : 'zh')}
+                >
+                  {props.language === 'zh' ? '中文' : 'English'}
+                </button>
+              </div>
+            </div>
+            
+            <div className="settings-view__section">
+              <h4>{props.language === 'zh' ? '关于' : 'About'}</h4>
+              <div className="settings-view__item">
+                <span>{props.language === 'zh' ? '版本' : 'Version'}</span>
+                <span>v0.3.0</span>
+              </div>
+              <div className="settings-view__item">
+                <span>{props.language === 'zh' ? '模型' : 'Model'}</span>
+                <span>DeepSeek</span>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 

@@ -24,6 +24,9 @@ import type {
   RuntimeStats,
   FileChange,
   ApprovalRequest,
+  MemoryState,
+  LearningState,
+  ModuleState,
 } from './types'
 import { useT } from './i18n'
 import './styles/canvas.css'
@@ -93,6 +96,11 @@ function App() {
 
   // Right panel
   const [rightTab, setRightTab] = useState<RightPanelTab>('overview')
+
+  // New states for enhanced UI
+  const [memoryState, setMemoryState] = useState<MemoryState | null>(null)
+  const [learningState, setLearningState] = useState<LearningState | null>(null)
+  const [moduleState, setModuleState] = useState<ModuleState | null>(null)
 
   // Composer input
   const [input, setInput] = useState('')
@@ -182,6 +190,18 @@ function App() {
     setStats(s.stats || emptyStats(s.model || 'deepseek-v4-flash'))
     setFiles(s.files || [])
     setChanges(s.changes || [])
+    
+    // Update new states
+    if (s.memoryState) {
+      setMemoryState(s.memoryState)
+    }
+    if (s.learningState) {
+      setLearningState(s.learningState)
+    }
+    if (s.moduleState) {
+      setModuleState(s.moduleState)
+    }
+    
     if (s.approval) {
       setApproval(s.approval)
     } else {
@@ -529,6 +549,9 @@ function App() {
         stats={stats}
         files={files}
         changes={changes}
+        memoryState={memoryState}
+        learningState={learningState}
+        moduleState={moduleState}
       />
 
       <StatusBar

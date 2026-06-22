@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { RightPanelTab, RuntimeStats, Language, FileChange, TreeNode } from '../types'
+import type { RightPanelTab, RuntimeStats, Language, FileChange, TreeNode, MemoryState, LearningState, ModuleState } from '../types'
 import { useT } from '../i18n'
 
 interface RightPanelProps {
@@ -9,6 +9,9 @@ interface RightPanelProps {
   stats: RuntimeStats
   files: string[]
   changes: FileChange[]
+  memoryState?: MemoryState | null
+  learningState?: LearningState | null
+  moduleState?: ModuleState | null
 }
 
 const backend = typeof window !== 'undefined' && (window as any).go ? (window as any).go.main.App : null
@@ -39,12 +42,36 @@ export function RightPanel(props: RightPanelProps) {
           <span className="right-panel__tab-icon">↻</span>
           {t.changes}
         </button>
+        <button
+          className={`right-panel__tab ${props.tab === 'memory' ? 'active' : ''}`}
+          onClick={() => props.onChangeTab('memory')}
+        >
+          <span className="right-panel__tab-icon">🧠</span>
+          {t.memory || 'Memory'}
+        </button>
+        <button
+          className={`right-panel__tab ${props.tab === 'learning' ? 'active' : ''}`}
+          onClick={() => props.onChangeTab('learning')}
+        >
+          <span className="right-panel__tab-icon">📚</span>
+          {t.learning || 'Learning'}
+        </button>
+        <button
+          className={`right-panel__tab ${props.tab === 'modules' ? 'active' : ''}`}
+          onClick={() => props.onChangeTab('modules')}
+        >
+          <span className="right-panel__tab-icon">⚙️</span>
+          {t.modules || 'Modules'}
+        </button>
       </div>
 
       <div className="right-panel__content">
         {props.tab === 'overview' && <OverviewTab language={props.language} stats={props.stats} />}
         {props.tab === 'files' && <FilesTab language={props.language} files={props.files} />}
         {props.tab === 'changes' && <ChangesTab language={props.language} changes={props.changes} />}
+        {props.tab === 'memory' && <MemoryTab language={props.language} memoryState={props.memoryState} />}
+        {props.tab === 'learning' && <LearningTab language={props.language} learningState={props.learningState} />}
+        {props.tab === 'modules' && <ModulesTab language={props.language} moduleState={props.moduleState} />}
       </div>
     </aside>
   )
@@ -319,5 +346,277 @@ function ChangesTab(props: { language: Language; changes: FileChange[] }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+// Memory Tab - 三层记忆状态
+function MemoryTab(props: { language: Language; memoryState?: MemoryState | null }) {
+  const t = useT(props.language)
+  const memory = props.memoryState
+  
+  if (!memory) {
+    return (
+      <div className="panel-placeholder">
+        <p>🧠</p>
+        <p>{props.language === 'zh' ? '暂无记忆数据' : 'No memory data'}</p>
+      </div>
+    )
+  }
+  
+  return (
+    <div className="memory-tab">
+      <section className="overview-section">
+        <h3>{props.language === 'zh' ? '情景记忆 (Episodic)' : 'Episodic Memory'}</h3>
+        <div className="memory-stats">
+          <div className="memory-stat-item">
+            <span className="label">{props.language === 'zh' ? '记忆数量' : 'Count'}</span>
+            <span className="value">{memory.episodic.count}</span>
+          </div>
+          <div className="memory-stat-item">
+            <span className="label">{props.language === 'zh' ? '总Token' : 'Total Tokens'}</span>
+            <span className="value">{memory.episodic.totalTokens.toLocaleString()}</span>
+          </div>
+          <div className="memory-stat-item">
+            <span className="label">{props.language === 'zh' ? '最后更新' : 'Last Updated'}</span>
+            <span className="value">{memory.episodic.lastUpdated}</span>
+          </div>
+        </div>
+      </section>
+      
+      <section className="overview-section">
+        <h3>{props.language === 'zh' ? '语义记忆 (Semantic)' : 'Semantic Memory'}</h3>
+        <div className="memory-stats">
+          <div className="memory-stat-item">
+            <span className="label">{props.language === 'zh' ? '概念数量' : 'Concepts'}</span>
+            <span className="value">{memory.semantic.count}</span>
+          </div>
+          <div className="memory-stat-item">
+            <span className="label">{props.language === 'zh' ? '分类' : 'Categories'}</span>
+            <span className="value">{memory.semantic.categories.join(', ')}</span>
+          </div>
+          <div className="memory-stat-item">
+            <span className="label">{props.language === 'zh' ? '最后更新' : 'Last Updated'}</span>
+            <span className="value">{memory.semantic.lastUpdated}</span>
+          </div>
+        </div>
+      </section>
+      
+      <section className="overview-section">
+        <h3>{props.language === 'zh' ? '程序记忆 (Procedural)' : 'Procedural Memory'}</h3>
+        <div className="memory-stats">
+          <div className="memory-stat-item">
+            <span className="label">{props.language === 'zh' ? '策略数量' : 'Strategies'}</span>
+            <span className="value">{memory.procedural.count}</span>
+          </div>
+          <div className="memory-stat-item">
+            <span className="label">{props.language === 'zh' ? '成功率' : 'Success Rate'}</span>
+            <span className="value">{(memory.procedural.successRate * 100).toFixed(1)}%</span>
+          </div>
+          <div className="memory-stat-item">
+            <span className="label">{props.language === 'zh' ? '最后更新' : 'Last Updated'}</span>
+            <span className="value">{memory.procedural.lastUpdated}</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+// Learning Tab - 学习状态
+function LearningTab(props: { language: Language; learningState?: LearningState | null }) {
+  const t = useT(props.language)
+  const learning = props.learningState
+  
+  if (!learning) {
+    return (
+      <div className="panel-placeholder">
+        <p>📚</p>
+        <p>{props.language === 'zh' ? '暂无学习数据' : 'No learning data'}</p>
+      </div>
+    )
+  }
+  
+  return (
+    <div className="learning-tab">
+      <section className="overview-section">
+        <h3>{props.language === 'zh' ? '认知模型' : 'Cognitive Model'}</h3>
+        <div className="learning-stats">
+          <div className="learning-stat-item">
+            <span className="label">{props.language === 'zh' ? '已更新' : 'Updated'}</span>
+            <span className="value">{learning.cognitiveModel.updated ? (props.language === 'zh' ? '是' : 'Yes') : (props.language === 'zh' ? '否' : 'No')}</span>
+          </div>
+          <div className="learning-stat-item">
+            <span className="label">{props.language === 'zh' ? '置信度' : 'Confidence'}</span>
+            <span className="value">{(learning.cognitiveModel.confidence * 100).toFixed(1)}%</span>
+          </div>
+          <div className="learning-stat-item">
+            <span className="label">{props.language === 'zh' ? '最后更新' : 'Last Update'}</span>
+            <span className="value">{learning.cognitiveModel.lastUpdate}</span>
+          </div>
+        </div>
+      </section>
+      
+      <section className="overview-section">
+        <h3>{props.language === 'zh' ? '多样性' : 'Diversity'}</h3>
+        <div className="learning-stats">
+          <div className="learning-stat-item">
+            <span className="label">{props.language === 'zh' ? '多样性分数' : 'Diversity Score'}</span>
+            <span className="value">{(learning.diversity.score * 100).toFixed(1)}%</span>
+          </div>
+          <div className="learning-stat-item">
+            <span className="label">{props.language === 'zh' ? '策略数量' : 'Strategies'}</span>
+            <span className="value">{learning.diversity.strategies.length}</span>
+          </div>
+        </div>
+      </section>
+      
+      <section className="overview-section">
+        <h3>{props.language === 'zh' ? '探索与利用' : 'Exploration vs Exploitation'}</h3>
+        <div className="learning-stats">
+          <div className="learning-stat-item">
+            <span className="label">{props.language === 'zh' ? '探索率' : 'Exploration Rate'}</span>
+            <span className="value">{(learning.explorationRate * 100).toFixed(1)}%</span>
+          </div>
+          <div className="learning-stat-item">
+            <span className="label">{props.language === 'zh' ? '利用率' : 'Utilization Rate'}</span>
+            <span className="value">{(learning.utilizationRate * 100).toFixed(1)}%</span>
+          </div>
+          <div className="learning-stat-item">
+            <span className="label">{props.language === 'zh' ? '成功模式' : 'Success Patterns'}</span>
+            <span className="value">{learning.successPatterns}</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+// Modules Tab - 模块状态
+function ModulesTab(props: { language: Language; moduleState?: ModuleState | null }) {
+  const t = useT(props.language)
+  const modules = props.moduleState
+  
+  if (!modules) {
+    return (
+      <div className="panel-placeholder">
+        <p>⚙️</p>
+        <p>{props.language === 'zh' ? '暂无模块数据' : 'No module data'}</p>
+      </div>
+    )
+  }
+  
+  const statusColor = (status: string) => {
+    switch (status) {
+      case 'active': return 'var(--ok)'
+      case 'idle': return 'var(--fg-faint)'
+      case 'error': return 'var(--err)'
+      default: return 'var(--fg-faint)'
+    }
+  }
+  
+  const statusLabel = (status: string) => {
+    if (props.language === 'en') {
+      return status.charAt(0).toUpperCase() + status.slice(1)
+    }
+    switch (status) {
+      case 'active': return '活跃'
+      case 'idle': return '空闲'
+      case 'error': return '错误'
+      default: return status
+    }
+  }
+  
+  return (
+    <div className="modules-tab">
+      <section className="overview-section">
+        <h3>P0 {props.language === 'zh' ? '核心模块' : 'Core Modules'}</h3>
+        <div className="module-list">
+          <ModuleItem name="Controller" module={modules.controller} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
+          <ModuleItem name="Planner" module={modules.planner} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
+          <ModuleItem name="Executor" module={modules.executor} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
+          <ModuleItem name="Reflector" module={modules.reflector} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
+          <ModuleItem name="Memory" module={modules.memory} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
+          <ModuleItem name="Compressor" module={modules.compressor} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
+          <ModuleItem name="Checkpoint" module={modules.checkpoint} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
+          <ModuleItem name="Budget" module={modules.budget} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
+          <ModuleItem name="Trace" module={modules.trace} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
+          <ModuleItem name="Human" module={modules.human} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
+          <ModuleItem name="Tools" module={modules.tools} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
+          <ModuleItem name="DeepSeek" module={modules.deepseek} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />
+        </div>
+      </section>
+      
+      {(modules.stagnation || modules.exploration || modules.stability || modules.information || modules.synergetics || modules.learningModule) && (
+        <section className="overview-section">
+          <h3>P1 {props.language === 'zh' ? '核心增强' : 'Core Enhancement'}</h3>
+          <div className="module-list">
+            {modules.stagnation && <ModuleItem name="Stagnation" module={modules.stagnation} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+            {modules.exploration && <ModuleItem name="Exploration" module={modules.exploration} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+            {modules.stability && <ModuleItem name="Stability" module={modules.stability} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+            {modules.information && <ModuleItem name="Information" module={modules.information} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+            {modules.synergetics && <ModuleItem name="Synergetics" module={modules.synergetics} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+            {modules.learningModule && <ModuleItem name="Learning" module={modules.learningModule} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          </div>
+        </section>
+      )}
+      
+      {(modules.altPlanner || modules.envMonitor || modules.noiseHandler || modules.redundancy) && (
+        <section className="overview-section">
+          <h3>P2 {props.language === 'zh' ? '扩展模块' : 'Extension Modules'}</h3>
+          <div className="module-list">
+            {modules.altPlanner && <ModuleItem name="AltPlanner" module={modules.altPlanner} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+            {modules.envMonitor && <ModuleItem name="EnvMonitor" module={modules.envMonitor} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+            {modules.noiseHandler && <ModuleItem name="NoiseHandler" module={modules.noiseHandler} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+            {modules.redundancy && <ModuleItem name="Redundancy" module={modules.redundancy} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          </div>
+        </section>
+      )}
+      
+      {(modules.i18n || modules.plugins || modules.dashboard || modules.models || modules.backup) && (
+        <section className="overview-section">
+          <h3>P3 {props.language === 'zh' ? '扩展功能' : 'Extended Features'}</h3>
+          <div className="module-list">
+            {modules.i18n && <ModuleItem name="i18n" module={modules.i18n} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+            {modules.plugins && <ModuleItem name="Plugins" module={modules.plugins} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+            {modules.dashboard && <ModuleItem name="Dashboard" module={modules.dashboard} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+            {modules.models && <ModuleItem name="Models" module={modules.models} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+            {modules.backup && <ModuleItem name="Backup" module={modules.backup} statusColor={statusColor} statusLabel={statusLabel} language={props.language} />}
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
+
+function ModuleItem(props: { 
+  name: string
+  module: any
+  statusColor: (status: string) => string
+  statusLabel: (status: string) => string
+  language: Language
+}) {
+  const mod = props.module
+  return (
+    <div className="module-item">
+      <div className="module-item__header">
+        <span className="module-item__name">{props.name}</span>
+        <span className="module-item__status" style={{ color: props.statusColor(mod.status) }}>
+          {props.statusLabel(mod.status)}
+        </span>
+      </div>
+      <div className="module-item__details">
+        {mod.fsmState && <span>{props.language === 'zh' ? 'FSM' : 'FSM'}: {mod.fsmState}</span>}
+        {mod.lastPlan && <span>{props.language === 'zh' ? '最后规划' : 'Last Plan'}: {mod.lastPlan}</span>}
+        {mod.toolsLoaded !== undefined && <span>{props.language === 'zh' ? '工具' : 'Tools'}: {mod.toolsLoaded}</span>}
+        {mod.lastReflection && <span>{props.language === 'zh' ? '最后反省' : 'Last Reflection'}: {mod.lastReflection}</span>}
+        {mod.compactionEnabled !== undefined && <span>{props.language === 'zh' ? '压缩' : 'Compaction'}: {mod.compactionEnabled ? (props.language === 'zh' ? '开启' : 'On') : (props.language === 'zh' ? '关闭' : 'Off')}</span>}
+        {mod.compressThreshold !== undefined && <span>{props.language === 'zh' ? '压缩阈值' : 'Compress Threshold'}: {mod.compressThreshold}%</span>}
+        {mod.warningLevel && <span>{props.language === 'zh' ? '警告级别' : 'Warning Level'}: {mod.warningLevel}</span>}
+        {mod.traceEnabled !== undefined && <span>{props.language === 'zh' ? 'Trace' : 'Trace'}: {mod.traceEnabled ? (props.language === 'zh' ? '开启' : 'On') : (props.language === 'zh' ? '关闭' : 'Off')}</span>}
+        {mod.approvalPending !== undefined && <span>{props.language === 'zh' ? '审批待定' : 'Approval Pending'}: {mod.approvalPending ? (props.language === 'zh' ? '是' : 'Yes') : (props.language === 'zh' ? '否' : 'No')}</span>}
+        {mod.mcpConnected !== undefined && <span>MCP: {mod.mcpConnected ? (props.language === 'zh' ? '已连接' : 'Connected') : (props.language === 'zh' ? '未连接' : 'Disconnected')}</span>}
+        {mod.cacheHitRate !== undefined && <span>{props.language === 'zh' ? '缓存命中率' : 'Cache Hit Rate'}: {(mod.cacheHitRate * 100).toFixed(1)}%</span>}
+      </div>
+    </div>
   )
 }

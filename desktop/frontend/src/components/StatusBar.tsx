@@ -50,9 +50,23 @@ export function StatusBar(props: StatusBarProps) {
         <span>{props.model}</span>
       </div>
       <span className="statusbar__sep">·</span>
+      <span>{t.status || 'Status'}: <strong>{statusLabel(props.language, props.status)}</strong></span>
+      {s.fsmState && (
+        <>
+          <span className="statusbar__sep">·</span>
+          <span>FSM: <strong>{s.fsmState}</strong></span>
+        </>
+      )}
+      <span className="statusbar__sep">·</span>
       <span>{t.thisHit}: <strong>{s.cacheHit}</strong></span>
       <span className="statusbar__sep">·</span>
       <span>{t.avgHit}: <strong>{s.avgHit}</strong></span>
+      {s.budgetUsed !== undefined && s.budgetLimit !== undefined && (
+        <>
+          <span className="statusbar__sep">·</span>
+          <span>{t.budget || 'Budget'}: <strong style={{ color: s.budgetWarning ? 'var(--warn)' : 'var(--ok)' }}>{Math.round((s.budgetUsed / s.budgetLimit) * 100)}%</strong></span>
+        </>
+      )}
       <span className="statusbar__sep">·</span>
       <span>{t.sessionTokens}: <strong>{s.sessionTokens.toLocaleString()}</strong></span>
       <span className="statusbar__sep">·</span>

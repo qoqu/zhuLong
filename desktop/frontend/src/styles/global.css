@@ -2022,3 +2022,328 @@ select {
 .select-none { user-select: none; }
 .pointer-events-none { pointer-events: none; }
 .cursor-pointer { cursor: pointer; }
+
+/* ===== Memory Tab ===== */
+.memory-tab {
+  padding: var(--space-3);
+}
+
+.memory-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.memory-stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2);
+  background: var(--bg-soft);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+}
+
+.memory-stat-item .label {
+  color: var(--fg-faint);
+}
+
+.memory-stat-item .value {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+/* ===== Learning Tab ===== */
+.learning-tab {
+  padding: var(--space-3);
+}
+
+.learning-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.learning-stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2);
+  background: var(--bg-soft);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+}
+
+.learning-stat-item .label {
+  color: var(--fg-faint);
+}
+
+.learning-stat-item .value {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+/* ===== Modules Tab ===== */
+.modules-tab {
+  padding: var(--space-3);
+}
+
+.module-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.module-item {
+  padding: var(--space-2);
+  background: var(--bg-soft);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.module-item__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-1);
+}
+
+.module-item__name {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+
+.module-item__status {
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.module-item__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+}
+
+/* ===== Settings View ===== */
+.settings-view {
+  padding: var(--space-3);
+}
+
+.settings-view__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: var(--space-4);
+}
+
+.settings-view__section {
+  margin-bottom: var(--space-4);
+}
+
+.settings-view__section h4 {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg-faint);
+  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.settings-view__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2);
+  background: var(--bg-soft);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+/* ===== Agents View ===== */
+.agents-view {
+  padding: var(--space-3);
+}
+
+.agents-view__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: var(--space-4);
+}
+
+.agents-view__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.agents-view__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--bg-soft);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.agents-view__item:hover {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+
+.agents-view__item.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.agents-view__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+
+.agents-view__info {
+  flex: 1;
+}
+
+.agents-view__name {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+
+.agents-view__model {
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+}
+
+.agents-view__badge {
+  padding: var(--space-1) var(--space-2);
+  background: var(--warn);
+  color: white;
+  border-radius: var(--radius);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+/* ===== History View ===== */
+.history-view {
+  padding: var(--space-3);
+}
+
+.history-view__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: var(--space-4);
+}
+
+.history-view__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.history-view__item {
+  padding: var(--space-2);
+  background: var(--bg-soft);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.history-view__item:hover {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+
+.history-view__item.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.history-view__title-text {
+  font-weight: 500;
+  font-size: var(--text-sm);
+  color: var(--fg);
+  margin-bottom: var(--space-1);
+}
+
+.history-view__meta {
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+}
+
+/* ===== Trash View ===== */
+.trash-view {
+  padding: var(--space-3);
+}
+
+.trash-view__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: var(--space-4);
+}
+
+.trash-view__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8);
+  color: var(--fg-faint);
+  font-size: var(--text-sm);
+}
+
+.trash-view__empty p:first-child {
+  font-size: var(--text-2xl);
+  margin-bottom: var(--space-2);
+}
+
+/* ===== Right Panel Tabs ===== */
+.right-panel__tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-faint);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.right-panel__tab:hover {
+  color: var(--fg);
+  background: var(--bg-soft);
+}
+
+.right-panel__tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.right-panel__tab-icon {
+  font-size: var(--text-base);
+}

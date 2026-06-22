@@ -80,6 +80,12 @@ const dict = {
     approve: 'Approve',
     deny: 'Deny',
     alwaysAllow: 'Always allow',
+    // New translations for enhanced UI
+    budget: 'Budget',
+    status: 'Status',
+    memory: 'Memory',
+    learning: 'Learning',
+    modules: 'Modules',
   },
   zh: {
     appName: '烛龙',
@@ -152,6 +158,12 @@ const dict = {
     approve: '批准',
     deny: '拒绝',
     alwaysAllow: '始终允许',
+    // 新翻译 - 增强UI
+    budget: '预算',
+    status: '状态',
+    memory: '记忆',
+    learning: '学习',
+    modules: '模块',
   },
 } as const
 
