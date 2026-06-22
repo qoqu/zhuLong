@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/qoqu/zhuLong/internal/environment"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -32,6 +33,13 @@ type App struct {
 	sessions  map[string]*SessionState
 	activeID  string
 	activeAge string
+
+	// Environment monitor (P2 模块) - 文件系统变化监听
+	envMonitor    *environment.Monitor
+	envStop       chan struct{}
+	envRunning    bool
+	envChangeBuf  []ChangeDTO
+	envChangeLock sync.Mutex
 }
 
 // AgentInfo describes an agent identity shown in the top tab bar.
@@ -65,24 +73,26 @@ type SessionInfo struct {
 // SessionState is the full runtime state of a session. Emitted to the
 // frontend via the OnSessionUpdate event whenever it changes.
 type SessionState struct {
-	Info     SessionInfo            `json:"info"`
-	Goal     string                 `json:"goal"`
-	Status   string                 `json:"status"` // idle|planning|executing|...
-	Mode     string                 `json:"mode"`   // ask|auto|yolo
-	Model    string                 `json:"model"`
-	Messages []MessageDTO           `json:"messages"`
-	Logs     []LogDTO               `json:"logs"`
-	Plan     []PlanStepDTO          `json:"plan"`
-	Stats    RuntimeStatsDTO        `json:"stats"`
-	Files    []string               `json:"files"`
-	Changes  []ChangeDTO            `json:"changes"`
-	Approval *ApprovalRequestDTO    `json:"approval,omitempty"`
-	Created  time.Time              `json:"created"`
-	Updated  time.Time              `json:"updated"`
+	Info        SessionInfo         `json:"info"`
+	Goal        string              `json:"goal"`
+	Status      string              `json:"status"` // idle|planning|executing|...
+	Mode        string              `json:"mode"`   // ask|auto|yolo
+	InputMode   string              `json:"inputMode"`   // normal|plan|goal
+	Temperature string              `json:"temperature"` // auto|0.0|0.3|0.7|1.0
+	Model       string              `json:"model"`
+	Messages    []MessageDTO        `json:"messages"`
+	Logs        []LogDTO            `json:"logs"`
+	Plan        []PlanStepDTO       `json:"plan"`
+	Stats       RuntimeStatsDTO     `json:"stats"`
+	Files       []string            `json:"files"`
+	Changes     []ChangeDTO         `json:"changes"`
+	Approval    *ApprovalRequestDTO `json:"approval,omitempty"`
+	Created     time.Time           `json:"created"`
+	Updated     time.Time           `json:"updated"`
 	// New fields for enhanced UI
-	MemoryState *MemoryStateDTO     `json:"memoryState,omitempty"`
+	MemoryState   *MemoryStateDTO   `json:"memoryState,omitempty"`
 	LearningState *LearningStateDTO `json:"learningState,omitempty"`
-	ModuleState *ModuleStateDTO     `json:"moduleState,omitempty"`
+	ModuleState   *ModuleStateDTO   `json:"moduleState,omitempty"`
 }
 
 // MessageDTO is a single transcript message.
@@ -277,6 +287,86 @@ func (a *App) seedDefaults() {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.markWailsReady()
+	a.initEnvironmentMonitor()
+}
+
+// initEnvironmentMonitor 启动 P2 模块：envMonitor 监听 . 当前目录变化
+// 变化通过 changes:update 事件实时推送到前端 ChangesTab
+func (a *App) initEnvironmentMonitor() {
+	if a.envRunning {
+		return
+	}
+	a.envMonitor = environment.NewMonitor()
+	a.envMonitor.AddWatcher(environment.WatcherConfig{
+		Path:         ".", // 监视工作区根目录
+		Recursive:    true,
+		PollInterval: 60 * time.Second,
+	})
+	if err := a.envMonitor.Start(); err != nil {
+		// 静默失败 - 不影响主流程
+		return
+	}
+	a.envStop = make(chan struct{})
+	a.envChangeBuf = make([]ChangeDTO, 0)
+	a.envRunning = true
+
+	// 启动推送 goroutine
+	go a.envMonitorPushLoop()
+}
+
+func (a *App) envMonitorPushLoop() {
+	ch := a.envMonitor.GetChanges()
+	for {
+		select {
+		case <-a.envStop:
+			return
+		case c, ok := <-ch:
+			if !ok {
+				return
+			}
+			a.handleEnvChange(c)
+		}
+	}
+}
+
+func (a *App) handleEnvChange(c environment.Change) {
+	dto := ChangeDTO{
+		Path: c.Path,
+		Kind: c.Type.String(),
+		Time: c.Timestamp.Format("15:04:05"),
+	}
+
+	// 1) 缓存到活跃 session 的 Changes
+	a.mu.Lock()
+	if s, ok := a.sessions[a.activeID]; ok {
+		s.Changes = append(s.Changes, dto)
+		if len(s.Changes) > 200 {
+			s.Changes = s.Changes[len(s.Changes)-200:]
+		}
+	}
+
+	// 2) 更新 envMonitor 模块状态
+	envChangesCount := 0
+	if s, ok := a.sessions[a.activeID]; ok && s.ModuleState != nil && s.ModuleState.EnvMonitor != nil {
+		s.ModuleState.EnvMonitor.Details["polling"] = true
+		// 累加计数
+		if v, ok := s.ModuleState.EnvMonitor.Details["changesDetected"].(int); ok {
+			envChangesCount = v + 1
+		} else {
+			envChangesCount = 1
+		}
+		s.ModuleState.EnvMonitor.Details["changesDetected"] = envChangesCount
+		s.ModuleState.EnvMonitor.Status = "active"
+	}
+	a.mu.Unlock()
+
+	// 3) 推送事件给前端
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "changes:update", dto)
+		if s, ok := a.sessions[a.activeID]; ok {
+			runtime.EventsEmit(a.ctx, "session:update", s)
+		}
+	}
 }
 
 // === Sidebar / agents ===
@@ -343,13 +433,21 @@ func (a *App) NewSession() *SessionState {
 		MessageCount: 0, ToolCount: 0, UpdatedAt: "刚刚", Preview: "新会话",
 	}
 	st := &SessionState{
-		Info: info, Status: "idle", Mode: "auto", Model: a.modelFor(a.activeAge),
-		Messages: []MessageDTO{}, Logs: []LogDTO{}, Plan: []PlanStepDTO{},
-		Created: time.Now(), Updated: time.Now(),
-		Stats: a.zeroStats(),
-		MemoryState:  a.initMemoryState(),
+		Info:        info,
+		Status:      "idle",
+		Mode:        "auto",
+		InputMode:   "normal",
+		Temperature: "auto",
+		Model:       a.modelFor(a.activeAge),
+		Messages:    []MessageDTO{},
+		Logs:        []LogDTO{},
+		Plan:        []PlanStepDTO{},
+		Created:     time.Now(),
+		Updated:     time.Now(),
+		Stats:       a.zeroStats(),
+		MemoryState:   a.initMemoryState(),
 		LearningState: a.initLearningState(),
-		ModuleState:  a.initModuleState(),
+		ModuleState:   a.initModuleState(),
 	}
 	a.sessions[id] = st
 	// Inject into Global project
@@ -499,6 +597,28 @@ func (a *App) SetExecutionMode(mode string) {
 	defer a.mu.Unlock()
 	if s, ok := a.sessions[a.activeID]; ok {
 		s.Mode = mode
+		a.emitSession(s)
+	}
+}
+
+// SetInputMode updates the input mode (normal|plan|goal) for the active session.
+// normal = 直接对话；plan = 始终先 plan；goal = 拆解长目标
+func (a *App) SetInputMode(mode string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s, ok := a.sessions[a.activeID]; ok {
+		s.InputMode = mode
+		a.emitSession(s)
+	}
+}
+
+// SetTemperature updates the sampling temperature for the active session.
+// "auto" | "0.0" | "0.3" | "0.7" | "1.0" — 影响 provider 输出多样性
+func (a *App) SetTemperature(temp string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s, ok := a.sessions[a.activeID]; ok {
+		s.Temperature = temp
 		a.emitSession(s)
 	}
 }

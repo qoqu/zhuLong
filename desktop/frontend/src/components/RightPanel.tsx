@@ -351,68 +351,69 @@ function ChangesTab(props: { language: Language; changes: FileChange[] }) {
 
 // Memory Tab - 三层记忆状态
 function MemoryTab(props: { language: Language; memoryState?: MemoryState | null }) {
+  const t = useT(props.language)
   const memory = props.memoryState
-  
+
   if (!memory) {
     return (
       <div className="panel-placeholder">
         <p>🧠</p>
-        <p>{props.language === 'zh' ? '暂无记忆数据' : 'No memory data'}</p>
+        <p>{t.noMemoryData}</p>
       </div>
     )
   }
-  
+
   return (
     <div className="memory-tab">
       <section className="overview-section">
-        <h3>{props.language === 'zh' ? '情景记忆 (Episodic)' : 'Episodic Memory'}</h3>
+        <h3>{t.episodic} (Episodic)</h3>
         <div className="memory-stats">
           <div className="memory-stat-item">
-            <span className="label">{props.language === 'zh' ? '记忆数量' : 'Count'}</span>
+            <span className="label">{t.count}</span>
             <span className="value">{memory.episodic.count}</span>
           </div>
           <div className="memory-stat-item">
-            <span className="label">{props.language === 'zh' ? '总Token' : 'Total Tokens'}</span>
+            <span className="label">{t.totalTokens}</span>
             <span className="value">{memory.episodic.totalTokens.toLocaleString()}</span>
           </div>
           <div className="memory-stat-item">
-            <span className="label">{props.language === 'zh' ? '最后更新' : 'Last Updated'}</span>
+            <span className="label">{t.lastUpdated}</span>
             <span className="value">{memory.episodic.lastUpdated}</span>
           </div>
         </div>
       </section>
-      
+
       <section className="overview-section">
-        <h3>{props.language === 'zh' ? '语义记忆 (Semantic)' : 'Semantic Memory'}</h3>
+        <h3>{t.semantic} (Semantic)</h3>
         <div className="memory-stats">
           <div className="memory-stat-item">
-            <span className="label">{props.language === 'zh' ? '概念数量' : 'Concepts'}</span>
+            <span className="label">{t.count}</span>
             <span className="value">{memory.semantic.count}</span>
           </div>
           <div className="memory-stat-item">
-            <span className="label">{props.language === 'zh' ? '分类' : 'Categories'}</span>
-            <span className="value">{memory.semantic.categories.join(', ')}</span>
+            <span className="label">{t.categories}</span>
+            <span className="value">{memory.semantic.categories.join(', ') || '—'}</span>
           </div>
           <div className="memory-stat-item">
-            <span className="label">{props.language === 'zh' ? '最后更新' : 'Last Updated'}</span>
+            <span className="label">{t.lastUpdated}</span>
             <span className="value">{memory.semantic.lastUpdated}</span>
           </div>
         </div>
       </section>
-      
+
       <section className="overview-section">
-        <h3>{props.language === 'zh' ? '程序记忆 (Procedural)' : 'Procedural Memory'}</h3>
+        <h3>{t.procedural} (Procedural)</h3>
         <div className="memory-stats">
           <div className="memory-stat-item">
-            <span className="label">{props.language === 'zh' ? '策略数量' : 'Strategies'}</span>
+            <span className="label">{t.count}</span>
             <span className="value">{memory.procedural.count}</span>
           </div>
           <div className="memory-stat-item">
-            <span className="label">{props.language === 'zh' ? '成功率' : 'Success Rate'}</span>
+            <span className="label">{t.successRate}</span>
             <span className="value">{(memory.procedural.successRate * 100).toFixed(1)}%</span>
           </div>
           <div className="memory-stat-item">
-            <span className="label">{props.language === 'zh' ? '最后更新' : 'Last Updated'}</span>
+            <span className="label">{t.lastUpdated}</span>
             <span className="value">{memory.procedural.lastUpdated}</span>
           </div>
         </div>
@@ -423,64 +424,65 @@ function MemoryTab(props: { language: Language; memoryState?: MemoryState | null
 
 // Learning Tab - 学习状态
 function LearningTab(props: { language: Language; learningState?: LearningState | null }) {
+  const t = useT(props.language)
   const learning = props.learningState
-  
+
   if (!learning) {
     return (
       <div className="panel-placeholder">
         <p>📚</p>
-        <p>{props.language === 'zh' ? '暂无学习数据' : 'No learning data'}</p>
+        <p>{t.noLearningData}</p>
       </div>
     )
   }
-  
+
   return (
     <div className="learning-tab">
       <section className="overview-section">
-        <h3>{props.language === 'zh' ? '认知模型' : 'Cognitive Model'}</h3>
+        <h3>{t.cognitiveModel}</h3>
         <div className="learning-stats">
           <div className="learning-stat-item">
-            <span className="label">{props.language === 'zh' ? '已更新' : 'Updated'}</span>
-            <span className="value">{learning.cognitiveModel.updated ? (props.language === 'zh' ? '是' : 'Yes') : (props.language === 'zh' ? '否' : 'No')}</span>
+            <span className="label">{t.updated}</span>
+            <span className="value">{learning.cognitiveModel.updated ? (t.yes || 'Yes') : (t.no || 'No')}</span>
           </div>
           <div className="learning-stat-item">
-            <span className="label">{props.language === 'zh' ? '置信度' : 'Confidence'}</span>
+            <span className="label">{t.confidence}</span>
             <span className="value">{(learning.cognitiveModel.confidence * 100).toFixed(1)}%</span>
           </div>
           <div className="learning-stat-item">
-            <span className="label">{props.language === 'zh' ? '最后更新' : 'Last Update'}</span>
+            <span className="label">{t.lastUpdate}</span>
             <span className="value">{learning.cognitiveModel.lastUpdate}</span>
           </div>
         </div>
       </section>
-      
+
       <section className="overview-section">
-        <h3>{props.language === 'zh' ? '多样性' : 'Diversity'}</h3>
+        <h3>{t.diversity}</h3>
         <div className="learning-stats">
           <div className="learning-stat-item">
-            <span className="label">{props.language === 'zh' ? '多样性分数' : 'Diversity Score'}</span>
+            <span className="label">{t.diversityScore}</span>
             <span className="value">{(learning.diversity.score * 100).toFixed(1)}%</span>
           </div>
           <div className="learning-stat-item">
-            <span className="label">{props.language === 'zh' ? '策略数量' : 'Strategies'}</span>
+            <span className="label">{t.strategiesCount}</span>
             <span className="value">{learning.diversity.strategies.length}</span>
           </div>
         </div>
       </section>
-      
+
       <section className="overview-section">
-        <h3>{props.language === 'zh' ? '探索与利用' : 'Exploration vs Exploitation'}</h3>
+        <h3>{t.explorationVsExploitation}</h3>
         <div className="learning-stats">
           <div className="learning-stat-item">
-            <span className="label">{props.language === 'zh' ? '探索率' : 'Exploration Rate'}</span>
+            <span className="label">{t.explorationRate}</span>
             <span className="value">{(learning.explorationRate * 100).toFixed(1)}%</span>
           </div>
           <div className="learning-stat-item">
-            <span className="label">{props.language === 'zh' ? '利用率' : 'Utilization Rate'}</span>
+            <span className="label">{t.utilizationRate}</span>
             <span className="value">{(learning.utilizationRate * 100).toFixed(1)}%</span>
           </div>
           <div className="learning-stat-item">
-            <span className="label">{props.language === 'zh' ? '成功模式' : 'Success Patterns'}</span>
+            <span className="label">{t.successPatterns}</span>
             <span className="value">{learning.successPatterns}</span>
           </div>
         </div>
