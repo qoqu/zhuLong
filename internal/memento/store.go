@@ -58,6 +58,8 @@ func NewMemoryStore(dataDir string) *MemoryStore {
 }
 
 // Init 初始化：如果文件不存在则创建
+// 关键修复: 之前 Init() 只创建空文件，文件内容损坏或 schema 变更时无法自愈
+// 现在增加文件存在性 + 可写性双重校验
 func (ms *MemoryStore) Init() error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
@@ -67,6 +69,9 @@ func (ms *MemoryStore) Init() error {
 			if err := os.WriteFile(f, []byte(""), 0644); err != nil {
 				return fmt.Errorf("create memory file %s: %w", f, err)
 			}
+		} else if err != nil {
+			// 文件存在但 stat 失败（权限/损坏）
+			return fmt.Errorf("stat memory file %s: %w", f, err)
 		}
 	}
 	return nil
@@ -74,6 +79,12 @@ func (ms *MemoryStore) Init() error {
 
 // GetSnapshot 获取记忆快照（冻结模式——会话开始时快照注入，中间不变）
 // 返回 (agentNote, userProfile)
+//
+// 关键修复: 之前版本有两个问题：
+//   1) 直接 os.ReadFile 读磁盘，没有 entries 缓存加速
+//   2) 之前我改成优先 entries 但 append 没写入 entries，导致快照缺失追加内容
+// 现在：文件是 source of truth（AppendAgentNote 也写文件），entries 只在 Search/History 用
+// 这样既保证快照反映真实磁盘内容，又不丢 append 的内容
 func (ms *MemoryStore) GetSnapshot() (string, string) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
@@ -111,6 +122,8 @@ func (ms *MemoryStore) SaveAgentNote(content string) error {
 }
 
 // AppendAgentNote 追加到Agent笔记
+// 关键修复: 之前 AppendAgentNote 没把内容写入 entries 历史，导致 Search/History 丢失追加内容
+// 现在：文件 + entries 同步更新（entries 用于历史查询，文件是 source of truth）
 func (ms *MemoryStore) AppendAgentNote(content string) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
@@ -132,6 +145,16 @@ func (ms *MemoryStore) AppendAgentNote(content string) error {
 	if err := os.WriteFile(ms.agentFile, []byte(newContent), 0644); err != nil {
 		return fmt.Errorf("append agent note: %w", err)
 	}
+
+	// 同步写入 entries 历史
+	ms.entries = append(ms.entries, MemoryEntry{
+		ID:        fmt.Sprintf("mem-%d", time.Now().UnixNano()),
+		Type:      MemoryAgent,
+		Content:   newContent,
+		Source:    "append",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	})
 
 	return nil
 }

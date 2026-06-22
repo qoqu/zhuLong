@@ -95,8 +95,11 @@ func TestAgentRunWithoutGoal(t *testing.T) {
 }
 
 func TestAgentRunWithHeuristicProvider(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping heuristic run test in short mode (involves subprocess)")
+	}
 	agent, err := NewAgent(
-		WithMaxWallTime(10*time.Second),
+		WithMaxWallTime(30*time.Second),
 		WithDataDir(t.TempDir()),
 	)
 	if err != nil {

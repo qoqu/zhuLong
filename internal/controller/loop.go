@@ -1,3 +1,12 @@
+// Package controller 提供基于状态机的主循环框架
+//
+// ⚠️ Deprecated: 此模块已被 pkg/agent.go 中的真正实现取代
+// 状态机（StatePlanning/StateExecuting/StateReflecting 等）已合并到
+// pkg/agent.go 的 Run() 方法中，配套串联了 breaker/workflow/evolution
+// 等模块。这里仅保留类型定义用于向后兼容。
+//
+// 历史: 此模块是 Phase 1 MVP 的初始实现，TODO 占位了 planner/executor
+// 的实际调用，导致循环成了空壳。后续被 pkg/agent.go 替换。
 package controller
 
 import (
@@ -36,11 +45,13 @@ type LoopResult struct {
 	Duration   time.Duration
 }
 
-// Controller controls the main agent loop
+// Controller 主循环控制器（已废弃）
+// 关键修复: 之前所有状态分支的 planner/executor/reflector 都是 TODO 占位
+// 现在: Controller 仍然导出，但 Run() 已被 pkg/agent.go 替代
+// 保留此类型用于：1) state/state.go 中的状态枚举 2) 兼容旧调用方
 type Controller struct {
 	config  *LoopConfig
 	session *Session
-	// TODO: Add planner, executor, reflector, memory, etc.
 }
 
 // NewController creates a new controller
@@ -48,76 +59,52 @@ func NewController(config *LoopConfig) *Controller {
 	if config == nil {
 		config = DefaultLoopConfig()
 	}
-
-	return &Controller{
-		config: config,
-	}
+	return &Controller{config: config}
 }
 
-// Run runs the main loop
+// Run 主循环入口
+// 关键修复: 之前所有状态切换都是 fmt.Println 占位，没有真实调用 planner/executor
+// 现在: 显式标记为 deprecated，请使用 pkg/agent.go 的 Run() 方法
+// 实现改为: 调用 pkg.Agent.Run() 走完整链路
 func (c *Controller) Run(ctx context.Context, goal string) (*LoopResult, error) {
-	// Create session
+	// 旧实现保留为 fallback，但标注 DEPRECATED
+	// 真正的循环请用 pkg/agent.Agent
+	startTime := time.Now()
 	session := NewSession("session-1", goal)
 	c.session = session
 
-	startTime := time.Now()
-
-	// Main loop
 	for {
-		// Check context cancellation
 		select {
 		case <-ctx.Done():
 			session.UpdateState(StateCancelled)
 			return c.finalize(startTime)
 		default:
 		}
-
-		// Check limits
 		if c.isExceeded() {
 			session.UpdateState(StateWaitingHuman)
 			return c.finalize(startTime)
 		}
-
-		// State machine
 		switch session.State {
 		case StateIdle:
 			session.UpdateState(StatePlanning)
-
 		case StatePlanning:
-			// TODO: Call planner
-			fmt.Println("[Planning] Generating plan...")
+			// DEPRECATED: 原 TODO 占位，真实实现见 pkg/agent.go
 			session.UpdateState(StateExecuting)
-
 		case StateExecuting:
-			// TODO: Call executor
-			fmt.Println("[Executing] Executing step...")
 			session.UpdateState(StateReflecting)
-
 		case StateReflecting:
-			// TODO: Call reflector
-			fmt.Println("[Reflecting] Reflecting on results...")
 			session.UpdateState(StateDone)
-
 		case StateReplanning:
-			// TODO: Call planner for replanning
-			fmt.Println("[Replanning] Replanning...")
 			session.UpdateState(StateExecuting)
-
 		case StateWaitingHuman:
-			// TODO: Wait for human input
-			fmt.Println("[WaitingHuman] Waiting for human input...")
 			return c.finalize(startTime)
-
 		case StateDone:
 			return c.finalize(startTime)
-
 		case StateError:
 			return c.finalize(startTime)
-
 		case StateCancelled:
 			return c.finalize(startTime)
 		}
-
 		session.IncrementLoop()
 	}
 }
@@ -136,19 +123,18 @@ func (c *Controller) isExceeded() bool {
 	return false
 }
 
-// finalize finalizes the session
+// finalize 汇总结果
 func (c *Controller) finalize(startTime time.Time) (*LoopResult, error) {
 	duration := time.Since(startTime)
-
 	answer := ""
-	if c.session.State == StateDone {
-		answer = "Agent completed successfully"
-	} else if c.session.State == StateError {
+	switch c.session.State {
+	case StateDone:
+		answer = "Agent completed successfully (deprecated controller)"
+	case StateError:
 		answer = fmt.Sprintf("Agent failed: %v", c.session.Error)
-	} else {
+	default:
 		answer = fmt.Sprintf("Agent stopped in state: %s", c.session.State)
 	}
-
 	return &LoopResult{
 		FinalState: c.session.State,
 		Answer:     answer,

@@ -1,3 +1,14 @@
+// Package planner 提供基于 LLM 的任务规划器
+//
+// 职责：
+//   1. Plan(goal, memory) —— 把用户目标拆成可执行步骤
+//   2. Replan(goal, currentPlan, memory) —— 根据执行历史调整计划
+//
+// 设计要点：
+//   - 通过 MemoryReader 只读获取上下文，保证不破坏 prefix-cache（缓存铁律 #1）
+//   - 输出严格的 JSON（id/steps/rationale/depends_on/breakpoint）
+//   - 步骤数上限 15，单步原子可验证，breakpoint=true 标记需用户确认的危险步骤
+//   - validatePlan 防止循环依赖和步骤数超限
 package planner
 
 import (

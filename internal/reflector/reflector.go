@@ -1,3 +1,14 @@
+// Package reflector 提供基于 LLM 的反省/评估器
+//
+// 职责：
+//   1. Reflect(goal, plan, memory) —— 评估执行结果，决定下一步动作
+//   2. 决策枚举：Complete / Continue / Replan / Fail
+//
+// 设计要点：
+//   - 与 Planner 共享 memory 但只读，保证 prefix 稳定（缓存铁律 #1）
+//   - 输出 Assessment{Decision, Reason, Confidence, Findings, Suggestions}
+//   - Confidence < 0.6 触发 Replan，>= 0.8 触发 Complete
+//   - 在 agent.go 中 reflector 失败不中断流程，只记录日志
 package reflector
 
 import (

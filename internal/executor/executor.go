@@ -1,3 +1,15 @@
+// Package executor 提供基于 LLM 的步骤执行器
+//
+// 职责：
+//   1. Execute(step, memory) —— 执行单个步骤
+//   2. 工具注册中心（ToolRegistry）—— 动态添加/查找/列出工具
+//
+// 设计要点：
+//   - 支持两种 action：tool_call（调用 ToolRegistry 中的工具）/ llm_generate（直接生成）
+//   - 工具签名：Call(ctx context.Context, params map[string]interface{}) (string, error)
+//     含 ctx 是为了支持超时（ToolTimeout 默认 30s）和安全拦截
+//   - 工具执行失败不返回 error，封装到 StepResult.Error（保持流程贯通）
+//   - SecureReadFile/WriteFile/ExecuteCommand 适配器（在 pkg/agent.go）注入安全引擎
 package executor
 
 import (

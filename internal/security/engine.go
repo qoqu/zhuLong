@@ -255,37 +255,103 @@ func NewEngine() *Engine {
 	}
 }
 
-// CheckAll 全量安全检查
+// CheckAll 全量安全检查（保留向后兼容）
+// 关键修复: 之前 CheckAll(input, path, command) 三个参数语义混乱：
+//   - input 传给了 InputSanitizer（实际是 prompt 注入防护，不能给 path/command）
+//   - path 在非空时也走 InputSanitizer.ValidatePath（行为正确但耦合）
+// 推荐: 文件操作用 CheckFileAccess，命令用 CheckCommand，prompt 用 CheckPrompt
+// 保留 CheckAll 用于向后兼容，但内部显式分开调用避免串扰
 func (e *Engine) CheckAll(input string, path string, command string) []CheckResult {
 	var results []CheckResult
 
-	// 硬性黑名单
+	// 黑名单
 	r := e.blacklist.Check(command)
 	results = append(results, *r)
 	if !r.Passed {
-		return results // 黑名单命中立即返回
+		return results
 	}
 
-	// 输入清理
-	r = e.sanitizer.Sanitize(input)
-	results = append(results, *r)
+	// input 清理（仅当 input 非空且看起来像 prompt 时）
+	if input != "" {
+		r = e.sanitizer.Sanitize(input)
+		results = append(results, *r)
+	}
 
-	// 凭据过滤
-	_, r = e.credential.Filter(input)
-	results = append(results, *r)
+	// 凭据过滤（仅当 input 非空时，避免路径误报）
+	if input != "" {
+		_, r = e.credential.Filter(input)
+		results = append(results, *r)
+	}
 
-	// 路径验证
+	// 路径相关（仅当 path 非空时）
 	if path != "" {
 		r = e.sanitizer.ValidatePath(path)
 		results = append(results, *r)
-
 		r = e.mutation.Validate(path, input)
 		results = append(results, *r)
 	}
 
-	// SSRF
-	r = e.ssrf.CheckURL(input)
-	results = append(results, *r)
+	// SSRF（仅当 input 看起来像 URL 时）
+	if input != "" {
+		r = e.ssrf.CheckURL(input)
+		results = append(results, *r)
+	}
 
+	return results
+}
+
+// CheckPrompt 检查 LLM 收到的 prompt/响应是否安全
+// 用于普通 prompt 注入防护（agent.go 中"输入清理"用途）
+func (e *Engine) CheckPrompt(prompt string) []CheckResult {
+	var results []CheckResult
+	r := e.sanitizer.Sanitize(prompt)
+	results = append(results, *r)
+	_, r = e.credential.Filter(prompt)
+	results = append(results, *r)
+	r = e.ssrf.CheckURL(prompt)
+	results = append(results, *r)
+	return results
+}
+
+// CheckFileAccess 检查文件访问
+// 关键修复: 替代之前 SecureReadFile/WriteFile 误用 CheckAll("", path, "")
+// 显式区分：path 验证 + 内容凭据过滤 + 是否允许覆盖（write）
+func (e *Engine) CheckFileAccess(path, content string, isWrite bool) []CheckResult {
+	var results []CheckResult
+	if path == "" {
+		results = append(results, CheckResult{
+			Passed: false, Layer: LayerInput,
+			Message: "path is empty", Risk: "low",
+		})
+		return results
+	}
+	r := e.sanitizer.ValidatePath(path)
+	results = append(results, *r)
+	if !r.Passed {
+		return results
+	}
+	if isWrite {
+		r = e.mutation.Validate(path, content)
+		results = append(results, *r)
+		if content != "" {
+			_, r = e.credential.Filter(content)
+			results = append(results, *r)
+		}
+	}
+	return results
+}
+
+// CheckCommand 检查 shell 命令
+// 关键修复: 替代之前 SecureExecuteCommand 误用 CheckAll(command, "", command)
+// 显式只跑黑名单 + SSRF 拦截（命令里嵌的 URL 也算）
+func (e *Engine) CheckCommand(command string) []CheckResult {
+	var results []CheckResult
+	r := e.blacklist.Check(command)
+	results = append(results, *r)
+	if !r.Passed {
+		return results
+	}
+	r = e.ssrf.CheckURL(command)
+	results = append(results, *r)
 	return results
 }

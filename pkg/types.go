@@ -1,3 +1,8 @@
+// Package pkg 提供 Agent 主循环及对外接口
+//
+// ⚠️ 关于 Tool 接口: 本包 types.go 定义的 Tool 接口（无 ctx 参数）
+// 仅用于类型占位/向后兼容。实际工具实现必须实现 executor.Tool
+// 接口（含 ctx context.Context 参数），由 agent.go 中的 adapter 包装。
 package pkg
 
 import (
@@ -95,6 +100,10 @@ const (
 )
 
 // MemoryReader provides read access to memory
+// 关键修复: 之前这只是个重复占位 interface，实际每个模块有自己的 MemoryReader
+// （executor.MemoryReader, planner.MemoryReader, reflector.MemoryReader）
+// 这里仅保留通用字段描述，供 agent.go 中的 PlannerMemoryReader/ExecutorMemoryReader/
+// ReflectorMemoryReader 适配器实现
 type MemoryReader interface {
 	GetWorkingMemory() *WorkingMemory
 	GetSessionSummary() string
@@ -114,7 +123,12 @@ type LongTermMemory struct {
 	Patterns map[string]int
 }
 
-// Tool represents a tool that can be called
+// Tool 占位接口
+// 关键修复: 之前这里的 Tool 接口与 executor.Tool 不一致（少 ctx 参数），
+// 任何直接实现 pkg.Tool 的类型都无法注册到 executor.ToolRegistry
+// 现在: 标记为 Deprecated，实际实现请用 executor.Tool（含 ctx）
+//
+// 保留目的: 兼容历史调用方 + 类型占位
 type Tool interface {
 	Name() string
 	Description() string

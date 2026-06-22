@@ -29,6 +29,34 @@ type TokenCounter interface {
 	Count(text string) int
 }
 
+// CharCounter 是 TokenCounter 的字符计数实现（粗略近似）
+// 中文按 1 字符 1 token，英文按 4 字符 1 token 估算
+// 关键修复: 之前 Compressor 必须传 TokenCounter 但没有提供默认实现
+// pkg/agent.go 中 NewSimpleCompressor 必须传 &CharCounter{}
+type CharCounter struct{}
+
+// Count 估算 token 数（英文 4 字符 ≈ 1 token，中文 1 字符 ≈ 1 token）
+// 实际 DeepSeek 真实计费以服务端为准，这里仅用于本地预算估算
+func (c *CharCounter) Count(text string) int {
+	// 简单启发式：4 字符 = 1 token
+	tokens := 0
+	cjkChars := 0
+	otherChars := 0
+
+	for _, r := range text {
+		if r >= 0x4E00 && r <= 0x9FFF {
+			// CJK Unified Ideographs
+			cjkChars++
+		} else {
+			otherChars++
+		}
+	}
+
+	// 中文每字符约 1 token，英文每 4 字符约 1 token
+	tokens = cjkChars + (otherChars + 3) / 4
+	return tokens
+}
+
 // SimpleCompressor implements Compressor
 type SimpleCompressor struct {
 	tokenCounter TokenCounter
