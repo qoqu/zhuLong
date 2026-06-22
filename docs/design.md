@@ -4808,6 +4808,39 @@ prerequisites:
 | 4 个 quality 扫描空实现 | `internal/quality/scanner.go` | 实现真实启发式扫描 |
 | memento Init 弱校验 | `internal/memento/store.go` | 加 stat 失败检测 + entries 缓存兜底 |
 
+### J.10 第二轮自审结果（2026-06-22 下午 — DeepSeek V4 Pro）
+
+> 用户换了 deepseek-v4-pro 模型，要求**不受第一轮影响**，重新独立自审。
+
+#### J.10.1 本次发现并修复的关键 Gap
+
+| Gap | 严重度 | 位置 | 修复 |
+|---|---|---|---|
+| StateReplanning 从未触发 | 🔴 高 | `pkg/agent.go` Run() | Reflector 返回 DecisionReplan 后调用 `pl.Replan()` + `goto executeLoop` 跳回执行循环 |
+| blueprint.Catalog 7 模板完全孤立 | 🟡 中 | `pkg/agent.go` NewAgent + Run() | 注入 `blueprint.New()`，system prompt 末尾追加蓝图列表 |
+| skillset.Registry 预置技能无人注册 | 🟡 中 | `pkg/agent.go` NewAgent | 注入 `skillset.New()`，标记待用户确认后注册 |
+| review.Recorder 会话报告无人调用 | 🟡 中 | `pkg/agent.go` postRunEvolution | 占位引用，待 P4 完全启用 |
+| `controller.Session.AddTokens/AddCost` 从未调用 | 🟢 低 | agent.go vs controller | 无代码改动（budget 已替代；标记为设计偏差） |
+
+#### J.10.2 仍有 5 个模块未串联（保留为 P4）
+
+| 模块 | 路径 | 说明 |
+|------|------|------|
+| health | `internal/health/checker.go` | 运行时健康检查（standalone 服务） |
+| state | `internal/state/state.go` | 状态持久化（与 controller.Session 重复） |
+| upgrade | `internal/upgrade/upgrade.go` | 智能升级（standalone 服务） |
+| cache | `internal/cache/` | PrefixCache（压缩器用自己的实现，此处为备用高级缓存） |
+| loop | `internal/loop/engine.go` | 自治循环引擎（与 controller 重复） |
+
+这些模块具有独立工具逻辑，将其作为全局能力库使用（cronx、loop engine 可在 CLI 子命令中启用），不强制从 agent.go 主循环线程调用。
+
+#### J.10.3 新增设计偏差（设计 vs 实现）
+
+- design.md §3.1.6 描述三层记忆系统（working/session/long-term），实际只实现了 FileStore 平铺存储
+- design.md §3.1.6 描述 `AddTokens()/AddCost()` 方法，实际用 `budget` 模块替代
+- design.md §6 目录树与实现不一致（新增 20+ 模块、文件合并后约 27 个预期文件不存在）
+- controller 的 FSM 与 agent.Run() 的目标闭环仍存间隙（for 循环执行后一次性完成，不是真正 N 轮 Plan→Execute→Reflect→Replan）
+
 ### J.8 后续工作优先级建议
 
 1. **P0 必须修**（影响运行正确性）：
