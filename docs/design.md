@@ -4499,3 +4499,142 @@ Phase 7: 安全增强（P1）      — 7层安全模型
 Phase 8: 桌面完善（P1）      — Electron应用 + Web Dashboard
 Phase 9: Skills Hub（P1）    — 技能市场生态
 ```
+
+---
+
+## 附录 I: 与 OpenClaw 的学习参考清单
+
+> **策略：学习设计思路，从零实现。不 fork、不复制、不引入外部 License 依赖。**
+
+### I.1 项目概述
+
+OpenClaw 是一个 TypeScript 实现的企业级个人AI助手平台（61,419次提交），采用 monorepo + pnpm workspace 架构。其格言是 "Your own personal AI assistant. Any OS. Any Platform."
+
+### I.2 核心技术栈
+
+| 组件 | 技术 | 说明 |
+|------|------|------|
+| 核心语言 | TypeScript | 全栈统一 |
+| 包管理 | pnpm workspace | monorepo |
+| 构建 | tsdown | 现代 TypeScript 打包 |
+| Linter | oxlint/oxfmt | Rust 实现，超高速 |
+| 测试 | Vitest | - |
+| 部署 | Docker / Fly.io / Render | 多平台 |
+
+### I.3 核心架构对比
+
+| 维度 | OpenClaw | 烛龙 | 差异 |
+|------|---------|------|------|
+| **Agent 运行时** | `packages/agent-core` 独立包 | `pkg/agent.go` | ✅ 思路一致 |
+| **技能系统** | `skills/` 动态加载 | `internal/skills/` 目录+管道 | ✅ 已实现 |
+| **会话压缩** | session compaction | `internal/compressor/` 骨架压缩 | ✅ 已实现 |
+| **LLM 提供者** | gateway + model catalog | `internal/provider/` | ✅ 已实现 |
+| **CLAUDE.md** | AGENTS.md 符号链接 | 类似 Harness-Starter | ✅ 已参考 |
+| **插件 SDK** | `packages/plugin-sdk` | 无 | ❌ 缺少 |
+| **QA 体系** | `qa/` 集成测试点 | 仅单元测试 | ⚠️ 可增强 |
+
+### I.4 最值得借鉴的三大特性
+
+#### 1. QA Lab（质量保障实验室）
+
+OpenClaw 拥有专业的质量保障体系，烛龙缺少集成测试和端到端测试：
+
+```
+qa/
+├── tests/           集成测试用例
+├── lab.mjs          QA Lab 运行器
+└── http-api/        HTTP API 测试集
+```
+
+**设计思路**：
+- 独立的 QA 目录，不是散落在各 package 中
+- 专用的 Lab 运行器，非标准 test runner
+- 包含 HTTP API 级别的集成测试
+- 验证 Agent 的实际行为而非代码单元
+
+**烛龙实现方式**：
+```go
+// internal/qa/lab.go
+type QALab struct {
+    tests []QATest
+    runner *QARunner
+}
+
+// QATest 集成测试
+type QATest struct {
+    Name string
+    // 输入 → 执行 → 验证
+    Input    string
+    Setup    func() error
+    Execute  func(ctx) (*Result, error)
+    Verify   func(*Result) error
+    Teardown func() error
+}
+```
+
+#### 2. .agents/ 自托管开发代理
+
+OpenClaw 用 AI 开发 AI，通过自托管的开发代理自动完成代码审查、测试等任务：
+
+```
+.agents/
+├── autoreview/      自动代码审查代理
+├── autotest/        自动测试代理
+└── config.yaml      代理配置
+```
+
+**设计思路**：
+- 项目元目录 `.agents/` 与 `.claude/` 同级
+- 每个代理有独立的配置和技能
+- 代理可以调用项目自身的能力（用烛龙开发烛龙）
+- 代理的输出直接作为 PR 评论/测试报告
+
+**烛龙实现方式**：
+```go
+// .agents/ 目录结构
+.agents/
+├── reviewer/          // 自动审查代理
+│   ├── CLAUDE.md      // 代理行为规则
+│   └── config.yaml    // 代理配置
+├── tester/            // 自动测试代理
+│   └── config.yaml
+└── manager.go         // 代理管理器
+```
+
+#### 3. ClawScore 技能评分系统
+
+社区驱动的技能质量评判机制：
+
+```
+type ClawScore struct {
+    SkillName string
+    Score      float64  // 0-5
+    Reviews    int      // 评价数
+    Version    string
+    Tags       []string
+}
+```
+
+**设计思路**：
+- 用户评价驱动
+- 评分影响技能排序推荐
+- 版本关联
+- 防刷机制
+
+### I.5 工程实践借鉴
+
+| 实践 | OpenClaw | 烛龙现状 | 借鉴价值 |
+|------|---------|---------|---------|
+| 提交规范 | feat/fix/chore/test/refactor/dosc + 详细描述 | 有基本规范 | ✅ 一致 |
+| QA Lab | 独立qa/目录+专用运行器 | 仅单元测试 | ⭐ 值得引入 |
+| .agents/ | 自托管开发代理 | 无 | ⭐ 值得引入 |
+| AGENTS.md | AI辅助开发的上下文文件 | 类似Harness-Starter | ✅ 已参考 |
+| pre-commit hooks | .pre-commit-config.yaml | 无 | ⚠️ 可引入 |
+| CodeQL分析 | GitHub安全分析 | 无 | ⚠️ 可引入 |
+
+### I.6 设计原则
+
+1. **不抄袭代码** - 学习设计思路，从零实现
+2. **缓存命中率铁律** - 所有新功能不影响缓存优化
+3. **分阶段实现** - QA Lab→.agents/→ClawScore 逐步推进
+4. **自举设计** - 用烛龙开发烛龙（.agents/ 理念）
