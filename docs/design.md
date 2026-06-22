@@ -4638,3 +4638,49 @@ type ClawScore struct {
 2. **缓存命中率铁律** - 所有新功能不影响缓存优化
 3. **分阶段实现** - QA Lab→.agents/→ClawScore 逐步推进
 4. **自举设计** - 用烛龙开发烛龙（.agents/ 理念）
+
+### I.7 跨生态技能兼容
+
+烛龙已实现跨生态技能兼容，可无损复用 OpenClaw (clawhub)、Hermes Agent 和 agentskills.io 标准的技能。
+
+#### 兼容矩阵
+
+| 技能来源 | 兼容 | 说明 |
+|---------|------|------|
+| **OpenClaw clawhub** | ✅ 已验证 | requires.bins 格式已解析 |
+| **Hermes Agent** | ✅ 已验证 | prerequisites.commands 格式已解析 |
+| **agentskills.io 标准** | ✅ 兼容 | 使用标准 SKILL.md 格式 |
+| **任意 GitHub 仓库** | ✅ 支持 | 通用下载器 |
+| **本地文件系统** | ✅ 支持 | 含支持文件复制 |
+
+#### 安装器用法
+
+```go
+// 从 clawhub 安装
+installer.Install("1password", skills.SourceClawhub, targetDir)
+
+// 从 Hermes 安装
+installer.Install("my-skill", skills.SourceHermes, targetDir)
+
+// 从 GitHub 安装
+installer.Install("owner/repo", skills.SourceGitHub, targetDir)
+
+// 自动检测
+installer.Install("path/to/skill", skills.SourceAny, targetDir)
+```
+
+#### 格式兼容
+
+```yaml
+# OpenClaw 格式 - ✅ 烛龙可解析
+requires:
+  bins: [op, jq]
+
+# Hermes 格式 - ✅ 烛龙可解析
+prerequisites:
+  commands: [git, curl]
+
+# agentskills.io 标准 - ✅ 烛龙可解析
+---
+
+依赖项自动提取为 `req:` 前缀标签，支持技能搜索和过滤。
