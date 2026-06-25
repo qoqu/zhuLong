@@ -84,9 +84,15 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 	// === 初始化真实模块实例（替代模拟计数器）===
 	fsmSession := controller.NewSession(s.Info.ID, s.Goal)
 	comp := compressor.NewSimpleCompressor(&compressor.CharCounter{}, compressor.DefaultConfig())
-	budgetCtrl := budget.NewBudget(&budget.Config{MaxLoops: 50, MaxTokens: 1000000, MaxCost: 10.0, MaxWallTime: 30 * time.Minute, WarnAt: 0.8})
-	stagnationDet := stagnation.NewDetector(5, 0.3)
-	explorationTrig := exploration.NewTrigger(0.7, 1.5, []string{"read_file", "search_file"})
+	budgetCtrl := budget.NewBudget(&budget.Config{
+		MaxLoops:    a.config.MaxLoops,
+		MaxTokens:   a.config.BudgetMaxTokens,
+		MaxCost:     a.config.BudgetMaxCost,
+		MaxWallTime: parseDuration(a.config.MaxWallTime, 30*time.Minute),
+		WarnAt:      a.config.BudgetWarnAt,
+	})
+	stagnationDet := stagnation.NewDetector(a.config.StagnationWindowSize, a.config.StagnationEntropyThresh)
+	explorationTrig := exploration.NewTrigger(a.config.ExplorationBaseTemp, a.config.ExplorationMaxTemp, []string{"read_file", "search_file"})
 	stabilityAn := stability.NewAnalyzer(5)
 	infoGainMod := information.NewInformationGain()
 	diversityMgr := learning.NewDiversityManager(0.8)

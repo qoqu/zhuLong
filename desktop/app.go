@@ -9,6 +9,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -33,6 +36,73 @@ type AppConfig struct {
 	DashboardPort int   `json:"dashboardPort"`
 	PluginsPath  string `json:"pluginsPath"`
 	Bots         map[string]bot.AdapterConfig `json:"bots"`
+
+	// DeepSeek
+	DeepSeekModel   string  `json:"deepseekModel"`
+	DeepSeekBaseURL string  `json:"deepseekBaseUrl"`
+	Temperature     float64 `json:"temperature"`
+	MaxTokens       int     `json:"maxTokens"`
+
+	// 循环控制
+	MaxLoops    int    `json:"maxLoops"`
+	MaxWallTime string `json:"maxWallTime"` // duration string like "30m"
+	CheckpointEvery int `json:"checkpointEvery"`
+
+	// 成本控制
+	BudgetMaxTokens int     `json:"budgetMaxTokens"`
+	BudgetMaxCost   float64 `json:"budgetMaxCost"`
+	BudgetWarnAt    float64 `json:"budgetWarnAt"`
+
+	// 规划器
+	PlannerMaxSteps int  `json:"plannerMaxSteps"`
+	PlannerAllowReplan bool `json:"plannerAllowReplan"`
+	PlannerMaxReplans int  `json:"plannerMaxReplans"`
+
+	// 执行器
+	ToolTimeout string `json:"toolTimeout"`
+
+	// 压缩
+	CompressorPruneEnabled bool `json:"compressorPruneEnabled"`
+	CompressorPruneMaxAge  int  `json:"compressorPruneMaxAge"`
+	CompressorMaxTokens    int  `json:"compressorMaxTokens"`
+
+	// 停滞检测
+	StagnationWindowSize     int     `json:"stagnationWindowSize"`
+	StagnationEntropyThresh  float64 `json:"stagnationEntropyThreshold"`
+
+	// 探索
+	ExplorationBaseTemp  float64 `json:"explorationBaseTemp"`
+	ExplorationMaxTemp   float64 `json:"explorationMaxTemp"`
+
+	// 学习
+	DiversityThreshold float64 `json:"diversityThreshold"`
+
+	// 可观测性
+	TraceEnabled  bool   `json:"traceEnabled"`
+	TraceFormat   string `json:"traceFormat"`
+	TraceVerbose  bool   `json:"traceVerbose"`
+
+	// Shell
+	Shell string `json:"shell"` // auto | bash | powershell
+
+	// 沙箱
+	SandboxBash    string   `json:"sandboxBash"` // enforce | off
+	SandboxNetwork bool     `json:"sandboxNetwork"`
+	AllowWrite     []string `json:"allowWrite"`
+
+	// 网络
+	ProxyMode string `json:"proxyMode"` // auto | custom | off
+	ProxyURL  string `json:"proxyUrl"`
+	NoProxy   string `json:"noProxy"`
+
+	// 权限
+	PermMode string   `json:"permMode"` // ask | allow | deny
+	PermAllow []string `json:"permAllow"`
+	PermAsk   []string `json:"permAsk"`
+	PermDeny  []string `json:"permDeny"`
+
+	// Hooks
+	Hooks map[string]interface{} `json:"hooks"`
 }
 
 // App is the Wails application root. All exported methods are bound to JS.
@@ -301,11 +371,43 @@ func NewApp() *App {
 	a := &App{
 		sessions: map[string]*SessionState{},
 		config: AppConfig{
-			MonitorPath:   ".",
-			BackupMode:    "on-completion",
-			BackupOnFail:  false,
-			DashboardPort: 7788,
-			PluginsPath:   filepath.Join(os.TempDir(), "zhulong-plugins"),
+			MonitorPath:            ".",
+			BackupMode:             "on-completion",
+			BackupOnFail:           false,
+			DashboardPort:          7788,
+			PluginsPath:            filepath.Join(os.TempDir(), "zhulong-plugins"),
+			Bots:                   make(map[string]bot.AdapterConfig),
+			DeepSeekModel:          "deepseek-v4-flash",
+			DeepSeekBaseURL:        "https://api.deepseek.com",
+			Temperature:            0.7,
+			MaxTokens:              4096,
+			MaxLoops:               50,
+			MaxWallTime:            "30m",
+			CheckpointEvery:        3,
+			BudgetMaxTokens:        500000,
+			BudgetMaxCost:          10.0,
+			BudgetWarnAt:           0.8,
+			PlannerMaxSteps:        15,
+			PlannerAllowReplan:     true,
+			PlannerMaxReplans:      5,
+			ToolTimeout:            "30s",
+			CompressorPruneEnabled: true,
+			CompressorPruneMaxAge:  2,
+			CompressorMaxTokens:    2000,
+			StagnationWindowSize:   3,
+			StagnationEntropyThresh: 0.2,
+			ExplorationBaseTemp:    0.7,
+			ExplorationMaxTemp:     1.5,
+			DiversityThreshold:     1.0,
+			TraceEnabled:           true,
+			TraceFormat:            "jsonl",
+			TraceVerbose:           false,
+			Shell:                  "auto",
+			SandboxBash:            "enforce",
+			SandboxNetwork:         true,
+			ProxyMode:              "auto",
+			PermMode:               "ask",
+			Hooks:                  make(map[string]interface{}),
 		},
 	}
 	a.seedDefaults()
@@ -1396,7 +1498,86 @@ func (a *App) BotConnect(name, platform, token, appID, appSecret, webhookURL str
 		// Adapter already exists, try to reconnect
 		return a.botMgr.Connect(name)
 	}
+
+	// 如果有 webhook 配置，启动 HTTP server 监听
+	if webhookURL != "" {
+		go a.startWebhookServer(name, config)
+	}
+
 	return a.botMgr.Connect(name)
+}
+
+// startWebhookServer starts an HTTP server to receive webhook events
+func (a *App) startWebhookServer(name string, config bot.AdapterConfig) {
+	mux := http.NewServeMux()
+
+	// 注册 webhook 路由
+	path := fmt.Sprintf("/webhook/%s", name)
+	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read body", http.StatusBadRequest)
+			return
+		}
+		defer r.Body.Close()
+
+		// 根据平台类型处理
+		switch config.Platform {
+		case bot.PlatformFeishu:
+			if adapter, err := a.botMgr.GetAdapter(name); err == nil {
+				if feishu, ok := adapter.(*bot.FeishuAdapter); ok {
+					if err := feishu.HandleWebhook(body); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
+				}
+			}
+		case bot.PlatformDingTalk:
+			if adapter, err := a.botMgr.GetAdapter(name); err == nil {
+				if dingtalk, ok := adapter.(*bot.DingTalkAdapter); ok {
+					if err := dingtalk.HandleWebhook(body); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
+				}
+			}
+		case bot.PlatformWebhook: // GitHub
+			signature := r.Header.Get("X-Hub-Signature-256")
+			if adapter, err := a.botMgr.GetAdapter(name); err == nil {
+				if github, ok := adapter.(*bot.GitHubAdapter); ok {
+					if err := github.HandleWebhook(body, signature); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
+				}
+			}
+		default:
+			http.Error(w, "Unsupported platform", http.StatusNotImplemented)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+
+	// 启动 HTTP server
+	addr := fmt.Sprintf(":%d", 8080+hashString(name)%1000)
+	log.Printf("[webhook] Starting %s webhook server on %s", name, addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		log.Printf("[webhook] Failed to start %s webhook server: %v", name, err)
+	}
+}
+
+// hashString returns a simple hash of a string
+func hashString(s string) int {
+	h := 0
+	for _, c := range s {
+		h = h*31 + int(c)
+	}
+	if h < 0 {
+		h = -h
+	}
+	return h
 }
 
 // BotDisconnect disconnects a bot adapter
@@ -1695,6 +1876,18 @@ func (a *App) saveConfig() {
 	dir := zhulongDir()
 	data, _ := json.MarshalIndent(a.config, "", "  ")
 	_ = os.WriteFile(filepath.Join(dir, "config.json"), data, 0644)
+}
+
+// parseDuration parses a duration string like "30m" or "1h" into time.Duration
+func parseDuration(s string, fallback time.Duration) time.Duration {
+	if s == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return fallback
+	}
+	return d
 }
 
 // saveSession writes the given session state to ~/.zhulong/sessions/<id>.json.

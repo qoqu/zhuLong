@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os/exec"
 	"sync"
+	"time"
 )
 
 // Client represents an MCP client that connects to an MCP server
@@ -47,9 +49,30 @@ func (c *Client) Connect() error {
 	switch c.config.Transport.Type {
 	case "stdio":
 		return c.connectStdio()
+	case "sse", "http":
+		return c.connectHTTP()
 	default:
 		return fmt.Errorf("unsupported transport type: %s", c.config.Transport.Type)
 	}
+}
+
+// connectHTTP connects to the MCP server via HTTP/SSE
+func (c *Client) connectHTTP() error {
+	url := c.config.Transport.URL
+	if url == "" {
+		return fmt.Errorf("HTTP URL is required")
+	}
+
+	// 验证 HTTP 端点
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to connect to HTTP server: %w", err)
+	}
+	resp.Body.Close()
+
+	c.connected = true
+	return nil
 }
 
 // connectStdio connects to the MCP server via stdio
