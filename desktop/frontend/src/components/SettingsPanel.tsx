@@ -420,6 +420,10 @@ function ModelSettings(props: SettingsPanelProps) {
   const saveProviders = (ps: Provider[]) => {
     setProviders(ps)
     localStorage.setItem('zhulong-model-providers', JSON.stringify(ps))
+    // 同步到后端
+    if (backend) {
+      try { backend.SetConfigField('modelProviders', ps) } catch {}
+    }
   }
 
   // 初始化时检查各供应商的密钥状态
@@ -515,14 +519,15 @@ function ModelSettings(props: SettingsPanelProps) {
   }
 
   const toggleModel = (providerId: string, modelId: string) => {
-    saveProviders(providers.map(p =>
+    const updated = providers.map(p =>
       p.id !== providerId ? p : {
         ...p,
         models: p.models.map(m =>
           m.id !== modelId ? m : { ...m, enabled: !m.enabled }
         )
       }
-    ))
+    )
+    saveProviders(updated)
   }
 
   const removeProvider = (id: string) => {
