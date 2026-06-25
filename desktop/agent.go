@@ -695,7 +695,7 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 	logger.Save()
 
 	a.emitSession(s)
-	a.emitProjects()
+	a.emitGlobals()
 }
 
 // requestApproval pushes a modal and blocks until the user responds.

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { Message, Language, LogEntry, PlanStep, AgentStatus } from '../types'
+import { resolveLanguage } from '../i18n'
 
 interface TranscriptProps {
   language: Language
@@ -24,7 +25,7 @@ export function Transcript(props: TranscriptProps) {
       {props.plan.length > 0 && (
         <div className="plan-card">
           <div className="plan-card__title">
-            {props.language === 'zh' ? '计划' : 'Plan'}
+            {resolveLanguage(props.language) === 'zh' ? '计划' : 'Plan'}
             <span className="plan-card__status" data-status={props.status}>
               {props.status}
             </span>
@@ -44,7 +45,7 @@ export function Transcript(props: TranscriptProps) {
       {props.logs.length > 0 && (
         <details className="log-card" open>
           <summary className="log-card__title">
-            {props.language === 'zh' ? '日志' : 'Logs'} ({props.logs.length})
+            {resolveLanguage(props.language) === 'zh' ? '日志' : 'Logs'} ({props.logs.length})
           </summary>
           <div className="log-card__body">
             {props.logs.slice(-12).map((l) => (

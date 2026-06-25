@@ -1,14 +1,12 @@
-import type { Language, AgentStatus, RuntimeStats } from '../types'
-import { useT } from '../i18n'
+import type { Language, AgentStatus, RuntimeStats, ExecutionMode } from '../types'
+import { useT, resolveLanguage } from '../i18n'
 
 interface StatusBarProps {
   language: Language
   status: AgentStatus
   model: string
   stats: RuntimeStats
-  darkMode: boolean
-  onToggleDarkMode: () => void
-  onToggleLanguage: () => void
+  executionMode: ExecutionMode
 }
 
 const statusLabel = (l: Language, s: AgentStatus) => {
@@ -43,14 +41,20 @@ const statusColor = (s: AgentStatus) => {
 export function StatusBar(props: StatusBarProps) {
   const t = useT(props.language)
   const s = props.stats
+  const isZh = resolveLanguage(props.language) === 'zh'
+  const modeLabel = props.executionMode === 'ask' ? (isZh ? '询问' : 'Ask')
+    : props.executionMode === 'auto' ? (isZh ? '自动' : 'Auto')
+    : (isZh ? 'YOLO' : 'YOLO')
+  const modeColor = props.executionMode === 'ask' ? 'var(--ok)' : props.executionMode === 'auto' ? 'var(--warn)' : 'var(--err)'
   return (
     <div className="statusbar">
       <div className="statusbar__group">
         <span className="statusbar__dot" style={{ background: statusColor(props.status) }} />
         <span>{props.model}</span>
       </div>
+      <span className="statusbar__badge" style={{ color: modeColor, borderColor: modeColor }}>{modeLabel}</span>
       <span className="statusbar__sep">·</span>
-      <span>{t.status || 'Status'}: <strong>{statusLabel(props.language, props.status)}</strong></span>
+      <span>{t.status || 'Status'}: <strong>{statusLabel(resolveLanguage(props.language), props.status)}</strong></span>
       {s.fsmState && (
         <>
           <span className="statusbar__sep">·</span>
@@ -89,14 +93,8 @@ export function StatusBar(props: StatusBarProps) {
           className="statusbar__dot"
           style={{ background: statusColor(props.status) }}
         />
-        <span>{statusLabel(props.language, props.status)}</span>
+        <span>{statusLabel(resolveLanguage(props.language), props.status)}</span>
       </span>
-      <button className="statusbar__icon" onClick={props.onToggleLanguage} title="Language">
-        {props.language === 'zh' ? '中' : 'EN'}
-      </button>
-      <button className="statusbar__icon" onClick={props.onToggleDarkMode} title="Theme">
-        {props.darkMode ? '🌙' : '☀'}
-      </button>
     </div>
   )
 }

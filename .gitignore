@@ -43,3 +43,20 @@ package-lock.json
 
 # Temp test files
 pkg/main_test.go
+
+# Build artifacts
+desktop/build/
+desktop/frontend/dist/
+desktop/frontend/package.json.md5
+
+# Backup files
+*.bak
+*.backup
+
+# Temp files
+NUL
+_fix_model_tab.py
+desktop/dev-start.bat
+
+# Wails generated
+desktop/frontend/wailsjs/

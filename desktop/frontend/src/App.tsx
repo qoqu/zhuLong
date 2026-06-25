@@ -6,6 +6,9 @@ import { Composer } from './components/Composer'
 import { RightPanel } from './components/RightPanel'
 import { StatusBar } from './components/StatusBar'
 import { ApprovalModal } from './components/ApprovalModal'
+import { SettingsPanel } from './components/SettingsPanel'
+import { HistoryPage } from './components/HistoryPage'
+import { RecycleBinPage } from './components/RecycleBinPage'
 import { Canvas } from './components/Canvas/Canvas'
 import { exampleGoals } from './data/mock'
 import type {
@@ -13,6 +16,7 @@ import type {
   AgentStatus,
   ExecutionMode,
   Language,
+  GlobalInfo,
   ProjectInfo,
   RightPanelTab,
   SessionState,
@@ -27,7 +31,7 @@ import type {
   LearningState,
   ModuleState,
 } from './types'
-import { useT } from './i18n'
+import { useT, resolveLanguage } from './i18n'
 import './styles/canvas.css'
 
 // Wails runtime — fall back to a browser-mode stub if not embedded.
@@ -68,6 +72,10 @@ function App() {
   // Theme
   const [darkMode, setDarkMode] = useState(true)
   const [language, setLanguage] = useState<Language>('zh')
+  const [desktopStyle, setDesktopStyle] = useState<'classic' | 'workspace'>(() => {
+    try { return (localStorage.getItem('zhulong-settings_desktopStyle') as 'classic' | 'workspace') || 'classic' }
+    catch { return 'classic' }
+  })
 
   // 侧边栏宽度状态（可拖拽调整）
   const [sidebarWidth, setSidebarWidth] = useState(280)
@@ -112,15 +120,61 @@ function App() {
   }
 
   // View mode
-  const [viewMode, setViewMode] = useState<'chat' | 'canvas'>('chat')
+  const [viewMode, setViewMode] = useState<'chat' | 'canvas' | 'models'>('chat')
 
   // Sidebar
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // Right panel
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
   const [sidebarView, setSidebarView] = useState<SidebarView>('projects')
   const [agents, setAgents] = useState<AgentInfo[]>([])
-  const [projects, setProjects] = useState<ProjectInfo[]>([])
+  const [globals, setGlobals] = useState<GlobalInfo[]>([])  // New: workspace list
   const [activeAgentId, setActiveAgentId] = useState('auto')
+  const [activeGlobalId, setActiveGlobalId] = useState<string>('')  // New: current workspace
+  const [activeProjectId, setActiveProjectId] = useState<string>('') // New: current project
   const [activeSessionId, setActiveSessionId] = useState<string>('')
+
+  // Modal states for creating Global/Project
+  const [showCreateGlobalModal, setShowCreateGlobalModal] = useState(false)
+  const [showCreateProjectModal, setShowCreateProjectModal] = useState(false)
+  const [newGlobalName, setNewGlobalName] = useState('')
+  const [newProjectName, setNewProjectName] = useState('')
+  const [createProjectTargetGlobalId, setCreateProjectTargetGlobalId] = useState('')
+  const [showSettings, setShowSettings] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [showTrash, setShowTrash] = useState(false)
+
+  // Deleted sessions (recycle bin) — persisted in localStorage
+  const TRASH_KEY = 'zhulong-trash-sessions'
+
+  interface TrashEntry {
+    id: string; originalId: string; title: string; globalName: string;
+    projectName: string; globalId: string; projectId: string;
+    dateKey: string; timestamp: number; messageCount: number;
+    toolCount: number; preview: string; deletedAt: string;
+  }
+
+  const [deletedSessions, setDeletedSessions] = useState<TrashEntry[]>(() => {
+    try {
+      const v = localStorage.getItem(TRASH_KEY)
+      return v ? JSON.parse(v) : []
+    } catch { return [] }
+  })
+
+  const saveTrash = (items: TrashEntry[]) => {
+    try { localStorage.setItem(TRASH_KEY, JSON.stringify(items)) } catch {}
+  }
+
+  // Helper: find SessionInfo by id in globals tree
+  const findSessionById = (gs: GlobalInfo[], sessionId: string): { session: any; globalName: string; projectName: string; globalId: string; projectId: string } | null => {
+    for (const g of gs) {
+      for (const p of g.projects) {
+        const s = p.sessions.find((s: any) => s.id === sessionId)
+        if (s) return { session: s, globalName: g.name, projectName: p.name, globalId: g.id, projectId: p.id }
+      }
+    }
+    return null
+  }
 
   // Active session runtime state
   const [status, setStatus] = useState<AgentStatus>('idle')
@@ -148,7 +202,16 @@ function App() {
   // Approval modal
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
 
-  const t = useT(language)
+
+  // Helper: find Project by id in globals tree
+  const findProjectById = (gs: GlobalInfo[], projectId: string): ProjectInfo | null => {
+    for (const g of gs) {
+      for (const p of g.projects) {
+        if (p.id === projectId) return p
+      }
+    }
+    return null
+  }
 
   // ===== Initial load =====
   useEffect(() => {
@@ -156,8 +219,19 @@ function App() {
       // Browser fallback — load mocks
       import('./data/mock').then((m) => {
         setAgents(m.mockAgents)
-        setProjects(m.mockProjects)
-        setActiveSessionId('s2')
+        setGlobals(m.mockGlobals)
+        // Activate first Global's first Project's first Session
+        const firstGlobal = m.mockGlobals[0]
+        if (firstGlobal) {
+          setActiveGlobalId(firstGlobal.id)
+          const firstProject = firstGlobal.projects[0]
+          if (firstProject) {
+            setActiveProjectId(firstProject.id)
+            if (firstProject.sessions.length > 0) {
+              setActiveSessionId(firstProject.sessions[0].id)
+            }
+          }
+        }
       })
       return
     }
@@ -166,12 +240,19 @@ function App() {
       .then((a: AgentInfo[]) => setAgents(a))
       .catch(() => {})
     backend
-      .ListProjects()
-      .then((p: ProjectInfo[]) => {
-        setProjects(p)
-        const first =
-          p[0]?.sessions?.[0]?.id || ''
-        if (first) setActiveSessionId(first)
+      .ListGlobals()
+      .then((g: GlobalInfo[]) => {
+        setGlobals(g)
+        // Activate first Global's first Project's first Session
+        if (g.length > 0) {
+          setActiveGlobalId(g[0].id)
+          if (g[0].projects.length > 0) {
+            setActiveProjectId(g[0].projects[0].id)
+            if (g[0].projects[0].sessions.length > 0) {
+              setActiveSessionId(g[0].projects[0].sessions[0].id)
+            }
+          }
+        }
       })
       .catch(() => {})
   }, [])
@@ -190,22 +271,23 @@ function App() {
     })
     const offDeleted = wails.EventsOn('session:deleted', (id: string) => {
       if (id === activeSessionId) {
-        // Switch to first remaining
-        const first = projects[0]?.sessions?.find((x) => x.id !== id)
+        // Switch to first remaining session in the same project
+        const project = globals[0]?.projects?.find((p) => p.id === activeProjectId)
+        const first = project?.sessions?.find((x) => x.id !== id)
         if (first) setActiveSessionId(first.id)
       }
     })
-    const offProjects = wails.EventsOn('projects:update', (p: ProjectInfo[]) => {
-      setProjects(p)
+    const offGlobals = wails.EventsOn('globals:update', (g: GlobalInfo[]) => {
+      setGlobals(g)
     })
     return () => {
       offSession()
       offCreated()
       offDeleted()
-      offProjects()
+      offGlobals()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionId, projects])
+  }, [activeSessionId, activeProjectId, globals])
 
   // ===== When active session changes, pull its state =====
   useEffect(() => {
@@ -350,57 +432,225 @@ function App() {
     setStatus('idle')
   }, [model])
 
-  const handleNewSession = useCallback(async () => {
+  const handleNewSession = useCallback(async (projectId?: string) => {
+    const targetProjectId = projectId || activeProjectId || globals[0]?.projects[0]?.id || ''
+    if (!targetProjectId) return
     if (backend) {
       try {
-        await backend.NewSession()
+        const result = await backend.NewSession(targetProjectId) as any
+        // Go struct fields are serialized via json tags → lowercase in JS
+        // result.info.id (not result.Info.ID!)
+        const newId = result?.info?.id
+        if (newId) setActiveSessionId(newId)
+        setMessages([])
+        setLogs([])
+        setPlan([])
+        setStatus('idle')
         return
       } catch {}
     }
     // Browser fallback
-    const id = 's' + Date.now()
-    setProjects((p) => {
-      if (!p[0]) return p
-      return [
-        {
-          ...p[0],
-          sessions: [
-            { id, title: '新会话', agentId: activeAgentId, projectId: 'global', messageCount: 0, toolCount: 0, updatedAt: '刚刚', preview: '新会话' },
-            ...p[0].sessions,
-          ],
-        },
-        ...p.slice(1),
-      ]
+    const id = 's-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2))
+    setGlobals((gs) => {
+      return gs.map(g => ({
+        ...g,
+        projects: g.projects.map(p =>
+          p.id === targetProjectId
+            ? {
+                ...p,
+                sessions: [
+                  { id, title: '新会话', agentId: activeAgentId, projectId: targetProjectId, messageCount: 0, toolCount: 0, updatedAt: '刚刚', preview: '新会话' },
+                  ...p.sessions,
+                ],
+              }
+            : p
+        ),
+      }))
     })
     setActiveSessionId(id)
     setMessages([])
     setLogs([])
     setPlan([])
     setStatus('idle')
-  }, [activeAgentId])
+  }, [activeProjectId, activeAgentId, backend])
 
   const handleDeleteSession = useCallback(
     async (id: string) => {
+      // ── Before deleting, save session info to recycle bin (trash) ──
+      const found = findSessionById(globals, id)
+      if (found) {
+        const now = new Date()
+        const dateKey = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}`
+        const trashEntry = {
+          id: `trash-${id}`,
+          originalId: id,
+          title: found.session.title,
+          globalName: found.globalName,
+          projectName: found.projectName,
+          globalId: found.globalId,
+          projectId: found.projectId,
+          dateKey,
+          timestamp: now.getTime(),
+          messageCount: found.session.messageCount || 0,
+          toolCount: found.session.toolCount || 0,
+          preview: found.session.preview || '',
+          deletedAt: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+        }
+        setDeletedSessions(prev => {
+          const next = [trashEntry, ...prev]
+          saveTrash(next)
+          return next
+        })
+      }
+
+      // ── Then actually delete from backend or local state ──
       if (backend) {
         try {
           await backend.DeleteSession(id)
           return
         } catch {}
       }
-      setProjects((p) => {
-        if (!p[0]) return p
-        return [
-          { ...p[0], sessions: p[0].sessions.filter((s) => s.id !== id) },
-          ...p.slice(1),
-        ]
+      // Browser fallback: remove from globals tree
+      setGlobals((gs) => {
+        const updated = [...gs]
+        for (const g of updated) {
+          for (let i = 0; i < g.projects.length; i++) {
+            g.projects[i].sessions = g.projects[i].sessions.filter((s) => s.id !== id)
+          }
+        }
+        return updated
       })
       if (id === activeSessionId) {
-        const first = projects[0]?.sessions?.find((x) => x.id !== id)
+        // Switch to first remaining session in same project
+        const project = findProjectById(globals, activeProjectId)
+        const first = project?.sessions?.find((x) => x.id !== id)
         if (first) setActiveSessionId(first.id)
       }
     },
-    [activeSessionId, projects]
+    [activeSessionId, activeProjectId, globals]
   )
+
+  const handleRenameSession = useCallback((id: string) => {
+    // Find current title from globals tree
+    let curTitle = ''
+    for (const g of globals) {
+      for (const p of g.projects) {
+        const s = p.sessions.find((s) => s.id === id)
+        if (s) { curTitle = s.title; break }
+      }
+    }
+    if (!curTitle) return
+    const next = window.prompt(resolveLanguage(language) === 'zh' ? `重命名「${curTitle}」：` : `Rename "${curTitle}":`, curTitle)
+    if (next && next.trim()) {
+      if (backend) backend.RenameSession(id, next.trim())
+      // Update in globals tree
+      setGlobals((gs) => {
+        const updated = [...gs]
+        for (const g of updated) {
+          for (const p of g.projects) {
+            for (let i = 0; i < p.sessions.length; i++) {
+              if (p.sessions[i].id === id) {
+                p.sessions[i].title = next.trim()
+                p.sessions[i].preview = next.trim()
+                break
+              }
+            }
+          }
+        }
+        return updated
+      })
+    }
+  }, [language, globals])
+
+  const handleRestoreSession = useCallback((trashId: string) => {
+    // Find trash entry
+    const entry = deletedSessions.find(t => t.id === trashId)
+    if (!entry || !entry.originalId) return
+
+    // Remove from trash
+    setDeletedSessions(prev => {
+      const next = prev.filter(t => t.id !== trashId)
+      saveTrash(next)
+      return next
+    })
+
+    // Re-add session to its original project in globals tree
+    setGlobals(gs => gs.map(g =>
+      g.id === entry.globalId ? {
+        ...g,
+        projects: g.projects.map(p =>
+          p.id === entry.projectId ? {
+            ...p,
+            sessions: [{
+              id: entry.originalId,
+              title: entry.title,
+              agentId: 'auto',
+              projectId: entry.projectId,
+              messageCount: entry.messageCount,
+              toolCount: entry.toolCount,
+              updatedAt: entry.deletedAt,
+              preview: entry.preview,
+            }, ...p.sessions],
+          } : p
+        ),
+      } : g
+    ))
+  }, [deletedSessions])
+
+  const handleCreateGlobal = useCallback(() => {
+    setNewGlobalName(resolveLanguage(language) === 'zh' ? '新的工作空间' : 'New Workspace')
+    setShowCreateGlobalModal(true)
+  }, [language])
+
+  const handleCreateProject = useCallback((globalId: string) => {
+    setNewProjectName(resolveLanguage(language) === 'zh' ? '新的工作区' : 'New Project')
+    setCreateProjectTargetGlobalId(globalId)
+    setShowCreateProjectModal(true)
+  }, [language])
+
+  const handleConfirmCreateGlobal = useCallback(async () => {
+    const name = newGlobalName.trim()
+    if (!name) return
+    setShowCreateGlobalModal(false)
+    if (backend) {
+      try {
+        await backend.CreateGlobal(name)
+        // Don't manually add — backend will emit 'globals:update' event
+      } catch (e: any) {
+        alert(resolveLanguage(language) === 'zh' ? `创建失败: ${e?.message || e}` : `Failed: ${e?.message || e}`)
+      }
+    } else {
+      // Browser fallback
+      const id = 'g-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2))
+      const newGlobal: GlobalInfo = { id, name, projects: [] }
+      setGlobals((gs) => [...gs, newGlobal])
+      setActiveGlobalId(id)
+    }
+  }, [newGlobalName, language])
+
+  const handleConfirmCreateProject = useCallback(async () => {
+    const name = newProjectName.trim()
+    if (!name) return
+    setShowCreateProjectModal(false)
+    if (backend) {
+      try {
+        await backend.CreateProject(createProjectTargetGlobalId, name)
+        // Don't manually add — backend will emit 'globals:update' event
+      } catch (e: any) {
+        alert(resolveLanguage(language) === 'zh' ? `创建失败: ${e?.message || e}` : `Failed: ${e?.message || e}`)
+      }
+    } else {
+      // Browser fallback
+      const id = 'p-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2))
+      const newProject: ProjectInfo = { id, name, sessions: [] }
+      setGlobals((gs) => gs.map(g =>
+        g.id === createProjectTargetGlobalId
+          ? { ...g, projects: [...g.projects, newProject] }
+          : g
+      ))
+      setActiveProjectId(id)
+    }
+  }, [newProjectName, createProjectTargetGlobalId, language])
 
   const handleSelectAgent = useCallback(
     async (id: string) => {
@@ -432,28 +682,51 @@ function App() {
     }
   }, [])
 
+  const handleChangeTemperature = useCallback(async (t: string) => {
+    setTemperature(t)
+    if (backend) {
+      try {
+        await backend.SetTemperature(t)
+      } catch {}
+    }
+  }, [])
+
   return (
     <div
       className={`app ${darkMode ? 'theme--dark' : 'theme--light'}`}
       style={{
-        gridTemplateColumns: `${sidebarWidth}px 6px 1fr 6px ${rightPanelWidth}px`,
+        gridTemplateColumns: `${sidebarCollapsed ? 0 : sidebarWidth}px ${sidebarCollapsed ? 0 : 6}px 1fr 6px ${rightPanelCollapsed ? 0 : rightPanelWidth}px`,
       }}
     >
       <Sidebar
         language={language}
         onLanguageChange={setLanguage}
+        darkMode={darkMode}
+        onToggleDarkMode={() => setDarkMode((v) => !v)}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
         view={sidebarView}
         onChangeView={setSidebarView}
+        onOpenSettings={() => setShowSettings(true)}
+        desktopStyle={desktopStyle}
+        executionMode={executionMode}
         agents={agents}
-        projects={projects}
+        globals={globals}
+        activeGlobalId={activeGlobalId}
+        activeProjectId={activeProjectId}
         activeAgentId={activeAgentId}
         onSelectAgent={handleSelectAgent}
         activeSessionId={activeSessionId}
         onSelectSession={setActiveSessionId}
+        onSelectGlobal={setActiveGlobalId}
+        onSelectProject={setActiveProjectId}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
+        onRenameSession={handleRenameSession}
+        onCreateGlobal={handleCreateGlobal}
+        onCreateProject={handleCreateProject}
+        onOpenHistory={() => setShowHistory(true)}
+        onOpenTrash={() => setShowTrash(true)}
       />
 
       <div
@@ -465,42 +738,14 @@ function App() {
       <main className="main">
         <TopBar
           language={language}
-          sessionTitle={
-            projects
-              .flatMap((p) => p.sessions || [])
-              .find((s) => s.id === activeSessionId)?.title || t.untitled
-          }
-          sessionScope="Global"
-          onRename={() => {
-            const cur = projects
-              .flatMap((p) => p.sessions || [])
-              .find((s) => s.id === activeSessionId)
-            if (!cur) return
-            const next = window.prompt(t.renamePrompt, cur.title)
-            if (next && next.trim()) {
-              if (backend) backend.RenameSession(activeSessionId, next.trim())
-              setProjects((p) =>
-                p.map((proj) => ({
-                  ...proj,
-                  sessions: proj.sessions.map((s) =>
-                    s.id === activeSessionId ? { ...s, title: next.trim(), preview: next.trim() } : s
-                  ),
-                }))
-              )
-            }
+          sessions={globals.flatMap((g) => g.projects.flatMap((p) => p.sessions || [])).map(s => ({ id: s.id, title: s.title }))}
+          activeSessionId={activeSessionId}
+          onSwitchSession={(id) => {
+            setActiveSessionId(id)
           }}
-          onExport={() => {
-            const text = messages
-              .map((m) => `[${m.role}] ${m.content}`)
-              .join('\n\n')
-            const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `session-${activeSessionId}.txt`
-            a.click()
-            URL.revokeObjectURL(url)
-          }}
+          onCloseSession={handleDeleteSession}
+          onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+          onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
         />
 
         {/* 视图切换按钮 */}
@@ -578,7 +823,7 @@ function App() {
                 model={model}
                 onChangeModel={handleChangeModel}
                 temperature={temperature}
-                onChangeTemperature={setTemperature}
+                onChangeTemperature={handleChangeTemperature}
                 onSend={handleSend}
                 onStop={handleStop}
                 onReset={handleReset}
@@ -595,32 +840,34 @@ function App() {
         )}
       </main>
 
-      <div
-        className="resizer resizer--right"
-        onMouseDown={startDrag('right')}
-        title="拖拽调整右侧面板宽度"
-      />
+      {!rightPanelCollapsed && (
+        <>
+          <div
+            className="resizer resizer--right"
+            onMouseDown={startDrag('right')}
+            title="拖拽调整右侧面板宽度"
+          />
 
-      <RightPanel
-        language={language}
-        tab={rightTab}
-        onChangeTab={setRightTab}
-        stats={stats}
-        files={files}
-        changes={changes}
-        memoryState={memoryState}
-        learningState={learningState}
-        moduleState={moduleState}
-      />
+          <RightPanel
+            language={language}
+            tab={rightTab}
+            onChangeTab={setRightTab}
+            stats={stats}
+            files={files}
+            changes={changes}
+            memoryState={memoryState}
+            learningState={learningState}
+            moduleState={moduleState}
+          />
+        </>
+      )}
 
       <StatusBar
         language={language}
         status={status}
         model={model}
         stats={stats}
-        darkMode={darkMode}
-        onToggleDarkMode={() => setDarkMode((v) => !v)}
-        onToggleLanguage={() => setLanguage((l) => (l === 'en' ? 'zh' : 'en'))}
+        executionMode={executionMode}
       />
 
       {approval && (
@@ -657,12 +904,115 @@ function App() {
           }}
         />
       )}
+
+      {/* Create Global Modal */}
+      {showCreateGlobalModal && (
+        <div className="modal-overlay" onClick={() => setShowCreateGlobalModal(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-dialog__header">
+              <span className="modal-dialog__title">{resolveLanguage(language) === 'zh' ? '创建新工作空间' : 'Create New Workspace'}</span>
+              <button className="modal-dialog__close" onClick={() => setShowCreateGlobalModal(false)}>✕</button>
+            </div>
+            <div className="modal-dialog__body">
+              <input
+                autoFocus
+                className="modal-dialog__input"
+                value={newGlobalName}
+                onChange={(e) => setNewGlobalName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleConfirmCreateGlobal()}
+                placeholder={resolveLanguage(language) === 'zh' ? '输入工作空间名称' : 'Enter workspace name'}
+              />
+            </div>
+            <div className="modal-dialog__footer">
+              <button className="modal-dialog__btn modal-dialog__btn--cancel" onClick={() => setShowCreateGlobalModal(false)}>
+                {resolveLanguage(language) === 'zh' ? '取消' : 'Cancel'}
+              </button>
+              <button className="modal-dialog__btn modal-dialog__btn--primary" onClick={handleConfirmCreateGlobal}>
+                {resolveLanguage(language) === 'zh' ? '创建' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Project Modal */}
+      {showCreateProjectModal && (
+        <div className="modal-overlay" onClick={() => setShowCreateProjectModal(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-dialog__header">
+              <span className="modal-dialog__title">{resolveLanguage(language) === 'zh' ? '创建新工作区' : 'Create New Project'}</span>
+              <button className="modal-dialog__close" onClick={() => setShowCreateProjectModal(false)}>✕</button>
+            </div>
+            <div className="modal-dialog__body">
+              <input
+                autoFocus
+                className="modal-dialog__input"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleConfirmCreateProject()}
+                placeholder={resolveLanguage(language) === 'zh' ? '输入工作区名称' : 'Enter project name'}
+              />
+            </div>
+            <div className="modal-dialog__footer">
+              <button className="modal-dialog__btn modal-dialog__btn--cancel" onClick={() => setShowCreateProjectModal(false)}>
+                {resolveLanguage(language) === 'zh' ? '取消' : 'Cancel'}
+              </button>
+              <button className="modal-dialog__btn modal-dialog__btn--primary" onClick={handleConfirmCreateProject}>
+                {resolveLanguage(language) === 'zh' ? '创建' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <SettingsPanel
+          language={language}
+          darkMode={darkMode}
+          executionMode={executionMode}
+          model={model}
+          desktopStyle={desktopStyle}
+          onLanguageChange={setLanguage}
+          onToggleDarkMode={() => setDarkMode((v) => !v)}
+          onModelChange={setModel}
+          onExecutionModeChange={setExecutionMode}
+          onDesktopStyleChange={setDesktopStyle}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {/* History Page */}
+      {showHistory && (
+        <HistoryPage
+          language={language}
+          globals={globals}
+          activeSessionId={activeSessionId}
+          onClose={() => setShowHistory(false)}
+          onSelectSession={(id) => setActiveSessionId(id)}
+          onOpenAll={() => { /* already handled in onSelectSession */ }}
+          onMoveToTrash={(id) => handleDeleteSession(id)}
+          onRename={(id) => handleRenameSession(id)}
+        />
+      )}
+
+      {/* Recycle Bin */}
+      {showTrash && (
+        <RecycleBinPage
+          language={language}
+          globals={globals}
+          deletedSessions={deletedSessions}
+          onClose={() => setShowTrash(false)}
+          onRestore={(trashId) => handleRestoreSession(trashId)}
+        />
+      )}
     </div>
   )
 }
 
 function EmptyState(props: { language: Language; onPick: (text: string) => void }) {
   const t = useT(props.language)
+  const resolvedLang = resolveLanguage(props.language)
   return (
     <div className="transcript__empty">
       <div className="transcript__empty-icon">Z</div>
@@ -673,10 +1023,10 @@ function EmptyState(props: { language: Language; onPick: (text: string) => void 
           <button
             key={i}
             className="transcript__example-chip"
-            onClick={() => props.onPick(eg.text[props.language])}
+            onClick={() => props.onPick(eg.text[resolvedLang])}
           >
             <span>{eg.icon}</span>
-            <span>{eg.text[props.language]}</span>
+            <span>{eg.text[resolvedLang]}</span>
           </button>
         ))}
       </div>

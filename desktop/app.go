@@ -7,16 +7,20 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/qoqu/zhuLong/internal/backup"
+	"github.com/qoqu/zhuLong/internal/bot"
 	"github.com/qoqu/zhuLong/internal/dashboard"
 	"github.com/qoqu/zhuLong/internal/environment"
+	"github.com/qoqu/zhuLong/internal/mcp"
 	"github.com/qoqu/zhuLong/internal/plugins"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -28,6 +32,7 @@ type AppConfig struct {
 	BackupOnFail bool   `json:"backupOnFail"`
 	DashboardPort int   `json:"dashboardPort"`
 	PluginsPath  string `json:"pluginsPath"`
+	Bots         map[string]bot.AdapterConfig `json:"bots"`
 }
 
 // App is the Wails application root. All exported methods are bound to JS.
@@ -41,7 +46,7 @@ type App struct {
 
 	// Cached registry (single source of truth for the UI)
 	agents    []AgentInfo
-	projects  []ProjectInfo
+	globals   []GlobalInfo
 	sessions  map[string]*SessionState
 	activeID  string
 	activeAge string
@@ -53,6 +58,8 @@ type App struct {
 	dashboardSrv *dashboard.Dashboard
 	pluginMgr    *plugins.Manager
 	backupMgr    *backup.Manager
+	mcpMgr       *mcp.Manager
+	botMgr       *bot.Manager
 
 	// P2 envMonitor
 	envMonitor   *environment.Monitor
@@ -70,12 +77,19 @@ type AgentInfo struct {
 	Yolo  bool   `json:"yolo"`
 }
 
-// ProjectInfo groups sessions into a left-sidebar tree node.
+// GlobalInfo describes a workspace (top-level node in the sidebar tree).
+type GlobalInfo struct {
+	ID       string        `json:"id"`
+	Name     string        `json:"name"`
+	Path     string        `json:"path,omitempty"`
+	Projects []ProjectInfo `json:"projects"`
+}
+
+// ProjectInfo describes a project/workspace under a Global.
 type ProjectInfo struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Sessions []SessionInfo  `json:"sessions"`
-	Children []ProjectInfo  `json:"children,omitempty"`
+	ID       string        `json:"id"`
+	Name     string        `json:"name"`
+	Sessions []SessionInfo `json:"sessions"`
 }
 
 // SessionInfo is the metadata shown in the sidebar session list.
@@ -340,8 +354,18 @@ func (a *App) seedDefaults() {
 	a.agents = []AgentInfo{
 		{ID: "auto", Name: "默认 Agent", Model: "deepseek-v4-flash", Yolo: true},
 	}
-	a.projects = []ProjectInfo{
-		{ID: "global", Name: "Global"},
+	a.globals = []GlobalInfo{
+		{
+			ID:   "global-1",
+			Name: "Default Workspace",
+			Projects: []ProjectInfo{
+				{
+					ID:       "project-1",
+					Name:     "My Project",
+					Sessions: []SessionInfo{},
+				},
+			},
+		},
 	}
 	a.activeID = ""
 	a.activeAge = "auto"
@@ -350,8 +374,28 @@ func (a *App) seedDefaults() {
 // startup is called by Wails at app start.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// Load persisted state; fall back to seedDefaults if missing.
+	if !a.loadState() {
+		a.seedDefaults()
+	}
+	a.loadConfig()
+	a.loadActiveIDs()
 	a.markWailsReady()
 	a.initEnvironmentMonitor()
+	// Initialize MCP manager
+	a.mcpMgr = mcp.NewManager()
+	// Initialize Bot manager
+	a.botMgr = bot.NewManager()
+	a.botMgr.SetMessageHandler(a.handleBotMessage)
+	// Load persisted bot connections
+	if a.config.Bots != nil {
+		for name, cfg := range a.config.Bots {
+			if cfg.Enabled {
+				_ = a.botMgr.AddAdapter(cfg)
+				_ = a.botMgr.Connect(name)
+			}
+		}
+	}
 }
 
 // initEnvironmentMonitor 启动 P2 模块：envMonitor 监听当前目录变化
@@ -436,41 +480,102 @@ func (a *App) handleEnvChange(c environment.Change) {
 // ListAgents returns all known agents for the top tab bar.
 func (a *App) ListAgents() []AgentInfo { return a.agents }
 
-// ListProjects returns the sidebar project/session tree.
-func (a *App) ListProjects() []ProjectInfo { return a.projects }
+// ListGlobals returns the three-tier tree: Globals → Projects → Sessions.
+func (a *App) ListGlobals() []GlobalInfo { return a.globals }
+
+// CreateGlobal creates a new workspace (top-level Global).
+func (a *App) CreateGlobal(name string) (*GlobalInfo, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("global name cannot be empty")
+	}
+
+	global := GlobalInfo{
+		ID:       fmt.Sprintf("g%d", time.Now().UnixMilli()),
+		Name:     name,
+		Projects: []ProjectInfo{},
+	}
+	a.globals = append(a.globals, global)
+	a.emitGlobals()
+	return &a.globals[len(a.globals)-1], nil
+}
+
+// CreateProject creates a new project/workspace under the given Global.
+func (a *App) CreateProject(globalID, name string) (*ProjectInfo, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("project name cannot be empty")
+	}
+
+	for i := range a.globals {
+		if a.globals[i].ID == globalID {
+			project := ProjectInfo{
+				ID:       fmt.Sprintf("p%d", time.Now().UnixMilli()),
+				Name:     name,
+				Sessions: []SessionInfo{},
+			}
+			a.globals[i].Projects = append(a.globals[i].Projects, project)
+			a.emitGlobals()
+			return &a.globals[i].Projects[len(a.globals[i].Projects)-1], nil
+		}
+	}
+	return nil, fmt.Errorf("global %q not found", globalID)
+}
 
 // SetActiveAgent switches the active agent (persists across sessions).
 func (a *App) SetActiveAgent(id string) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.activeAge = id
+	a.mu.Unlock()
+	go a.saveActiveIDs()
 }
 
 // SetActiveSession switches the active session in the sidebar.
 func (a *App) SetActiveSession(id string) *SessionState {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.activeID = id
+	// 1) in-memory?
 	if s, ok := a.sessions[id]; ok {
+		a.mu.Unlock()
+		a.saveActiveIDs()
 		return s
 	}
-	// Lazy materialise from project tree
-	for _, p := range a.projects {
-		for _, si := range p.Sessions {
-			if si.ID == id {
-				s := &SessionState{
-					Info:    si,
-					Status:  "idle",
-					Mode:    "auto",
-					Model:   a.modelFor(si.AgentID),
-					Created: time.Now(),
-					Updated: time.Now(),
+	// 2) on-disk?
+	a.mu.Unlock()
+	s := a.loadSession(id)
+	if s != nil {
+		a.saveActiveIDs()
+		return s
+	}
+	// 3) lazy-materialise from globals tree
+	a.mu.Lock()
+	for _, g := range a.globals {
+		for _, p := range g.Projects {
+			for _, si := range p.Sessions {
+				if si.ID == id {
+					s2 := &SessionState{
+						Info:    si,
+						Status:  "idle",
+						Mode:    "auto",
+						Model:   a.modelFor(si.AgentID),
+						Created: time.Now(),
+						Updated: time.Now(),
+					}
+					a.sessions[id] = s2
+					a.mu.Unlock()
+					a.saveActiveIDs()
+					return s2
 				}
-				a.sessions[id] = s
-				return s
 			}
 		}
 	}
+	a.mu.Unlock()
 	return nil
 }
 
@@ -485,13 +590,13 @@ func (a *App) modelFor(agentID string) string {
 
 // === Composer / chat ===
 
-// NewSession creates a fresh empty session and returns its state.
-func (a *App) NewSession() *SessionState {
+// NewSession creates a fresh empty session in the given project and returns its state.
+func (a *App) NewSession(projectID string) *SessionState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	id := fmt.Sprintf("s%d", time.Now().UnixMilli())
 	info := SessionInfo{
-		ID: id, Title: "新会话", AgentID: a.activeAge, ProjectID: "global",
+		ID: id, Title: "新会话", AgentID: a.activeAge, ProjectID: projectID,
 		MessageCount: 0, ToolCount: 0, UpdatedAt: "刚刚", Preview: "新会话",
 	}
 	st := &SessionState{
@@ -511,15 +616,17 @@ func (a *App) NewSession() *SessionState {
 		ModuleState:   a.initModuleState(),
 	}
 	a.sessions[id] = st
-	// Inject into Global project
-	for i := range a.projects {
-		if a.projects[i].ID == "global" {
-			a.projects[i].Sessions = append([]SessionInfo{info}, a.projects[i].Sessions...)
-			break
+	// Inject into the target Project
+	for i := range a.globals {
+		for j := range a.globals[i].Projects {
+			if a.globals[i].Projects[j].ID == projectID {
+				a.globals[i].Projects[j].Sessions = append([]SessionInfo{info}, a.globals[i].Projects[j].Sessions...)
+				break
+			}
 		}
 	}
 	a.activeID = id
-	a.emitProjects()
+	a.emitGlobals()
 	runtime.EventsEmit(a.ctx, "session:created", st)
 	return st
 }
@@ -529,24 +636,33 @@ func (a *App) DeleteSession(id string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	delete(a.sessions, id)
-	for i := range a.projects {
-		filtered := a.projects[i].Sessions[:0]
-		for _, s := range a.projects[i].Sessions {
-			if s.ID != id {
-				filtered = append(filtered, s)
+	a.deleteSessionFile(id)
+	// Remove from globals tree
+	for i := range a.globals {
+		for j := range a.globals[i].Projects {
+			filtered := a.globals[i].Projects[j].Sessions[:0]
+			for _, s := range a.globals[i].Projects[j].Sessions {
+				if s.ID != id {
+					filtered = append(filtered, s)
+				}
 			}
+			a.globals[i].Projects[j].Sessions = filtered
 		}
-		a.projects[i].Sessions = filtered
 	}
 	if a.activeID == id {
-		for _, p := range a.projects {
-			if len(p.Sessions) > 0 {
-				a.activeID = p.Sessions[0].ID
-				break
+		// Switch to the first available session
+		for _, g := range a.globals {
+			for _, p := range g.Projects {
+				if len(p.Sessions) > 0 {
+					a.activeID = p.Sessions[0].ID
+					goto done
+				}
 			}
 		}
+	done:
 	}
-	a.emitProjects()
+	a.emitGlobals()
+	a.saveActiveIDs()
 	runtime.EventsEmit(a.ctx, "session:deleted", id)
 }
 
@@ -554,27 +670,37 @@ func (a *App) DeleteSession(id string) {
 func (a *App) RenameSession(id, title string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	for i := range a.projects {
-		for j := range a.projects[i].Sessions {
-			if a.projects[i].Sessions[j].ID == id {
-				a.projects[i].Sessions[j].Title = title
-				a.projects[i].Sessions[j].Preview = title
-				if s, ok := a.sessions[id]; ok {
-					s.Info.Title = title
-					s.Info.Preview = title
+	// Update in globals tree
+	for i := range a.globals {
+		for j := range a.globals[i].Projects {
+			for k := range a.globals[i].Projects[j].Sessions {
+				if a.globals[i].Projects[j].Sessions[k].ID == id {
+					a.globals[i].Projects[j].Sessions[k].Title = title
+					a.globals[i].Projects[j].Sessions[k].Preview = title
 				}
-				break
 			}
 		}
 	}
-	a.emitProjects()
+	// Update in session state
+	if s, ok := a.sessions[id]; ok {
+		s.Info.Title = title
+		s.Info.Preview = title
+	}
+	a.emitGlobals()
 }
 
 // GetSession returns the full state of a session.
+// If not in memory, loads from disk first.
 func (a *App) GetSession(id string) *SessionState {
+	// 1) in-memory?
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.sessions[id]
+	s, ok := a.sessions[id]
+	a.mu.Unlock()
+	if ok {
+		return s
+	}
+	// 2) on-disk?
+	return a.loadSession(id)
 }
 
 // SendMessage pushes a user message into a session and starts a simulated
@@ -597,7 +723,7 @@ func (a *App) SendMessage(sessionID, text string) {
 	s.Info.Preview = truncate(text, 40)
 	s.Info.UpdatedAt = "刚刚"
 	a.mu.Unlock()
-	a.emitProjects()
+	a.emitGlobals()
 	a.emitSession(s)
 
 	// Cancel any previous run.
@@ -958,6 +1084,417 @@ func (a *App) emitSessionForActive() {
 	}
 }
 
+// shutdown is called by Wails when the app is about to exit.
+// 确保所有会话状态都落盘。
+func (a *App) shutdown(ctx context.Context) {
+	a.mu.Lock()
+	sessions := make([]*SessionState, 0, len(a.sessions))
+	for _, s := range a.sessions {
+		sessions = append(sessions, s)
+	}
+	a.mu.Unlock()
+	for _, s := range sessions {
+		a.saveSession(s)
+	}
+}
+
+// ════════════════════════════════════════
+// Memory — 记忆管理 API
+// ════════════════════════════════════════
+
+// MemoryFactDTO is the serializable form of a saved memory fact.
+type MemoryFactDTO struct {
+	Name        string    `json:"name"`
+	Title       string    `json:"title,omitempty"`
+	Description string    `json:"description"`
+	Type        string    `json:"type"` // user | feedback | project | reference
+	Body        string    `json:"body"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
+// MemoryDocDTO is an instruction file.
+type MemoryDocDTO struct {
+	Path      string    `json:"path"`
+	Scope     string    `json:"scope"` // user | project | local
+	Body      string    `json:"body"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// MemoryArchiveDTO is an archived (inactive) memory.
+type MemoryArchiveDTO struct {
+	MemoryFactDTO
+	ArchivedAt time.Time `json:"archivedAt"`
+}
+
+// MemoryView is the full state returned to the frontend.
+type MemoryView struct {
+	Facts     []MemoryFactDTO     `json:"facts"`
+	Archives  []MemoryArchiveDTO  `json:"archives"`
+	Docs      []MemoryDocDTO      `json:"docs"`
+	StoreDir  string              `json:"storeDir"`
+	Available bool                `json:"available"`
+}
+
+func (a *App) memoryDir() string {
+	return filepath.Join(zhulongDir(), "memory")
+}
+
+func (a *App) memoryPath(filename string) string {
+	return filepath.Join(a.memoryDir(), filename)
+}
+
+// ListMemory returns the full memory view.
+func (a *App) ListMemory() *MemoryView {
+	dir := a.memoryDir()
+	os.MkdirAll(dir, 0755)
+	view := &MemoryView{
+		StoreDir:  dir,
+		Available: true,
+	}
+	a.readJSONFile(a.memoryPath("facts.json"), &view.Facts)
+	a.readJSONFile(a.memoryPath("archives.json"), &view.Archives)
+	a.readJSONFile(a.memoryPath("docs.json"), &view.Docs)
+	return view
+}
+
+// GetMemoryStoreDir returns the memory storage directory path.
+func (a *App) GetMemoryStoreDir() string { return a.memoryDir() }
+
+// Remember adds or updates a memory fact.
+func (a *App) Remember(name, title, description, memType, body string) *MemoryFactDTO {
+	if name == "" {
+		name = fmt.Sprintf("mem-%d", time.Now().UnixMilli())
+	}
+	fact := MemoryFactDTO{
+		Name:        name,
+		Title:       title,
+		Description: description,
+		Type:        memType,
+		Body:        body,
+		CreatedAt:   time.Now(),
+	}
+	view := a.ListMemory()
+	found := false
+	for i, f := range view.Facts {
+		if f.Name == name {
+			view.Facts[i] = fact
+			found = true
+			break
+		}
+	}
+	if !found {
+		view.Facts = append([]MemoryFactDTO{fact}, view.Facts...)
+	}
+	a.writeJSONFile(a.memoryPath("facts.json"), view.Facts)
+	return &fact
+}
+
+// Forget archives (removes from active) a memory by name.
+func (a *App) Forget(name string) error {
+	view := a.ListMemory()
+	var target *MemoryFactDTO
+	for i, f := range view.Facts {
+		if f.Name == name {
+			target = &f
+			view.Facts = append(view.Facts[:i], view.Facts[i+1:]...)
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("memory %q not found", name)
+	}
+	arch := MemoryArchiveDTO{
+		MemoryFactDTO: *target,
+		ArchivedAt:    time.Now(),
+	}
+	view.Archives = append([]MemoryArchiveDTO{arch}, view.Archives...)
+	a.writeJSONFile(a.memoryPath("facts.json"), view.Facts)
+	a.writeJSONFile(a.memoryPath("archives.json"), view.Archives)
+	return nil
+}
+
+// RestoreMemory brings an archived memory back to active.
+func (a *App) RestoreMemory(name string) error {
+	view := a.ListMemory()
+	var target *MemoryArchiveDTO
+	for i, ar := range view.Archives {
+		if ar.Name == name {
+			target = &ar
+			view.Archives = append(view.Archives[:i], view.Archives[i+1:]...)
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("archive %q not found", name)
+	}
+	view.Facts = append([]MemoryFactDTO{target.MemoryFactDTO}, view.Facts...)
+	a.writeJSONFile(a.memoryPath("facts.json"), view.Facts)
+	a.writeJSONFile(a.memoryPath("archives.json"), view.Archives)
+	return nil
+}
+
+// DeleteMemory permanently removes a memory.
+func (a *App) DeleteMemory(name string) error {
+	view := a.ListMemory()
+	filtered := make([]MemoryFactDTO, 0, len(view.Facts))
+	for _, f := range view.Facts {
+		if f.Name != name {
+			filtered = append(filtered, f)
+		}
+	}
+	if len(filtered) == len(view.Facts) {
+		return fmt.Errorf("memory %q not found", name)
+	}
+	a.writeJSONFile(a.memoryPath("facts.json"), filtered)
+	return nil
+}
+
+// SaveDoc creates or updates an instruction document.
+func (a *App) SaveDoc(path, scope, body string) *MemoryDocDTO {
+	doc := MemoryDocDTO{
+		Path:      path,
+		Scope:     scope,
+		Body:      body,
+		UpdatedAt: time.Now(),
+	}
+	view := a.ListMemory()
+	found := false
+	for i, d := range view.Docs {
+		if d.Path == path {
+			view.Docs[i] = doc
+			found = true
+			break
+		}
+	}
+	if !found {
+		view.Docs = append(view.Docs, doc)
+	}
+	a.writeJSONFile(a.memoryPath("docs.json"), view.Docs)
+	return &doc
+}
+
+// DeleteDoc removes an instruction document.
+func (a *App) DeleteDoc(path string) error {
+	view := a.ListMemory()
+	filtered := make([]MemoryDocDTO, 0, len(view.Docs))
+	for _, d := range view.Docs {
+		if d.Path != path {
+			filtered = append(filtered, d)
+		}
+	}
+	if len(filtered) == len(view.Docs) {
+		return fmt.Errorf("doc %q not found", path)
+	}
+	a.writeJSONFile(a.memoryPath("docs.json"), filtered)
+	return nil
+}
+
+// readJSONFile reads JSON into dst; ignores errors silently (best-effort).
+func (a *App) readJSONFile(path string, dst interface{}) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	_ = json.Unmarshal(data, dst)
+}
+
+// writeJSONFile writes src as pretty-JSON to path.
+func (a *App) writeJSONFile(path string, src interface{}) {
+	os.MkdirAll(filepath.Dir(path), 0755)
+	data, _ := json.MarshalIndent(src, "", "  ")
+	_ = os.WriteFile(path, data, 0644)
+}
+
+// ════════════════════════════════════════
+// MCP — 前端绑定方法
+// ════════════════════════════════════════
+
+// MCPConnectServer connects to an MCP server by config
+func (a *App) MCPConnectServer(name, transport, command string, args []string, url string) error {
+	if a.mcpMgr == nil {
+		a.mcpMgr = mcp.NewManager()
+	}
+	config := mcp.ServerConfig{
+		Name:    name,
+		Enabled: true,
+		Transport: mcp.TransportConfig{
+			Type:    transport,
+			Command: command,
+			Args:    args,
+			URL:     url,
+		},
+	}
+	if err := a.mcpMgr.AddServer(config); err != nil {
+		// Server already exists, try to reconnect
+		return a.mcpMgr.Connect(name)
+	}
+	return a.mcpMgr.Connect(name)
+}
+
+// MCPDisconnectServer disconnects from an MCP server
+func (a *App) MCPDisconnectServer(name string) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("MCP manager not initialized")
+	}
+	return a.mcpMgr.Disconnect(name)
+}
+
+// MCPListTools returns all tools from connected servers
+func (a *App) MCPListTools() map[string][]mcp.Tool {
+	if a.mcpMgr == nil {
+		return nil
+	}
+	return a.mcpMgr.ListAllTools()
+}
+
+// MCPCallTool calls a tool on the appropriate server
+func (a *App) MCPCallTool(name string, args map[string]interface{}) (*mcp.ToolResult, error) {
+	if a.mcpMgr == nil {
+		return nil, fmt.Errorf("MCP manager not initialized")
+	}
+	return a.mcpMgr.CallTool(context.Background(), name, args)
+}
+
+// MCPIsConnected checks if a server is connected
+func (a *App) MCPIsConnected(name string) bool {
+	if a.mcpMgr == nil {
+		return false
+	}
+	return a.mcpMgr.IsServerConnected(name)
+}
+
+// ════════════════════════════════════════
+// Bot — 前端绑定方法
+// ════════════════════════════════════════
+
+// BotConnect connects a bot adapter
+func (a *App) BotConnect(name, platform, token, appID, appSecret, webhookURL string) error {
+	if a.botMgr == nil {
+		a.botMgr = bot.NewManager()
+		a.botMgr.SetMessageHandler(a.handleBotMessage)
+	}
+	config := bot.AdapterConfig{
+		Platform:   bot.Platform(platform),
+		Name:       name,
+		Enabled:    true,
+		Token:      token,
+		AppID:      appID,
+		AppSecret:  appSecret,
+		WebhookURL: webhookURL,
+	}
+
+	// Persist to config
+	a.mu.Lock()
+	if a.config.Bots == nil {
+		a.config.Bots = make(map[string]bot.AdapterConfig)
+	}
+	a.config.Bots[name] = config
+	a.saveConfig()
+	a.mu.Unlock()
+
+	if err := a.botMgr.AddAdapter(config); err != nil {
+		// Adapter already exists, try to reconnect
+		return a.botMgr.Connect(name)
+	}
+	return a.botMgr.Connect(name)
+}
+
+// BotDisconnect disconnects a bot adapter
+func (a *App) BotDisconnect(name string) error {
+	if a.botMgr == nil {
+		return fmt.Errorf("bot manager not initialized")
+	}
+	return a.botMgr.Disconnect(name)
+}
+
+// BotSend sends a message through a bot adapter
+func (a *App) BotSend(adapterName, chatID, text string) (*bot.SendResult, error) {
+	if a.botMgr == nil {
+		return nil, fmt.Errorf("bot manager not initialized")
+	}
+	adapter, err := a.botMgr.GetAdapter(adapterName)
+	if err != nil {
+		return nil, err
+	}
+	return adapter.Send(chatID, text)
+}
+
+// BotIsConnected checks if a bot adapter is connected
+func (a *App) BotIsConnected(name string) bool {
+	if a.botMgr == nil {
+		return false
+	}
+	return a.botMgr.IsConnected(name)
+}
+
+// BotListAdapters returns all bot adapters
+func (a *App) BotListAdapters() []bot.AdapterConfig {
+	if a.botMgr == nil {
+		return nil
+	}
+	return a.botMgr.ListAdapters()
+}
+
+// BotRemoveAdapter removes a bot adapter
+func (a *App) BotRemoveAdapter(name string) error {
+	if a.botMgr == nil {
+		return fmt.Errorf("bot manager not initialized")
+	}
+
+	// Remove from config
+	a.mu.Lock()
+	if a.config.Bots != nil {
+		delete(a.config.Bots, name)
+		a.saveConfig()
+	}
+	a.mu.Unlock()
+
+	return a.botMgr.RemoveAdapter(name)
+}
+
+// handleBotMessage handles incoming bot messages and routes them to sessions
+func (a *App) handleBotMessage(event *bot.MessageEvent) {
+	// Create a session ID based on chat ID
+	sessionID := fmt.Sprintf("bot-%s-%s", event.Source.Platform, event.Source.ChatID)
+
+	a.mu.Lock()
+	session, exists := a.sessions[sessionID]
+	if !exists {
+		// Create a new session for this bot chat
+		info := SessionInfo{
+			ID: sessionID,
+			Title: fmt.Sprintf("Bot - %s", event.Source.ChatName),
+			AgentID: "auto",
+			ProjectID: "default",
+		}
+		session = &SessionState{
+			Info: info,
+			Messages: []MessageDTO{},
+			Logs: []LogDTO{},
+			Plan: []PlanStepDTO{},
+		}
+		a.sessions[sessionID] = session
+	}
+
+	// Add user message to session
+	msg := MessageDTO{
+		ID: event.MessageID,
+		Role: "user",
+		Content: event.Text,
+		Time: time.Now(),
+	}
+	session.Messages = append(session.Messages, msg)
+	a.mu.Unlock()
+
+	// Emit update to frontend
+	a.emitSession(session)
+
+	// Start agent run in background
+	go func() {
+		a.RunAgent(a.ctx, session)
+	}()
+}
+
 // === Helpers ===
 
 func (a *App) appendLog(s *SessionState, phase, event, detail string) {
@@ -1039,7 +1576,7 @@ func (a *App) initModuleState() *ModuleStateDTO {
 		I18N:      &ModuleItemDTO{Status: "idle", Details: map[string]any{"currentLang": "zh", "bundleLoaded": true, "keysCount": 0}},
 		Plugins:   &ModuleItemDTO{Status: "idle", Details: map[string]any{"loadedPlugins": 0, "pluginList": []string{}}},
 		Dashboard: &ModuleItemDTO{Status: "idle", Details: map[string]any{"enabled": false, "port": 0, "url": ""}},
-		Models:    &ModuleItemDTO{Status: "idle", Details: map[string]any{"poolSize": 0, "availableModels": []string{"deepseek-v4-flash"}}},
+		Models:    &ModuleItemDTO{Status: "idle", Details: map[string]any{"poolSize": 0, "availableModels": []string{"deepseek-v4-flash", "deepseek-v4-pro"}}},
 		Backup:    &ModuleItemDTO{Status: "idle", Details: map[string]any{"autoBackupEnabled": false, "lastSnapshot": "从未", "snapshotCount": 0}},
 	}
 }
@@ -1052,17 +1589,153 @@ func (a *App) emitSession(s *SessionState) {
 		return
 	}
 	runtime.EventsEmit(a.ctx, "session:update", s)
+	// 同步持久化，直接保存 s 而非重新从 a.sessions[id] 读取
+	if s != nil {
+		a.saveSession(s)
+	}
 }
 
-func (a *App) emitProjects() {
+func (a *App) emitGlobals() {
 	if a.ctx == nil {
 		return
 	}
 	if !hasWailsEvents(a.ctx) {
 		return
 	}
-	runtime.EventsEmit(a.ctx, "projects:update", a.projects)
+	runtime.EventsEmit(a.ctx, "globals:update", a.globals)
+	a.saveState()
 }
+
+// ── Persistence ──────────────────────────────────────────────────────────
+
+// zhulongDir returns ~/.zhulong (creates it if missing).
+func zhulongDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".zhulong"
+	}
+	dir := filepath.Join(home, ".zhulong")
+	os.MkdirAll(dir, 0755)
+	return dir
+}
+
+// saveState writes a.globals to ~/.zhulong/state.json
+func (a *App) saveState() {
+	dir := zhulongDir()
+	data, err := json.MarshalIndent(a.globals, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, "state.json"), data, 0644)
+}
+
+// loadState reads ~/.zhulong/state.json into a.globals.
+// Returns true if loaded successfully and non-empty.
+func (a *App) loadState() bool {
+	dir := zhulongDir()
+	data, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	if err != nil {
+		return false
+	}
+	var gs []GlobalInfo
+	if err := json.Unmarshal(data, &gs); err != nil {
+		return false
+	}
+	if len(gs) > 0 {
+		a.globals = gs
+		return true
+	}
+	return false
+}
+
+// loadConfig loads the application config from ~/.zhulong/config.json
+func (a *App) loadConfig() {
+	dir := zhulongDir()
+	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	if err != nil {
+		return
+	}
+	_ = json.Unmarshal(data, &a.config)
+}
+
+// saveConfig saves the application config to ~/.zhulong/config.json
+func (a *App) saveConfig() {
+	dir := zhulongDir()
+	data, _ := json.MarshalIndent(a.config, "", "  ")
+	_ = os.WriteFile(filepath.Join(dir, "config.json"), data, 0644)
+}
+
+// saveSession writes the given session state to ~/.zhulong/sessions/<id>.json.
+// Accepts *SessionState directly to avoid reading a.sessions[id] under lock,
+// which would race with RunAgent's unsynchronized s.Messages appends.
+func (a *App) saveSession(s *SessionState) {
+	if s == nil || s.Info.ID == "" {
+		return
+	}
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(zhulongDir(), "sessions")
+	os.MkdirAll(dir, 0755)
+	_ = os.WriteFile(filepath.Join(dir, s.Info.ID+".json"), data, 0644)
+}
+
+// loadSession reads ~/.zhulong/sessions/<id>.json into a.sessions[id].
+// Returns the loaded state (or nil).
+func (a *App) loadSession(id string) *SessionState {
+	dir := filepath.Join(zhulongDir(), "sessions")
+	data, err := os.ReadFile(filepath.Join(dir, id+".json"))
+	if err != nil {
+		return nil
+	}
+	var s SessionState
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil
+	}
+	a.mu.Lock()
+	a.sessions[id] = &s
+	a.mu.Unlock()
+	return &s
+}
+
+// deleteSessionFile removes ~/.zhulong/sessions/<id>.json (called on deletion).
+func (a *App) deleteSessionFile(id string) {
+	dir := filepath.Join(zhulongDir(), "sessions")
+	os.Remove(filepath.Join(dir, id+".json"))
+}
+
+// ── Active IDs persistence ──────────────────────────────
+
+// loadActiveIDs restores activeID / activeAgent from ~/.zhulong/active.json
+func (a *App) loadActiveIDs() {
+	dir := zhulongDir()
+	data, err := os.ReadFile(filepath.Join(dir, "active.json"))
+	if err != nil {
+		return
+	}
+	var m struct {
+		ActiveID    string `json:"activeID"`
+		ActiveAgent string `json:"activeAgent"`
+	}
+	_ = json.Unmarshal(data, &m)
+	if m.ActiveID != "" {
+		a.activeID = m.ActiveID
+	}
+	if m.ActiveAgent != "" {
+		a.activeAge = m.ActiveAgent
+	}
+}
+
+func (a *App) saveActiveIDs() {
+	dir := zhulongDir()
+	data, _ := json.MarshalIndent(map[string]string{
+		"activeID":   a.activeID,
+		"activeAgent": a.activeAge,
+	}, "", "  ")
+	_ = os.WriteFile(filepath.Join(dir, "active.json"), data, 0644)
+}
+
 
 // hasWailsEvents checks whether the context carries a wails Events
 // implementation. We use a type-assertion on the context value via a

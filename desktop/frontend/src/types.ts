@@ -1,4 +1,4 @@
-export type Language = 'en' | 'zh'
+export type Language = 'en' | 'zh' | 'auto'
 
 export type AgentStatus =
   | 'idle'
@@ -26,18 +26,26 @@ export interface SessionInfo {
   id: string
   title: string
   agentId: string
-  projectId: string
+  projectId: string   // 所属工作区/Project 的 id
   messageCount: number
   toolCount: number
   updatedAt: string
   preview: string
 }
 
+// 工作区（Project）= 对话的分组容器
 export interface ProjectInfo {
   id: string
   name: string
   sessions: SessionInfo[]
-  children?: ProjectInfo[]
+}
+
+// 工作空间（Global）= 顶层容器，包含一个或多个 Project
+export interface GlobalInfo {
+  id: string
+  name: string
+  path?: string
+  projects: ProjectInfo[]   // 工作区列表
 }
 
 export interface Message {
@@ -218,11 +226,13 @@ declare global {
       main: {
         App: {
           ListAgents(): Promise<AgentInfo[]>
-          ListProjects(): Promise<ProjectInfo[]>
+          ListGlobals(): Promise<GlobalInfo[]>    // 新：列出所有工作空间
+          CreateGlobal(name: string): Promise<GlobalInfo>  // 新：创建工作空间
+          CreateProject(globalId: string, name: string): Promise<ProjectInfo>  // 新：在工作空间下创建工作区
           SetActiveAgent(id: string): Promise<void>
           SetActiveSession(id: string): Promise<SessionState | null>
           GetSession(id: string): Promise<SessionState | null>
-          NewSession(): Promise<SessionState>
+          NewSession(projectId: string): Promise<SessionState>  // 改：需要指定工作区
           DeleteSession(id: string): Promise<void>
           RenameSession(id: string, title: string): Promise<void>
           SendMessage(sessionID: string, text: string): Promise<void>

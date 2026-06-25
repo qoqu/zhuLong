@@ -1,15 +1,70 @@
 // Mock data for Zhulong UI browser fallback
-import type { AgentInfo, ProjectInfo, RuntimeStats } from '../types'
+import type { AgentInfo, GlobalInfo, RuntimeStats } from '../types'
 
 export const mockAgents: AgentInfo[] = [
   { id: 'auto', name: '默认 Agent', model: 'deepseek-v4-flash', yolo: true },
 ]
 
-export const mockProjects: ProjectInfo[] = [
+export const mockGlobals: GlobalInfo[] = [
   {
-    id: 'global',
-    name: 'Global',
-    sessions: [],
+    id: 'global-1',
+    name: 'Default Workspace',
+    projects: [
+      {
+        id: 'project-1',
+        name: 'My Project',
+        sessions: [
+          {
+            id: 's1',
+            title: '新会话',
+            agentId: 'auto',
+            projectId: 'project-1',
+            messageCount: 0,
+            toolCount: 0,
+            updatedAt: '刚刚',
+            preview: '新会话',
+          },
+        ],
+      },
+      {
+        id: 'project-2',
+        name: '新的工作区',
+        sessions: [
+          {
+            id: 's2',
+            title: '新会话',
+            agentId: 'auto',
+            projectId: 'project-2',
+            messageCount: 0,
+            toolCount: 0,
+            updatedAt: '刚刚',
+            preview: '新会话',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'global-2',
+    name: '新的工作空间',
+    projects: [
+      {
+        id: 'project-3',
+        name: '新的工作区',
+        sessions: [
+          {
+            id: 's3',
+            title: '新会话',
+            agentId: 'auto',
+            projectId: 'project-3',
+            messageCount: 0,
+            toolCount: 0,
+            updatedAt: '刚刚',
+            preview: '新会话',
+          },
+        ],
+      },
+    ],
   },
 ]
 

@@ -20,11 +20,8 @@ interface ComposerProps {
 }
 
 const models = [
-  'deepseek-v4',
   'deepseek-v4-flash',
-  'deepseek-v4-lite',
-  'deepseek-r1',
-  'deepseek-r1-lite',
+  'deepseek-v4-pro',
 ]
 
 const temperatures = [

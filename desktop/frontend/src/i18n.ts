@@ -1,6 +1,21 @@
 // Centralized i18n for Zhulong desktop UI
 import type { Language } from './types'
 
+// 检测系统语言，返回 'zh' 或 'en'
+function detectSystemLanguage(): 'zh' | 'en' {
+  if (typeof navigator === 'undefined') return 'en'
+  const lang = navigator.language || navigator.languages?.[0] || 'en'
+  return lang.startsWith('zh') ? 'zh' : 'en'
+}
+
+// 解析语言设置：如果是 'auto' 则检测系统语言
+function resolveLanguage(language: Language): 'zh' | 'en' {
+  if (language === 'auto') {
+    return detectSystemLanguage()
+  }
+  return language
+}
+
 const dict = {
   en: {
     appName: 'Zhulong',
@@ -181,11 +196,11 @@ const dict = {
     no: '否',
     contextWindow: '上下文窗口',
     currentWindowUsage: '当前上下文窗口占用',
-    prompt: 'Prompt',
-    completion: 'Completion',
-    reasoning: 'Reasoning',
-    other: 'Other',
-    total: 'Total',
+    prompt: '提示词',
+    completion: '补全',
+    reasoning: '推理',
+    other: '其他',
+    total: '合计',
     runtime: '运行指标',
     elapsed: '耗时',
     requests: '请求数',
@@ -228,10 +243,15 @@ const dict = {
 export type Dict = typeof dict.en
 
 export function useT(language: Language): Dict {
-  return dict[language] as Dict
+  const resolved = resolveLanguage(language)
+  return dict[resolved] as Dict
 }
+
+// 导出 resolveLanguage 供组件使用
+export { resolveLanguage }
 
 export const languageLabel: Record<Language, string> = {
   en: 'EN',
   zh: '中',
+  auto: 'Auto',
 }

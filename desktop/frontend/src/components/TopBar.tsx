@@ -1,34 +1,51 @@
 import type { Language } from '../types'
+import { resolveLanguage } from '../i18n'
+
+interface SessionTab {
+  id: string
+  title: string
+}
 
 interface TopBarProps {
   language: Language
-  sessionTitle: string
-  sessionScope: string
-  onRename: () => void
-  onExport: () => void
+  sessions: SessionTab[]
+  activeSessionId: string
+  onSwitchSession: (id: string) => void
+  onCloseSession?: (id: string) => void
+  onToggleSidebar: () => void
+  onToggleRightPanel: () => void
 }
 
 export function TopBar(props: TopBarProps) {
+  const isZh = resolveLanguage(props.language) === 'zh'
   return (
     <div className="topbar">
-      <div className="topbar__left">
-        <div className="topbar__title">{props.sessionTitle}</div>
-        <button className="topbar__icon-btn" title="Rename" onClick={props.onRename}>
-          ✎
-        </button>
+      <button className="topbar__toggle" onClick={props.onToggleSidebar} title={isZh ? '侧边栏' : 'Sidebar'}>
+        ☰
+      </button>
+      <div className="topbar__tabs">
+        {props.sessions.map((s) => (
+          <div
+            key={s.id}
+            className={`topbar__tab ${s.id === props.activeSessionId ? 'active' : ''}`}
+            onClick={() => props.onSwitchSession(s.id)}
+          >
+            <span className="topbar__tab-title">{s.title}</span>
+            {props.onCloseSession && (
+              <button
+                className="topbar__tab-close"
+                onClick={(e) => { e.stopPropagation(); props.onCloseSession?.(s.id) }}
+                title={isZh ? '关闭' : 'Close'}
+              >
+                ×
+              </button>
+            )}
+          </div>
+        ))}
       </div>
-      <div className="topbar__scope">{props.sessionScope}</div>
-      <div className="topbar__spacer" />
-      <div className="topbar__actions">
-        <button className="topbar__icon-btn" title="Copy" onClick={() => navigator.clipboard?.writeText(props.sessionTitle)}>
-          ⎘
-        </button>
-        <button className="topbar__icon-btn" title="Download" onClick={props.onExport}>
-          ⤓
-        </button>
-        <button className="topbar__icon-btn" title="Branch">⑂</button>
-        <button className="topbar__icon-btn" title="Settings">⚙</button>
-      </div>
+      <button className="topbar__toggle" onClick={props.onToggleRightPanel} title={isZh ? '右侧栏' : 'Right Panel'}>
+        ☰
+      </button>
     </div>
   )
 }
