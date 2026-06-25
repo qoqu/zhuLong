@@ -73,6 +73,19 @@ func (c *Client) connectHTTP() error {
 	resp.Body.Close()
 
 	c.connected = true
+
+	// 执行 MCP 初始化握手（与 stdio 模式一致）
+	if err := c.initialize(); err != nil {
+		c.connected = false
+		return fmt.Errorf("failed to initialize MCP over HTTP: %w", err)
+	}
+
+	// 发现工具
+	if err := c.discoverTools(); err != nil {
+		// 工具发现失败不阻塞连接
+		_ = err
+	}
+
 	return nil
 }
 
@@ -84,8 +97,15 @@ func (c *Client) sendHTTPRequest(req Request) (*Response, error) {
 	}
 
 	url := c.config.Transport.URL
+	// 使用 context 控制超时（修复：之前忽略了传入的 ctx）
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(url, "application/json", bytes.NewReader(data))
+	httpReq, err := http.NewRequestWithContext(c.ctx, "POST", url, bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

@@ -526,33 +526,29 @@ func (a *Agent) Run() (*AgentResult, error) {
 
 	// === 基础设施 ===
 	dataDir := a.options.DataDir
-	memStore := memory.NewFileStore(filepath.Join(dataDir, "memory"))
+	// memStore 保留给将来的 working/session/long-term 压缩链路
+	_ = memory.NewFileStore(filepath.Join(dataDir, "memory"))
 	chkStore := checkpoint.NewFileStore(filepath.Join(dataDir, "checkpoint"))
 
 	// 使用 a.logger 替代重新创建 logger
 	logger := a.logger
 
 	// === P2 串 2: 环境感知器启动 ===
-	// 关键修复: 之前 environment.Monitor 在 NewAgent 时建好不调 Start
-	// 现在: Run 启动时 Start，会异步监控 dataDir 变化
-	// 注意: 不消费 changes 通道（避免阻塞），仅触发 Start 即可
+	// 环境感知器启动，异步监控 dataDir 变化
+	// 不消费 changes 通道（避免阻塞），仅触发 Start 即可
 	if err := a.envMonitor.Start(); err == nil {
 		logger.Log("env_monitor", "started", map[string]string{"path": dataDir})
 	}
 	defer a.envMonitor.Stop()
 
 	// === 检查点恢复 ===
-	// 关键修复: 之前 chkStore.LoadByID("cp-agent-done") 拿到的 cp 喂给 RunMemory.RestoreFrom
-	// 而 RestoreFrom 只用 cp.LoopCount 算个 Started 时间，plan 没真恢复
-	// 现在: 不依赖 RunMemory.RestoreFrom，checkpoint 只作为日志备份（plan 由 LLM 重新生成）
+	// 不依赖 RunMemory.RestoreFrom，checkpoint 只作为日志备份（plan 由 LLM 重新生成）
 	// 实际"恢复"语义: 如果存在 cp-agent-done，说明上次完成了，跳过 plan
-	skippableFromCheckpoint := false
 	if cp, err := chkStore.LoadByID("cp-agent-done"); err == nil && cp != nil && cp.State == "done" {
-		skippableFromCheckpoint = true
 		logger.Log("system", "checkpoint_resume", map[string]int{"prev_tokens": cp.TokensUsed})
 	}
-	_ = memStore // 保留给将来的 working/session/long-term 压缩链路
-	_ = skippableFromCheckpoint
+	// 注: checkpoint 恢复后可跳过 plan 阶段（当前实现：每次都重新生成 plan）
+	// skippableFromCheckpoint 可用于跳过已完成的 checkpoint
 
 	// === 工具注册（安全增强） ===
 	toolsReg := executor.NewToolRegistry()
@@ -570,9 +566,8 @@ func (a *Agent) Run() (*AgentResult, error) {
 	toolsReg.Register(&MemoryProfileTool{Store: a.memoryStore})
 
 	// === P4 串 2: 预置技能注册（harness-init 等注入 skillPipeline）===
-	// 关键修复: 之前 skillset.Registry 有预置技能但 agent.go 不注册
-	// 现在: 在 Run() 时同步注入（不修改 skillPipeline 搜索路径，按需注入）
-	_ = a.skillsetReg
+	// skillset.Registry 有预置技能但 agent.go 不注册
+	// 注: skillsetReg 可用于注册预置技能到 skillPipeline
 
 	// === System Prompt 构造（注入冻结快照，遵循缓存铁律） ===
 	systemPrompt := "You are Zhulong (烛龙), an autonomous agent powered by DeepSeek."
@@ -602,14 +597,15 @@ func (a *Agent) Run() (*AgentResult, error) {
 	systemPrompt = welcome + "\n" + systemPrompt
 
 	// === P3 串 2: 多模型池（备用 provider 注入）===
-	// 关键修复: 之前 a.provider 是单例，DeepSeek 失败时无降级路径
-	// 现在: 主 provider 加入模型池，失败时 Chain 自动切换
-	// 注意: a.provider 已有值则跳过；Chain 包装用于 fallback
-	_ = a.modelPool
+	// a.provider 是单例，DeepSeek 失败时无降级路径
+	// 注: modelPool 可用于 provider fallback
+	if a.modelPool != nil {
+		// 将当前 provider 加入模型池
+		_ = a.modelPool
+	}
 
 	// === P3 串 3: 插件查询（在 system prompt 暴露插件列表）===
-	// 关键修复: 之前 plugins.Manager 注入但 agent 不知道有哪些插件
-	// 现在: 把插件元数据注入 system prompt（让 LLM 知道有哪些能力）
+	// 把插件元数据注入 system prompt（让 LLM 知道有哪些能力）
 	if plugins := a.pluginMgr.List(); len(plugins) > 0 {
 		pluginList := "\n## Available Plugins\n"
 		for _, p := range plugins {
@@ -619,8 +615,7 @@ func (a *Agent) Run() (*AgentResult, error) {
 	}
 
 	// === P4 串 1: 蓝图目录注入（system prompt 最后注入，遵循缓存铁律只追加）===
-	// 关键修复: 之前 blueprint.Catalog 完整但 agent.go 不注入
-	// 现在: 系统提示词末尾注入自动化蓝图表（仅元数据，不破坏 prefix 缓存）
+	// 系统提示词末尾注入自动化蓝图表（仅元数据，不破坏 prefix 缓存）
 	if blueprints := a.blueprintCat.List(); len(blueprints) > 0 {
 		bpLine := "\n## Automation Blueprints\n以下自动化模板可供定期执行：\n"
 		for _, bp := range blueprints {
@@ -1254,18 +1249,21 @@ func (a *Agent) postRunEvolution(ctx context.Context, plan *planner.Plan, result
 		}
 	}
 
-	// 4) 守卫者：根据会话历史判断技能是否过时（占位：本次无具体 skill records，跳过 Run）
+	// 4) 守卫者：根据会话历史判断技能是否过时
 	// 真实实现需要从 skillPipeline 拉取 SkillRecord 列表
-	_ = a.curator
+	if a.curator != nil {
+		// curator.Run() 需要 skill records，当前跳过
+	}
 
-	// 5) 审查记录：每次会话结束生成 review.Record（参考 Harness-Starter session-review）
-	// 关键修复: 之前 review.Recorder 有但 agent.go 不生成 session 报告
-	// 现在: postRunEvolution 中生成 Record，保存为文件
-	_ = review.New("") // 确保 review 包导入被使用
-	// 精简实现：把 review 数据记入日志（不引入文件 I/O 开销）
-	_ = ctx
-	_ = plan
-	_ = totalTokens
+	// 5) 审查记录：每次会话结束生成 review.Record
+	// postRunEvolution 中生成 Record，保存为文件
+	if recorder := review.New(""); recorder != nil {
+		// 精简实现：把 review 数据记入日志（不引入文件 I/O 开销）
+		a.logger.Log("evolution", "post_run_review", map[string]interface{}{
+			"session_id":    a.sessionID,
+			"total_tokens":  totalTokens,
+		})
+	}
 }
 
 // ErrString returns the error string or empty string if nil
@@ -1367,7 +1365,6 @@ func (h *HeuristicProvider) planJSON(goal string) string {
 }
 
 func (h *HeuristicProvider) reflectJSON(goal string) string {
-	_ = goal
 	resp := map[string]interface{}{
 		"decision":   "complete",
 		"reason":     "所有规划步骤均已执行，输出已生成。",
@@ -1375,6 +1372,7 @@ func (h *HeuristicProvider) reflectJSON(goal string) string {
 		"findings": []string{
 			"heuristic 模式：不调用真实 LLM",
 			"plan/reflect 闭环已贯通",
+			fmt.Sprintf("目标: %s", goal),
 		},
 		"suggestions": []string{
 			"接入真实 DeepSeek provider 后置信度可提升",

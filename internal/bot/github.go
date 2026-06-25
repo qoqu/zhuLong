@@ -38,7 +38,41 @@ func (g *GitHubAdapter) Connect() error {
 		return fmt.Errorf("github app_id is required")
 	}
 
+	// 验证 GitHub API 连通性
+	if err := g.verifyAPI(); err != nil {
+		return fmt.Errorf("failed to verify GitHub API: %w", err)
+	}
+
 	g.SetConnected(true)
+	return nil
+}
+
+// verifyAPI verifies the GitHub API connectivity
+func (g *GitHubAdapter) verifyAPI() error {
+	url := "https://api.github.com"
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+
+	// 如果有 webhook secret，用作 token
+	if g.webhookSecret != "" {
+		req.Header.Set("Authorization", "Bearer "+g.webhookSecret)
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// GitHub API 返回 200 或 401 都表示 API 可达
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusUnauthorized {
+		return fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	}
+
 	return nil
 }
 

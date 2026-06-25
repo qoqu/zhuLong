@@ -308,6 +308,7 @@ const DEFAULT_PROVIDERS: Provider[] = [
 
 function ModelSettings(props: SettingsPanelProps) {
   const isZh = resolveLanguage(props.language) === 'zh'
+  const backend = typeof window !== 'undefined' && (window as any).go?.main?.App ? (window as any).go.main.App : null
 
   // ── 子 Tab 状态 ──
   type ModelSubTab = 'usage' | 'access'
@@ -352,7 +353,16 @@ function ModelSettings(props: SettingsPanelProps) {
     saveProviders(providers.filter(p => p.id !== id))
   }
 
-  function ps<T>(k: string, s: (v: T) => void, v: T) { s(v); saveSetting(k, v) }
+  // 同步到后端
+  async function ps<T extends string | number>(k: string, s: (v: T) => void, v: T) {
+    s(v)
+    saveSetting(k, v)
+    if (backend) {
+      try {
+        await backend.SetConfigField(k, v)
+      } catch (e) { console.error('Failed to sync config:', e) }
+    }
+  }
 
   const currentProvider = DS_MODELS.find(m => m.id === props.model)?.provider || ''
 
@@ -1809,13 +1819,22 @@ function MemorySettings({ language }: { language: Language }) {
 
 function HooksSettings({ language }: { language: Language }) {
   const isZh = resolveLanguage(language) === 'zh'
+  const backend = typeof window !== 'undefined' && (window as any).go?.main?.App ? (window as any).go.main.App : null
   const [scope, setScope] = useState<'global' | 'project'>('global')
   const [hooksJson, setHooksJson] = useState<string>(() =>
     loadJSON('zhulong-hooks-json', '{\n  "hooks": {}\n}')
   )
   const [configPath] = useState('~/.zhulong/settings.json')
 
-  useEffect(() => { saveJSON('zhulong-hooks-json', hooksJson) }, [hooksJson])
+  useEffect(() => {
+    saveJSON('zhulong-hooks-json', hooksJson)
+    // 同步到后端
+    if (backend) {
+      try {
+        backend.SetConfigField('hooks', JSON.parse(hooksJson))
+      } catch {}
+    }
+  }, [hooksJson])
 
   const handleFormat = () => {
     try { setHooksJson(JSON.stringify(JSON.parse(hooksJson), null, 2)) } catch {}
@@ -1895,15 +1914,28 @@ function HooksSettings({ language }: { language: Language }) {
 
 function PermissionsSettings({ language }: { language: Language }) {
   const isZh = resolveLanguage(language) === 'zh'
+  const backend = typeof window !== 'undefined' && (window as any).go?.main?.App ? (window as any).go.main.App : null
   const [mode, setMode] = useState<string>(() => loadJSON('zhulong-perm-mode', 'ask'))
   const [denyRules, setDenyRules] = useState<string[]>(() => loadJSON('zhulong-perm-deny', []))
   const [askRules, setAskRules] = useState<string[]>(() => loadJSON('zhulong-perm-ask', []))
   const [allowRules, setAllowRules] = useState<string[]>(() => loadJSON('zhulong-perm-allow', []))
 
-  useEffect(() => { saveJSON('zhulong-perm-mode', mode) }, [mode])
-  useEffect(() => { saveJSON('zhulong-perm-deny', denyRules) }, [denyRules])
-  useEffect(() => { saveJSON('zhulong-perm-ask', askRules) }, [askRules])
-  useEffect(() => { saveJSON('zhulong-perm-allow', allowRules) }, [allowRules])
+  useEffect(() => {
+    saveJSON('zhulong-perm-mode', mode)
+    if (backend) try { backend.SetConfigField('permMode', mode) } catch {}
+  }, [mode])
+  useEffect(() => {
+    saveJSON('zhulong-perm-deny', denyRules)
+    if (backend) try { backend.SetConfigField('permDeny', denyRules) } catch {}
+  }, [denyRules])
+  useEffect(() => {
+    saveJSON('zhulong-perm-ask', askRules)
+    if (backend) try { backend.SetConfigField('permAsk', askRules) } catch {}
+  }, [askRules])
+  useEffect(() => {
+    saveJSON('zhulong-perm-allow', allowRules)
+    if (backend) try { backend.SetConfigField('permAllow', allowRules) } catch {}
+  }, [allowRules])
 
   const addRule = (list: string, rule: string) => {
     if (!rule.trim()) return
@@ -1998,17 +2030,30 @@ function RuleList({ label, hint, rules, onAdd, onRemove, isZh, placeholder }: {
 
 function SandboxSettings({ language }: { language: Language }) {
   const isZh = resolveLanguage(language) === 'zh'
+  const backend = typeof window !== 'undefined' && (window as any).go?.main?.App ? (window as any).go.main.App : null
   const [shell, setShell] = useState<string>(() => loadJSON('zhulong-sandbox-shell', 'auto'))
   const [bash, setBash] = useState<string>(() => loadJSON('zhulong-sandbox-bash', 'enforce'))
   const [network, setNetwork] = useState<boolean>(() => loadJSON('zhulong-sandbox-network', true))
   const [workspaceRoot, setWorkspaceRoot] = useState<string>(() => loadJSON('zhulong-sandbox-root', ''))
   const [allowWrite, setAllowWrite] = useState<string[]>(() => loadJSON('zhulong-sandbox-allowwrite', []))
 
-  useEffect(() => { saveJSON('zhulong-sandbox-shell', shell) }, [shell])
-  useEffect(() => { saveJSON('zhulong-sandbox-bash', bash) }, [bash])
-  useEffect(() => { saveJSON('zhulong-sandbox-network', network) }, [network])
+  useEffect(() => {
+    saveJSON('zhulong-sandbox-shell', shell)
+    if (backend) try { backend.SetConfigField('shell', shell) } catch {}
+  }, [shell])
+  useEffect(() => {
+    saveJSON('zhulong-sandbox-bash', bash)
+    if (backend) try { backend.SetConfigField('sandboxBash', bash) } catch {}
+  }, [bash])
+  useEffect(() => {
+    saveJSON('zhulong-sandbox-network', network)
+    if (backend) try { backend.SetConfigField('sandboxNetwork', network) } catch {}
+  }, [network])
   useEffect(() => { saveJSON('zhulong-sandbox-root', workspaceRoot) }, [workspaceRoot])
-  useEffect(() => { saveJSON('zhulong-sandbox-allowwrite', allowWrite) }, [allowWrite])
+  useEffect(() => {
+    saveJSON('zhulong-sandbox-allowwrite', allowWrite)
+    if (backend) try { backend.SetConfigField('allowWrite', allowWrite) } catch {}
+  }, [allowWrite])
 
   return (
     <div className="settings-page">
@@ -2080,6 +2125,7 @@ function SandboxSettings({ language }: { language: Language }) {
 
 function NetworkSettings({ language }: { language: Language }) {
   const isZh = resolveLanguage(language) === 'zh'
+  const backend = typeof window !== 'undefined' && (window as any).go?.main?.App ? (window as any).go.main.App : null
   const [proxyMode, setProxyMode] = useState<string>(() => loadJSON('zhulong-proxy-mode', 'auto'))
   const [proxyType, setProxyType] = useState<string>(() => loadJSON('zhulong-proxy-type', 'socks5'))
   const [proxyServer, setProxyServer] = useState<string>(() => loadJSON('zhulong-proxy-server', ''))
@@ -2087,11 +2133,21 @@ function NetworkSettings({ language }: { language: Language }) {
   const [proxyUrl, setProxyUrl] = useState<string>(() => loadJSON('zhulong-proxy-url', ''))
   const [noProxy, setNoProxy] = useState<string>(() => loadJSON('zhulong-no-proxy', 'localhost,127.0.0.1'))
 
-  useEffect(() => { saveJSON('zhulong-proxy-mode', proxyMode) }, [proxyMode])
+  useEffect(() => {
+    saveJSON('zhulong-proxy-mode', proxyMode)
+    if (backend) try { backend.SetConfigField('proxyMode', proxyMode) } catch {}
+  }, [proxyMode])
   useEffect(() => { saveJSON('zhulong-proxy-type', proxyType) }, [proxyType])
   useEffect(() => { saveJSON('zhulong-proxy-server', proxyServer) }, [proxyServer])
   useEffect(() => { saveJSON('zhulong-proxy-port', proxyPort) }, [proxyPort])
-  useEffect(() => { saveJSON('zhulong-proxy-url', proxyUrl) }, [proxyUrl])
+  useEffect(() => {
+    saveJSON('zhulong-proxy-url', proxyUrl)
+    if (backend) try { backend.SetConfigField('proxyUrl', proxyUrl) } catch {}
+  }, [proxyUrl])
+  useEffect(() => {
+    saveJSON('zhulong-no-proxy', noProxy)
+    if (backend) try { backend.SetConfigField('noProxy', noProxy) } catch {}
+  }, [noProxy])
   useEffect(() => { saveJSON('zhulong-no-proxy', noProxy) }, [noProxy])
 
   return (

@@ -102,8 +102,8 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 	// FSM 状态机显式驱动
 	fsmSession.UpdateState(controller.StateIdle)
 
-	// Compressor 上下文压缩
-	_ = comp
+	// Compressor 上下文压缩（在执行循环中使用）
+	_ = comp // 将在执行循环中通过 comp.Prune() 使用
 
 	provider := newProvider(s.Model)
 	toolsReg := executor.NewToolRegistry()
@@ -452,11 +452,14 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			if s.ModuleState.Backup != nil && a.config.BackupMode == "immediate" {
 				shouldBackup := (res != nil && res.Success) || (res == nil && a.config.BackupOnFail)
 				if shouldBackup && a.backupMgr != nil {
-					_, _ = a.backupMgr.Create(fmt.Sprintf("step-%s-%d", s.Info.ID, i+1), []string{"./desktop"})
-					snapCount, _ := s.ModuleState.Backup.Details["snapshotCount"].(int)
-					s.ModuleState.Backup.Details["snapshotCount"] = snapCount + 1
-					s.ModuleState.Backup.Details["lastSnapshot"] = time.Now().Format("15:04:05")
-					s.ModuleState.Backup.Status = "active"
+					snapName := fmt.Sprintf("step-%s-%d", s.Info.ID, i+1)
+					_, err := a.backupMgr.Create(snapName, []string{"./desktop"})
+					if err == nil {
+						snapCount, _ := s.ModuleState.Backup.Details["snapshotCount"].(int)
+						s.ModuleState.Backup.Details["snapshotCount"] = snapCount + 1
+						s.ModuleState.Backup.Details["lastSnapshot"] = time.Now().Format("15:04:05")
+						s.ModuleState.Backup.Status = "active"
+					}
 				}
 			}
 
@@ -619,7 +622,10 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 						Prunable: m.Role == "tool",
 					})
 				}
-				_ = comp.Prune(msgs, len(plan.Steps))
+				pruned := comp.Prune(msgs, len(plan.Steps))
+				if pruned != nil {
+					s.ModuleState.Compressor.Details["prunedCount"] = len(pruned)
+				}
 			}
 			s.ModuleState.Compressor.Details["lastPruneAt"] = time.Now().Format("15:04:05")
 		}
