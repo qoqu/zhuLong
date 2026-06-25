@@ -20,6 +20,13 @@ type Checkpoint struct {
 	TokensUsed  int       `json:"tokens_used"`
 	Cost        float64   `json:"cost"`
 	CreatedAt   time.Time `json:"created_at"`
+	Messages    []Message `json:"messages,omitempty"`
+}
+
+// Message contains a message at checkpoint time
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 // Plan contains the plan at checkpoint time

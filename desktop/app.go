@@ -498,6 +498,10 @@ func (a *App) startup(ctx context.Context) {
 			}
 		}
 	}
+	// 启动 Dashboard HTTP 服务（端口 4515）
+	if a.config.DashboardPort > 0 {
+		_ = a.StartDashboard()
+	}
 }
 
 // initEnvironmentMonitor 启动 P2 模块：envMonitor 监听当前目录变化

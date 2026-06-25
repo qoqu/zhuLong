@@ -891,20 +891,13 @@ function ProviderCard({ provider, isZh, onToggleModel, onRemove, onSetApiKey }: 
     if (!apiKey.trim()) return
     if (backend && provider.apiKeyEnv) {
       try {
-        // 调用后端写入环境变量
-        const result = await backend.SetConfigField(provider.apiKeyEnv, apiKey.trim())
-        console.log('SetConfigField result:', result)
-        // 成功后关闭输入框
+        await backend.SetConfigField(provider.apiKeyEnv, apiKey.trim())
         setShowKeyInput(false)
         setApiKey('')
-        // 通知父组件刷新密钥状态
         if (onSetApiKey) onSetApiKey(apiKey.trim())
       } catch (e) {
-        console.error('Failed to set API key:', e)
         alert('保存失败: ' + String(e))
       }
-    } else {
-      console.error('backend or apiKeyEnv missing:', { backend: !!backend, apiKeyEnv: provider.apiKeyEnv })
     }
   }
 

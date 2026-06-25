@@ -31,6 +31,7 @@ import (
 	"github.com/qoqu/zhuLong/internal/information"
 	"github.com/qoqu/zhuLong/internal/learning"
 	"github.com/qoqu/zhuLong/internal/memento"
+	"github.com/qoqu/zhuLong/internal/memory"
 	"github.com/qoqu/zhuLong/internal/models"
 	"github.com/qoqu/zhuLong/internal/observe"
 	"github.com/qoqu/zhuLong/internal/plugins"
@@ -1260,20 +1261,57 @@ func (a *Agent) postRunEvolution(ctx context.Context, plan *planner.Plan, result
 		}
 	}
 
-	// 4) 守卫者：根据会话历史判断技能是否过时
-	// 真实实现需要从 skillPipeline 拉取 SkillRecord 列表
+	// 4) Memory 三层分层：将 Working → Session → Long-term
+	if a.options.DataDir != "" {
+		memStore := memory.NewFileStore(filepath.Join(a.options.DataDir, "memory"))
+		// 保存 Session Memory
+		sm := memory.NewSessionMemory(a.goal)
+		sm.TokensUsed = totalTokens
+		successCount := 0
+		for _, r := range results {
+			if r.Success {
+				successCount++
+			}
+		}
+		sm.LoopSummaries = append(sm.LoopSummaries, memory.LoopSummary{
+			LoopNumber: len(results),
+			PlanBrief:  TruncateStr(a.goal, 100),
+			StepsDone:  successCount,
+			TokensUsed: totalTokens,
+		})
+		memStore.SaveSessionMemory(a.sessionID, sm)
+		a.logger.Log("memory", "session_saved", map[string]interface{}{
+			"session_id": a.sessionID,
+			"loops":      len(sm.LoopSummaries),
+		})
+	}
+
+	// 5) 守卫者：根据会话历史判断技能是否过时
 	if a.curator != nil {
 		// curator.Run() 需要 skill records，当前跳过
 	}
 
-	// 5) 审查记录：每次会话结束生成 review.Record
-	// postRunEvolution 中生成 Record，保存为文件
-	if recorder := review.New(""); recorder != nil {
-		// 精简实现：把 review 数据记入日志（不引入文件 I/O 开销）
-		a.logger.Log("evolution", "post_run_review", map[string]interface{}{
-			"session_id":    a.sessionID,
-			"total_tokens":  totalTokens,
-		})
+	// 6) 审查记录：每次会话结束生成 review.Record
+	if a.options.DataDir != "" {
+		reportsDir := filepath.Join(a.options.DataDir, "reviews")
+		if recorder := review.New(reportsDir); recorder != nil {
+			report := &review.Report{
+				SessionID: a.sessionID,
+				Changes:   []review.Change{},
+				Findings: []string{
+					fmt.Sprintf("Goal: %s", a.goal),
+					fmt.Sprintf("Total tokens: %d", totalTokens),
+					fmt.Sprintf("Success: %d/%d", successCount, len(results)),
+				},
+				Suggestions: []string{},
+			}
+			if err := recorder.Record(report); err == nil {
+				a.logger.Log("review", "recorded", map[string]interface{}{
+					"session_id": a.sessionID,
+					"report_id":  report.ID,
+				})
+			}
+		}
 	}
 }
 
