@@ -249,16 +249,28 @@ zhulong/
 
 ## 9. Implementation Status
 
-### Backend Modules: 53/53 ✅
+### Backend Modules: 55/55 ✅
 
-All 53 packages compile and pass tests. 52 packages have unit tests (cmd/zhulong excluded by design).
+All 55 packages compile and pass tests. 54 packages have unit tests (cmd/zhulong excluded by design).
+
+### Bot Platform Adapters: 7/7 ✅
+
+All 7 platforms (Telegram, Feishu/Lark, DingTalk, Discord, Slack, WeCom, GitHub) have real token verification and connection initialization.
+
+### MCP Transport: 3/3 ✅
+
+stdio, HTTP, SSE — all fully implemented with JSON-RPC communication and context-aware timeout.
+
+### Frontend Settings Sync: 11/11 ✅
+
+All 11 Settings tabs now sync with backend via SetConfigField API.
 
 ### Test Coverage
 
-- **Total packages**: 54 (53 internal + 1 pkg)
-- **Passing**: 54/54
+- **Total packages**: 56 (55 internal + 1 pkg)
+- **Passing**: 56/56
 - **Runtime**: ~5m 7s (full suite), ~15s (short mode)
-- **Key modules**: memento, security, quality, scheduler, breaker, evolution, workflow, pkg — all verified
+- **Key modules**: memento, security, quality, scheduler, breaker, evolution, workflow, pkg, bot, mcp — all verified
 
 ---
 

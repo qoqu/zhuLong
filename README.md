@@ -293,15 +293,22 @@ zhuLong/
 │   ├── main.go
 │   ├── app.go            # Wails 绑定（30+ 个方法）
 │   ├── agent.go          # Agent 执行逻辑
+│   ├── agent_test.go     # 单元测试
 │   └── frontend/         # React 前端
 ├── docs/                 # 文档
-│   └── design.md         # 详细设计文档
-├── internal/             # 内部模块
+│   ├── design.md         # 详细设计文档（中文）
+│   └── design.en.md      # 详细设计文档（英文）
+├── internal/             # 内部模块（55 个子包）
+│   ├── acp/              # 自适应上下文协议
 │   ├── approval/         # 审批引擎
 │   ├── backup/           # 备份管理
+│   ├── blueprint/        # 自动化蓝图目录
+│   ├── board/            # 无限画布
 │   ├── bot/              # Bot 渠道系统（7 个平台适配器）
 │   │   ├── types.go      # 统一消息格式
 │   │   ├── manager.go    # 适配器管理
+│   │   ├── registry.go   # 适配器注册中心
+│   │   ├── dedup.go      # 消息去重器
 │   │   ├── telegram.go   # Telegram 适配器
 │   │   ├── feishu.go     # 飞书适配器
 │   │   ├── dingtalk.go   # 钉钉适配器
@@ -309,29 +316,54 @@ zhuLong/
 │   │   ├── slack.go      # Slack 适配器
 │   │   ├── wecom.go      # WeCom 适配器
 │   │   └── github.go     # GitHub 适配器
+│   ├── breaker/          # 断路器
 │   ├── budget/           # 成本控制
+│   ├── cache/            # 缓存管理
 │   ├── checkpoint/       # 检查点
-│   ├── compressor/       # 上下文压缩
+│   ├── compressor/       # 上下文压缩（Prune + Skeleton + Incremental）
 │   ├── controller/       # 状态机控制器
+│   ├── cronx/            # 定时任务调度
 │   ├── dashboard/        # Web Dashboard
 │   ├── environment/      # 环境感知
+│   ├── evolution/        # 自进化系统（审查 + 建议 + 守卫者）
 │   ├── executor/         # 执行器
 │   ├── exploration/      # 探索触发
+│   ├── gateway/          # 消息网关（多平台适配器接口）
+│   ├── health/           # 健康检查
+│   ├── hook/             # 钩子引擎（6 阶段执行点）
+│   ├── hub/              # 消息中心
 │   ├── human/            # 人机协作
-│   ├── information/      # 信息论
-│   ├── learning/         # 自适应学习
-│   ├── mcp/              # MCP 客户端
-│   ├── memory/           # 记忆系统
-│   ├── planner/          # 规划器
+│   ├── i18n/             # 多语言（17 语言支持）
+│   ├── information/      # 信息论（信息增益 + 信息密度）
+│   ├── learning/         # 自适应学习（积木块 + 多样性 + 混沌边缘）
+│   ├── loop/             # 自治循环引擎
+│   ├── mcp/              # MCP 客户端（stdio + HTTP + SSE）
+│   ├── memento/          # 记忆管理（事实/偏好/快照）
+│   ├── memory/           # 记忆系统（FileStore）
+│   ├── models/           # 多模型池
+│   ├── observe/          # 可观测性增强
+│   ├── planner/          # 规划器（LLM + 备选路径）
 │   ├── plugins/          # 插件管理
-│   ├── provider/         # LLM Provider
+│   ├── profile/          # 用户画像
+│   ├── provider/         # LLM Provider（DeepSeek）
+│   ├── qa/               # 质量保证
+│   ├── quality/          # 质量扫描
 │   ├── reflector/        # 反省器
-│   ├── skills/           # 技能管理
-│   ├── stability/        # 稳定性分析
+│   ├── review/           # 审查记录
+│   ├── scheduler/        # 任务调度
+│   ├── security/         # 安全引擎（输入/路径/命令检查）
+│   ├── skills/           # 技能管道
+│   ├── skillset/         # 预置技能注册表
+│   ├── stability/        # 稳定性分析（振荡/发散检测）
 │   ├── stagnation/       # 停滞检测
-│   ├── synergetics/      # 协同学
-│   ├── tools/            # 工具层
-│   └── trace/            # 可观测性
+│   ├── state/            # 状态管理
+│   ├── synergetics/      # 协同学（序参量 + 役使原理）
+│   ├── terminal/         # 终端后端（Local/Docker/SSH）
+│   ├── tools/            # 工具层（read/write/search/execute）
+│   ├── trace/            # 可观测性（JSONL 日志）
+│   ├── upgrade/          # 升级检查
+│   ├── voice/            # 语音引擎
+│   └── workflow/         # 工作流模式（Hotfix/Tweak/Full）
 ├── pkg/                  # 公共 API（CLI 和桌面端共享）
 │   ├── agent.go          # Agent 核心逻辑
 │   └── types.go          # 公共类型

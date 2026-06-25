@@ -96,3 +96,46 @@ trace:
 logging:
   level: "info"
   format: "json"
+
+# 审批
+approval:
+  mode: "ask"           # ask | allow | deny | yolo
+  default_action: "ask"
+
+# 人机协作
+human:
+  enabled: true
+  breakpoint_enabled: false
+
+# Shell
+shell: "auto"           # auto | bash | powershell
+
+# 沙箱
+sandbox:
+  bash: "enforce"       # enforce | off
+  network: true
+  workspace_root: ""
+  allow_write: []
+
+# 代理
+proxy:
+  mode: "auto"          # auto | custom | off
+  type: "socks5"
+  url: ""
+  no_proxy: "localhost,127.0.0.1"
+
+# 权限
+permissions:
+  mode: "ask"           # ask | allow | deny
+  allow: []
+  ask: []
+  deny: []
+
+# 钩子
+hooks:
+  pre_plan: []
+  post_plan: []
+  pre_tool: []
+  post_tool: []
+  pre_reflect: []
+  post_reflect: []

@@ -941,103 +941,72 @@ zhulong/
 │   └── zhulong/
 │       └── main.go                 # CLI 入口
 │
-├── internal/
-│   ├── controller/                 # P0: 状态机 + 循环控制
-│   │   ├── fsm.go
-│   │   ├── loop.go
-│   │   └── session.go
-│   │
-│   ├── planner/                    # P0: 规划器
-│   │   ├── planner.go
-│   │   ├── prompts.go
-│   │   ├── parser.go
-│   │   └── replan.go
-│   │
-│   ├── executor/                   # P0: 执行器
-│   │   ├── executor.go
-│   │   ├── scheduler.go
-│   │   └── retry.go
-│   │
-│   ├── reflector/                  # P0: 反省器
-│   │   ├── reflector.go
-│   │   ├── prompts.go
-│   │   └── assessment.go
-│   │
-│   ├── stability/                  # P1: 稳定性分析器
-│   │   └── analyzer.go
-│   │
-│   ├── information/                # P1: 信息论模块
-│   │   ├── gain.go
-│   │   └── density.go
-│   │
-│   ├── stagnation/                 # P1: 停滞检测器
-│   │   └── detector.go
-│   │
-│   ├── exploration/                # P1: 探索触发器
-│   │   └── trigger.go
-│   │
-│   ├── synergetics/                # P1: 协同学模块
-│   │   ├── order_parameter.go
-│   │   └── slaving.go
-│   │
-│   ├── learning/                   # P1: 自适应学习模块
-│   │   ├── building_block.go
-│   │   ├── internal_model.go
-│   │   ├── diversity.go
-│   │   └── edge_of_chaos.go
-│   │
-│   ├── skills/                     # P2: 渐进式披露
-│   │   └── manager.go
-│   │
-│   ├── approval/                   # P2: 审批引擎
-│   │   └── engine.go
-│   │
-│   ├── environment/                # P2: 环境感知器
-│   │   └── monitor.go
-│   │
-│   ├── memory/                     # P0: 三层记忆系统
-│   │   ├── interfaces.go
-│   │   ├── working.go
-│   │   ├── session.go
-│   │   ├── longterm.go
-│   │   └── store.go
-│   │
-│   ├── compressor/                 # P0: 上下文压缩
-│   │   ├── compressor.go
-│   │   ├── prune.go
-│   │   ├── skeleton.go
-│   │   ├── assembler.go
-│   │   └── tokenizer.go
-│   │
-│   ├── checkpoint/                 # P0: 检查点持久化
-│   │   ├── checkpoint.go
-│   │   ├── store.go
-│   │   └── restore.go
-│   │
-│   ├── budget/                     # P0: 成本控制
-│   │   ├── budget.go
-│   │   └── pricing.go
-│   │
-│   ├── trace/                      # P0: 可观测性
-│   │   ├── logger.go
-│   │   ├── formatter.go
-│   │   └── export.go
-│   │
-│   ├── human/                      # P0: 人机协作
-│   │   ├── breakpoint.go
-│   │   ├── terminal.go
-│   │   └── input.go
-│   │
-│   ├── tools/                      # P0: 工具抽象层
-│   │   ├── interface.go
-│   │   ├── mcp.go
-│   │   ├── builtin.go
-│   │   └── custom.go
-│   │
-│   └── provider/                   # P0: DeepSeek Provider
-│       ├── interface.go
-│       ├── deepseek.go
-│       └── cache.go
+├── internal/                       # 内部模块（55 个子包）
+│   ├── acp/                        # 自适应上下文协议
+│   ├── approval/                   # 审批引擎
+│   ├── backup/                     # 备份管理
+│   ├── blueprint/                  # 自动化蓝图目录
+│   ├── board/                      # 无限画布
+│   ├── bot/                        # Bot 渠道系统（7 个平台适配器）
+│   │   ├── types.go                # 统一消息格式
+│   │   ├── manager.go              # 适配器管理
+│   │   ├── registry.go             # 适配器注册中心
+│   │   ├── dedup.go                # 消息去重器
+│   │   ├── telegram.go             # Telegram 适配器
+│   │   ├── feishu.go               # 飞书适配器
+│   │   ├── dingtalk.go             # 钉钉适配器
+│   │   ├── discord.go              # Discord 适配器
+│   │   ├── slack.go                # Slack 适配器
+│   │   ├── wecom.go                # WeCom 适配器
+│   │   └── github.go               # GitHub 适配器
+│   ├── breaker/                    # 断路器
+│   ├── budget/                     # 成本控制
+│   ├── cache/                      # 缓存管理
+│   ├── checkpoint/                 # 检查点持久化
+│   ├── compressor/                 # 上下文压缩（Prune + Skeleton + Incremental）
+│   ├── controller/                 # 状态机 + 循环控制
+│   ├── cronx/                      # 定时任务调度
+│   ├── dashboard/                  # Web Dashboard
+│   ├── environment/                # 环境感知器
+│   ├── evolution/                  # 自进化系统（审查 + 建议 + 守卫者）
+│   ├── executor/                   # 执行器
+│   ├── exploration/                # 探索触发器
+│   ├── gateway/                    # 消息网关（多平台适配器接口）
+│   ├── health/                     # 健康检查
+│   ├── hook/                       # 钩子引擎（6 阶段执行点）
+│   ├── hub/                        # 消息中心
+│   ├── human/                      # 人机协作
+│   ├── i18n/                       # 多语言（17 语言支持）
+│   ├── information/                # 信息论（信息增益 + 信息密度）
+│   ├── learning/                   # 自适应学习（积木块 + 多样性 + 混沌边缘）
+│   ├── loop/                       # 自治循环引擎
+│   ├── mcp/                        # MCP 客户端（stdio + HTTP + SSE）
+│   ├── memento/                    # 记忆管理（事实/偏好/快照）
+│   ├── memory/                     # 记忆系统（FileStore）
+│   ├── models/                     # 多模型池
+│   ├── observe/                    # 可观测性增强
+│   ├── planner/                    # 规划器（LLM + 备选路径）
+│   ├── plugins/                    # 插件管理
+│   ├── profile/                    # 用户画像
+│   ├── provider/                   # LLM Provider（DeepSeek）
+│   ├── qa/                         # 质量保证
+│   ├── quality/                    # 质量扫描
+│   ├── reflector/                  # 反省器
+│   ├── review/                     # 审查记录
+│   ├── scheduler/                  # 任务调度
+│   ├── security/                   # 安全引擎（输入/路径/命令检查）
+│   ├── skills/                     # 技能管道
+│   ├── skillset/                   # 预置技能注册表
+│   ├── stability/                  # 稳定性分析（振荡/发散检测）
+│   ├── stagnation/                 # 停滞检测
+│   ├── state/                      # 状态管理
+│   ├── synergetics/                # 协同学（序参量 + 役使原理）
+│   ├── terminal/                   # 终端后端（Local/Docker/SSH）
+│   ├── tools/                      # 工具层（read/write/search/execute）
+│   ├── trace/                      # 可观测性（JSONL 日志）
+│   ├── upgrade/                    # 升级检查
+│   ├── voice/                      # 语音引擎
+│   └── workflow/                   # 工作流模式（Hotfix/Tweak/Full）
 │
 ├── pkg/                            # 对外公共 API（CLI 和桌面端共享）
 │   ├── agent.go                    # Agent 构造函数 + Run()
@@ -1046,35 +1015,26 @@ zhulong/
 │
 ├── desktop/                        # Windows 桌面端（Wails + React）
 │   ├── main.go
-│   ├── app.go
-│   ├── wails.json
-│   └── frontend/
+│   ├── app.go                      # Wails 绑定（30+ 个方法）
+│   ├── agent.go                    # Agent 执行逻辑
+│   ├── agent_test.go               # 单元测试
+│   └── frontend/                   # React 前端
 │       ├── src/
 │       │   ├── App.tsx
-│       │   ├── components/
-│       │   ├── styles/
+│       │   ├── components/         # UI 组件（Settings/Sidebar/TopBar/RightPanel/Transcript/Composer/StatusBar/Canvas/ApprovalModal/HistoryPage）
+│       │   ├── stores/             # Zustand 状态管理（canvasStore）
 │       │   └── main.tsx
 │       ├── package.json
 │       └── vite.config.ts
 │
-├── config/
-│   ├── default.yaml
-│   └── schema.json
-│
-├── examples/
-│   ├── coding/main.go
-│   ├── writing/main.go
-│   └── analysis/main.go
-│
-├── testing/
-│   ├── unit/
-│   ├── integration/
-│   └── benchmark/
+├── config/                         # 配置文件
+│   └── default.yaml                # 默认配置（完整字段）
 │
 ├── docs/
-│   ├── design.md
-│   ├── api.md
-│   └── architecture.md
+│   ├── design.md                   # 详细设计文档（中文）
+│   └── design.en.md                # 详细设计文档（英文）
+│
+├── examples/                       # 示例
 │
 ├── go.mod
 ├── go.sum
