@@ -233,7 +233,10 @@ function BackupControl({ language }: { language: Language }) {
   const [onFail, setOnFail] = useState<boolean>(() => loadJSON('zhulong-backup-onfail', false))
   const [backing, setBacking] = useState(false)
 
-  useEffect(() => { saveJSON('zhulong-backup-mode', mode) }, [mode])
+  useEffect(() => {
+    saveJSON('zhulong-backup-mode', mode)
+    if (backend) try { backend.SetBackupMode(mode) } catch {}
+  }, [mode])
   useEffect(() => { saveJSON('zhulong-backup-onfail', onFail) }, [onFail])
 
   const handleBackup = async () => {
@@ -996,7 +999,10 @@ function DashboardControl({ language }: { language: Language }) {
   const [running, setRunning] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => { saveJSON('zhulong-dashboard-port', port) }, [port])
+  useEffect(() => {
+    saveJSON('zhulong-dashboard-port', port)
+    if (backend) try { backend.SetDashboardPort(port) } catch {}
+  }, [port])
 
   const handleStart = async () => {
     if (!backend) return
@@ -2049,7 +2055,10 @@ function SandboxSettings({ language }: { language: Language }) {
     saveJSON('zhulong-sandbox-network', network)
     if (backend) try { backend.SetConfigField('sandboxNetwork', network) } catch {}
   }, [network])
-  useEffect(() => { saveJSON('zhulong-sandbox-root', workspaceRoot) }, [workspaceRoot])
+  useEffect(() => {
+    saveJSON('zhulong-sandbox-root', workspaceRoot)
+    if (backend) try { backend.SetConfigField('monitorPath', workspaceRoot) } catch {}
+  }, [workspaceRoot])
   useEffect(() => {
     saveJSON('zhulong-sandbox-allowwrite', allowWrite)
     if (backend) try { backend.SetConfigField('allowWrite', allowWrite) } catch {}
@@ -2138,7 +2147,10 @@ function NetworkSettings({ language }: { language: Language }) {
     if (backend) try { backend.SetConfigField('proxyMode', proxyMode) } catch {}
   }, [proxyMode])
   useEffect(() => { saveJSON('zhulong-proxy-type', proxyType) }, [proxyType])
-  useEffect(() => { saveJSON('zhulong-proxy-server', proxyServer) }, [proxyServer])
+  useEffect(() => {
+    saveJSON('zhulong-proxy-server', proxyServer)
+    if (backend && proxyServer) try { backend.SetConfigField('proxyUrl', `${proxyType}://${proxyServer}:${proxyPort}`) } catch {}
+  }, [proxyServer, proxyType, proxyPort])
   useEffect(() => { saveJSON('zhulong-proxy-port', proxyPort) }, [proxyPort])
   useEffect(() => {
     saveJSON('zhulong-proxy-url', proxyUrl)
@@ -2224,6 +2236,12 @@ function AppearanceSettings({ language, darkMode, onToggleDarkMode }: { language
   const [textSize, setTextSize] = useState<string>(() => loadJSON('zhulong-text-size', 'default'))
   const [fontFamily, setFontFamily] = useState<string>(() => loadJSON('zhulong-font-family', 'system'))
   const [monoFont, setMonoFont] = useState<string>(() => loadJSON('zhulong-mono-font', 'system'))
+
+  useEffect(() => { saveJSON('zhulong-theme', theme) }, [theme])
+  useEffect(() => { saveJSON('zhulong-theme-style', themeStyle) }, [themeStyle])
+  useEffect(() => { saveJSON('zhulong-text-size', textSize) }, [textSize])
+  useEffect(() => { saveJSON('zhulong-font-family', fontFamily) }, [fontFamily])
+  useEffect(() => { saveJSON('zhulong-mono-font', monoFont) }, [monoFont])
 
   useEffect(() => { saveJSON('zhulong-theme', theme) }, [theme])
   useEffect(() => { saveJSON('zhulong-theme-style', themeStyle) }, [themeStyle])

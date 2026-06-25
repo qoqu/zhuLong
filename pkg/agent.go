@@ -29,7 +29,6 @@ import (
 	"github.com/qoqu/zhuLong/internal/information"
 	"github.com/qoqu/zhuLong/internal/learning"
 	"github.com/qoqu/zhuLong/internal/memento"
-	"github.com/qoqu/zhuLong/internal/memory"
 	"github.com/qoqu/zhuLong/internal/models"
 	"github.com/qoqu/zhuLong/internal/observe"
 	"github.com/qoqu/zhuLong/internal/plugins"
@@ -526,8 +525,7 @@ func (a *Agent) Run() (*AgentResult, error) {
 
 	// === 基础设施 ===
 	dataDir := a.options.DataDir
-	// memStore 保留给将来的 working/session/long-term 压缩链路
-	_ = memory.NewFileStore(filepath.Join(dataDir, "memory"))
+	// 注: memStore 保留给将来的 working/session/long-term 压缩链路
 	chkStore := checkpoint.NewFileStore(filepath.Join(dataDir, "checkpoint"))
 
 	// 使用 a.logger 替代重新创建 logger
@@ -598,10 +596,9 @@ func (a *Agent) Run() (*AgentResult, error) {
 
 	// === P3 串 2: 多模型池（备用 provider 注入）===
 	// a.provider 是单例，DeepSeek 失败时无降级路径
-	// 注: modelPool 可用于 provider fallback
+	// 注: modelPool 可用于 provider fallback（当前实现：单 provider 模式）
 	if a.modelPool != nil {
-		// 将当前 provider 加入模型池
-		_ = a.modelPool
+		// 模型池可用于多 provider 切换（待完善）
 	}
 
 	// === P3 串 3: 插件查询（在 system prompt 暴露插件列表）===
@@ -623,7 +620,6 @@ func (a *Agent) Run() (*AgentResult, error) {
 		}
 		systemPrompt += bpLine
 	}
-	_ = a.blueprintCat
 
 	// === 三个核心组件 ===
 	// 关键修复: 之前 _ = plannerConfig 把 config 丢掉了

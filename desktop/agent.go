@@ -83,7 +83,6 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	// === 初始化真实模块实例（替代模拟计数器）===
 	fsmSession := controller.NewSession(s.Info.ID, s.Goal)
-	comp := compressor.NewSimpleCompressor(&compressor.CharCounter{}, compressor.DefaultConfig())
 	budgetCtrl := budget.NewBudget(&budget.Config{
 		MaxLoops:    a.config.MaxLoops,
 		MaxTokens:   a.config.BudgetMaxTokens,
@@ -101,9 +100,6 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	// FSM 状态机显式驱动
 	fsmSession.UpdateState(controller.StateIdle)
-
-	// Compressor 上下文压缩（在执行循环中使用）
-	_ = comp // 将在执行循环中通过 comp.Prune() 使用
 
 	provider := newProvider(s.Model)
 	toolsReg := executor.NewToolRegistry()
@@ -622,6 +618,8 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 						Prunable: m.Role == "tool",
 					})
 				}
+				// 创建 compressor 实例进行上下文压缩
+				comp := compressor.NewSimpleCompressor(&compressor.CharCounter{}, compressor.DefaultConfig())
 				pruned := comp.Prune(msgs, len(plan.Steps))
 				if pruned != nil {
 					s.ModuleState.Compressor.Details["prunedCount"] = len(pruned)
