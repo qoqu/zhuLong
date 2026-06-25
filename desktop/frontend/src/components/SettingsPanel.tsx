@@ -720,11 +720,11 @@ function ModelSettings(props: SettingsPanelProps) {
                     <div style={{ color: 'var(--fg-faint)', marginBottom: 4 }}>{isZh ? '将添加以下模型：' : 'Models to add:'}</div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {PRESET_MODELS[addPreset].models.map(m => (
-                        <span key={m.id} style={{ padding: '2px 8px', background: 'var(--bg)', borderRadius: 4, fontSize: 12 }}>{m.name}</span>
+                        <span key={m.id} style={{ padding: '2px 8px', background: 'var(--bg)', color: 'var(--fg)', borderRadius: 4, fontSize: 12 }}>{m.name}</span>
                       ))}
                     </div>
                     <div style={{ marginTop: 8, color: 'var(--fg-faint)', fontSize: 12 }}>
-                      {isZh ? '添加后请在系统环境变量中配置' : 'After adding, set the env variable:'} <code>{PRESET_MODELS[addPreset].apiKeyEnv}</code>
+                      {isZh ? '添加后请在系统环境变量中配置' : 'After adding, set the env variable:'} <code style={{ color: 'var(--fg)' }}>{PRESET_MODELS[addPreset].apiKeyEnv}</code>
                     </div>
                   </div>
                 )}
