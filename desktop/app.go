@@ -1783,6 +1783,24 @@ func (a *App) GetConfigField(field string) interface{} {
 
 // === Helpers ===
 
+// CheckEnvVar checks if an environment variable is set and non-empty
+func (a *App) CheckEnvVar(name string) bool {
+	return os.Getenv(name) != ""
+}
+
+// GetEnvVar returns an environment variable value (masked for security)
+func (a *App) GetEnvVar(name string) string {
+	val := os.Getenv(name)
+	if val == "" {
+		return ""
+	}
+	// 返回掩码值，不暴露完整密钥
+	if len(val) > 8 {
+		return val[:4] + "****" + val[len(val)-4:]
+	}
+	return "****"
+}
+
 // OpenInExplorer opens a folder in the system file explorer
 func (a *App) OpenInExplorer(path string) {
 	runtime.BrowserOpenURL(a.ctx, path)

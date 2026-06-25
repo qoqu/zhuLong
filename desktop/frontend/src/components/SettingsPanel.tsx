@@ -293,13 +293,14 @@ const DS_MODELS = [
 ]
 
 // ─── 默认供应商（内置 DeepSeek）───
+// keySet 由后端 GetEnv 动态判断，不在前端硬编码
 const DEFAULT_PROVIDERS: Provider[] = [
   {
     id: 'deepseek-official',
     name: 'DeepSeek',
     type: 'official',
     source: 'builtin',
-    keySet: true,
+    keySet: false, // 将在初始化时通过后端检查实际密钥状态
     description: 'DeepSeek 官方 OpenAI-compatible 接入',
     apiType: 'openai',
     baseUrl: 'https://api.deepseek.com',
@@ -414,43 +415,72 @@ function ModelSettings(props: SettingsPanelProps) {
     localStorage.setItem('zhulong-model-providers', JSON.stringify(ps))
   }
 
+  // 初始化时检查各供应商的密钥状态
+  useEffect(() => {
+    if (!backend) return
+    const checkKeys = async () => {
+      const updated = await Promise.all(providers.map(async (p) => {
+        if (!p.apiKeyEnv) return p
+        try {
+          const hasKey = await backend.CheckEnvVar(p.apiKeyEnv)
+          if (hasKey !== p.keySet) {
+            return { ...p, keySet: hasKey }
+          }
+        } catch {}
+        return p
+      }))
+      // 如果有变化，更新状态
+      const changed = updated.some((u, i) => u.keySet !== providers[i].keySet)
+      if (changed) saveProviders(updated)
+    }
+    checkKeys()
+  }, []) // eslint-disable-line
+
   const handleAddProvider = () => {
-    const preset = PRESET_MODELS[addPreset]
-    if (!preset) return
-
-    const newId = `${addPreset}-${Date.now()}`
-    const models: ModelInfo[] = []
-
     if (addPreset === 'custom') {
-      // 自定义：解析用户输入的模型列表
+      // 自定义：验证必填项
+      if (!addCustom.name.trim()) return
+      if (!addCustom.baseUrl.trim()) return
       const lines = addCustom.modelsText.split('\n').filter(l => l.trim())
+      const models: ModelInfo[] = []
       for (const line of lines) {
         const [id, name] = line.split(',').map(s => s.trim())
         if (id) models.push({ id, name: name || id, enabled: true })
       }
       if (models.length === 0) return
-    } else {
-      for (const m of preset.models) {
-        models.push({ id: m.id, name: m.name, enabled: true })
+
+      const newProvider: Provider = {
+        id: `custom-${Date.now()}`,
+        name: addCustom.name.trim(),
+        type: 'custom',
+        source: 'user',
+        keySet: false,
+        description: `${addCustom.name} — ${addCustom.baseUrl}`,
+        apiType: 'openai',
+        baseUrl: addCustom.baseUrl.trim(),
+        apiKeyEnv: addCustom.apiKeyEnv.trim(),
+        models,
       }
+      saveProviders([...providers, newProvider])
+    } else {
+      // 预设
+      const preset = PRESET_MODELS[addPreset]
+      if (!preset) return
+      const models: ModelInfo[] = preset.models.map(m => ({ id: m.id, name: m.name, enabled: true }))
+      const newProvider: Provider = {
+        id: `${addPreset}-${Date.now()}`,
+        name: preset.name,
+        type: 'official',
+        source: 'user',
+        keySet: false,
+        description: `${preset.name} OpenAI-compatible 接入`,
+        apiType: preset.apiType,
+        baseUrl: preset.baseUrl,
+        apiKeyEnv: preset.apiKeyEnv,
+        models,
+      }
+      saveProviders([...providers, newProvider])
     }
-
-    const newProvider: Provider = {
-      id: newId,
-      name: addPreset === 'custom' ? addCustom.name : preset.name,
-      type: 'official',
-      source: 'user',
-      keySet: false,
-      description: addPreset === 'custom'
-        ? `${addCustom.name} — ${addCustom.baseUrl}`
-        : `${preset.name} OpenAI-compatible 接入`,
-      apiType: preset.apiType,
-      baseUrl: addPreset === 'custom' ? addCustom.baseUrl : preset.baseUrl,
-      apiKeyEnv: addPreset === 'custom' ? addCustom.apiKeyEnv : preset.apiKeyEnv,
-      models,
-    }
-
-    saveProviders([...providers, newProvider])
     setShowAddModal(false)
     setAddCustom({ name: '', baseUrl: '', apiKeyEnv: '', modelsText: '' })
   }
