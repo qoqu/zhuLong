@@ -1141,9 +1141,380 @@ zhulong/
 - [x] README + 贡献指南
 - [ ] 桌面端打包（Windows 安装包）
 
+### Phase 5: Bot 渠道 + 设置系统 ✅ 已完成
+
+- [x] Bot 渠道框架（参考 Hermes 适配器模式）
+- [x] Telegram 适配器（Bot API 轮询）
+- [x] 飞书/Lark 适配器（App Token + Webhook）
+- [x] 钉钉适配器（Access Token + Webhook）
+- [x] Discord 适配器（Bot API 轮询）
+- [x] Slack 适配器（Bot Token + Webhook）
+- [x] WeCom 适配器（Access Token）
+- [x] GitHub 适配器（Webhook）
+- [x] 统一消息格式（MessageEvent）
+- [x] 适配器注册中心（Registry）
+- [x] 消息去重器（Deduplicator）
+- [x] 设置页面（11 个 Tab）
+- [x] 记忆管理（前端 + 后端 API）
+- [x] MCP 客户端连接（stdio + HTTP）
+- [x] Config 加载（30+ 配置项）
+- [x] Bot Webhook HTTP 路由
+- [x] Config API（SetConfigField/GetConfigField）
+- [x] 单元测试（6 个测试用例）
+
 ---
 
-## 8. 无限画布可视化设计
+## 9. Bot 渠道架构设计
+
+### 9.1 设计目标
+
+为烛龙 Agent 提供多平台消息集成能力，支持：
+- **多平台接入**：Telegram、飞书、钉钉、Discord、Slack、WeCom、GitHub
+- **统一消息格式**：所有平台消息转换为统一的 `MessageEvent`
+- **适配器模式**：每个平台实现独立的 `Adapter` 接口
+- **动态注册**：支持运行时添加新平台
+
+### 9.2 架构图
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                      Bot 渠道系统                                 │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │                    Manager                                  │  │
+│  │  - 适配器管理（Add/Remove/Connect/Disconnect）              │  │
+│  │  - 消息路由（handleBotMessage → Session）                   │  │
+│  │  - 消息去重（Deduplicator）                                 │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                            │                                      │
+│  ┌─────────────────────────┼──────────────────────────────────┐  │
+│  │                         ▼                                    │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │              Platform Adapters                        │  │  │
+│  │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐│  │  │
+│  │  │  │ Telegram │ │  飞书    │ │  钉钉    │ │ Discord  ││  │  │
+│  │  │  │ (API)    │ │ (Token)  │ │ (Token)  │ │ (API)    ││  │  │
+│  │  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘│  │  │
+│  │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐             │  │  │
+│  │  │  │  Slack   │ │  WeCom   │ │  GitHub  │             │  │  │
+│  │  │  │ (Token)  │ │ (Token)  │ │ (Webhook)│             │  │  │
+│  │  │  └──────────┘ └──────────┘ └──────────┘             │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                            │                                      │
+│  ┌─────────────────────────┼──────────────────────────────────┐  │
+│  │                         ▼                                    │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │              Message Format                          │  │  │
+│  │  │  MessageEvent {                                      │  │  │
+│  │  │    Text: string,                                     │  │  │
+│  │  │    MessageType: text|image|video|...                 │  │  │
+│  │  │    Source: SessionSource {                           │  │  │
+│  │  │      Platform, ChatID, UserID, ...                   │  │  │
+│  │  │    },                                                │  │  │
+│  │  │    RichText: *RichTextContent,                       │  │  │
+│  │  │    InteractiveCard: *InteractiveCard,                 │  │  │
+│  │  │  }                                                   │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 9.3 核心接口
+
+```go
+// Adapter 是所有平台适配器必须实现的接口
+type Adapter interface {
+    Platform() Platform
+    Name() string
+    Connect() error
+    Disconnect() error
+    IsConnected() bool
+    Send(chatID string, text string) (*SendResult, error)
+    SendImage(chatID string, imageURL string, caption string) (*SendResult, error)
+    SendRichText(chatID string, richText *RichTextContent) (*SendResult, error)
+    SendInteractiveCard(chatID string, card *InteractiveCard) (*SendResult, error)
+    GetChatInfo(chatID string) (*ChatInfo, error)
+    SetMessageHandler(handler MessageHandler)
+}
+```
+
+### 9.4 平台实现状态
+
+| 平台 | 传输方式 | 消息接收 | 消息发送 | 富文本 | 交互卡片 |
+|------|---------|---------|---------|--------|----------|
+| Telegram | Bot API 轮询 | ✅ | ✅ | ✅ | ✅ |
+| 飞书/Lark | App Token + Webhook | ⚠️ | ✅ | ✅ | ✅ |
+| 钉钉 | Access Token + Webhook | ⚠️ | ✅ | ✅ | ✅ |
+| Discord | Bot API 轮询 | ✅ | ✅ | ✅ | ✅ |
+| Slack | Bot Token + Webhook | ⚠️ | ✅ | ✅ | ✅ |
+| WeCom | Access Token | ⚠️ | ✅ | ✅ | ✅ |
+| GitHub | Webhook | ⚠️ | ✅ | ✅ | ✅ |
+
+---
+
+## 10. MCP 客户端架构设计
+
+### 10.1 设计目标
+
+为烛龙 Agent 提供 MCP（Model Context Protocol）客户端能力：
+- **双传输协议**：stdio（本地进程）+ HTTP/SSE（远程服务）
+- **JSON-RPC 通信**：标准 MCP 协议实现
+- **工具发现**：自动发现服务器提供的工具
+- **工具调用**：远程调用 MCP 服务器的工具
+
+### 10.2 架构图
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                      MCP 客户端                                   │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │                    Client                                   │  │
+│  │  - 连接管理（Connect/Disconnect）                           │  │
+│  │  - 工具发现（DiscoverTools）                                │  │
+│  │  - 工具调用（CallTool）                                     │  │
+│  │  - 通知发送（SendNotification）                             │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                            │                                      │
+│  ┌─────────────────────────┼──────────────────────────────────┐  │
+│  │                         ▼                                    │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │              Transport Layer                         │  │  │
+│  │  │  ┌────────────────────┐  ┌───────────────────────┐  │  │  │
+│  │  │  │    stdio           │  │    HTTP/SSE            │  │  │  │
+│  │  │  │ (JSON-RPC over     │  │ (JSON-RPC over        │  │  │  │
+│  │  │  │  stdin/stdout)     │  │  HTTP POST)            │  │  │  │
+│  │  │  └────────────────────┘  └───────────────────────┘  │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                            │                                      │
+│  ┌─────────────────────────┼──────────────────────────────────┐  │
+│  │                         ▼                                    │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │              Protocol Layer                          │  │  │
+│  │  │  - initialize → capabilities                        │  │  │
+│  │  │  - tools/list → tool definitions                    │  │  │
+│  │  │  - tools/call → tool results                        │  │  │
+│  │  │  - notifications/initialized                        │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 10.3 核心接口
+
+```go
+// Client 是 MCP 客户端
+type Client struct {
+    config     ServerConfig
+    connected  bool
+    tools      []Tool
+    resources  []Resource
+}
+
+// 连接管理
+func (c *Client) Connect() error
+func (c *Client) Close() error
+
+// 工具管理
+func (c *Client) ListTools() []Tool
+func (c *Client) GetTool(name string) *Tool
+func (c *Client) CallTool(ctx context.Context, name string, args map[string]interface{}) (*ToolResult, error)
+```
+
+### 10.4 传输协议支持
+
+| 协议 | 状态 | 说明 |
+|------|------|------|
+| **stdio** | ✅ 完整实现 | JSON-RPC over stdin/stdout |
+| **HTTP** | ✅ 完整实现 | JSON-RPC over HTTP POST |
+| **SSE** | ⚠️ 基础支持 | Server-Sent Events（待完善） |
+
+---
+
+## 11. Config 系统架构设计
+
+### 11.1 设计目标
+
+为烛龙 Agent 提供完整的配置管理系统：
+- **统一配置**：所有模块配置集中管理
+- **动态更新**：支持运行时修改配置
+- **持久化**：配置保存到 JSON 文件
+- **默认值**：从 config/default.yaml 同步默认值
+
+### 11.2 架构图
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                      Config 系统                                  │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │                    AppConfig                                │  │
+│  │  - 30+ 配置字段                                             │  │
+│  │  - JSON 序列化/反序列化                                      │  │
+│  │  - 默认值初始化                                              │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                            │                                      │
+│  ┌─────────────────────────┼──────────────────────────────────┐  │
+│  │                         ▼                                    │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │              API Layer                               │  │  │
+│  │  │  - SetConfigField(field, value)                      │  │  │
+│  │  │  - GetConfigField(field)                             │  │  │
+│  │  │  - GetConfig()                                       │  │  │
+│  │  │  - saveConfig()                                      │  │  │
+│  │  │  - loadConfig()                                      │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                            │                                      │
+│  ┌─────────────────────────┼──────────────────────────────────┐  │
+│  │                         ▼                                    │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │              Storage Layer                           │  │  │
+│  │  │  - ~/.zhulong/config.json                            │  │  │
+│  │  │  - config/default.yaml (默认值)                       │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 11.3 配置字段
+
+| 分类 | 字段 | 类型 | 默认值 |
+|------|------|------|--------|
+| **DeepSeek** | deepseekModel | string | deepseek-v4-flash |
+| | deepseekBaseUrl | string | https://api.deepseek.com |
+| | temperature | float64 | 0.7 |
+| | maxTokens | int | 4096 |
+| **循环控制** | maxLoops | int | 50 |
+| | maxWallTime | string | 30m |
+| | checkpointEvery | int | 3 |
+| **成本控制** | budgetMaxTokens | int | 500000 |
+| | budgetMaxCost | float64 | 10.0 |
+| | budgetWarnAt | float64 | 0.8 |
+| **规划器** | plannerMaxSteps | int | 15 |
+| | plannerAllowReplan | bool | true |
+| | plannerMaxReplans | int | 5 |
+| **压缩** | compressorPruneEnabled | bool | true |
+| | compressorPruneMaxAge | int | 2 |
+| | compressorMaxTokens | int | 2000 |
+| **停滞检测** | stagnationWindowSize | int | 3 |
+| | stagnationEntropyThreshold | float64 | 0.2 |
+| **探索** | explorationBaseTemp | float64 | 0.7 |
+| | explorationMaxTemp | float64 | 1.5 |
+| **多样性** | diversityThreshold | float64 | 1.0 |
+| **可观测性** | traceEnabled | bool | true |
+| | traceFormat | string | jsonl |
+| | traceVerbose | bool | false |
+| **Shell** | shell | string | auto |
+| **沙箱** | sandboxBash | string | enforce |
+| | sandboxNetwork | bool | true |
+| | allowWrite | []string | [] |
+| **代理** | proxyMode | string | auto |
+| | proxyUrl | string | "" |
+| | noProxy | string | "" |
+| **权限** | permMode | string | ask |
+| | permAllow | []string | [] |
+| | permAsk | []string | [] |
+| | permDeny | []string | [] |
+
+---
+
+## 12. 桌面端架构设计
+
+### 12.1 设计目标
+
+为烛龙 Agent 提供完整的桌面端应用：
+- **跨平台**：Windows（Wails + React）
+- **实时同步**：前端与后端实时通信
+- **完整功能**：所有 CLI 功能在桌面端可用
+- **用户体验**：Apple Design 风格
+
+### 12.2 架构图
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                      桌面端架构                                    │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │                    Frontend (React)                         │  │
+│  │  - 11 个设置 Tab                                            │  │
+│  │  - 无限画布                                                  │  │
+│  │  - 实时状态展示                                              │  │
+│  │  - 消息面板                                                  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                            │                                      │
+│  ┌─────────────────────────┼──────────────────────────────────┐  │
+│  │                         ▼                                    │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │              Wails Bindings                          │  │  │
+│  │  │  - 30+ 个绑定方法                                     │  │  │
+│  │  │  - 实时事件推送                                       │  │  │
+│  │  │  - 错误处理                                           │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                            │                                      │
+│  ┌─────────────────────────┼──────────────────────────────────┐  │
+│  │                         ▼                                    │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │              Backend (Go)                             │  │  │
+│  │  │  - Agent 核心逻辑                                     │  │  │
+│  │  │  - Bot 渠道系统                                       │  │  │
+│  │  │  - MCP 客户端                                         │  │  │
+│  │  │  - Config 系统                                        │  │  │
+│  │  │  - 30+ 个模块实例                                     │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 12.3 Wails 绑定方法
+
+| 分类 | 方法 | 说明 |
+|------|------|------|
+| **会话管理** | NewSession | 创建新会话 |
+| | GetSession | 获取会话 |
+| | DeleteSession | 删除会话 |
+| | RenameSession | 重命名会话 |
+| | SetActiveSession | 设置活跃会话 |
+| **Agent 执行** | SendMessage | 发送消息触发 Agent |
+| | Stop | 停止当前运行 |
+| | Reset | 重置会话 |
+| | RespondApproval | 响应审批请求 |
+| **模型设置** | SetModel | 设置模型 |
+| | SetExecutionMode | 设置执行模式 |
+| | SetTemperature | 设置温度 |
+| | SetActiveAgent | 设置活跃 Agent |
+| **记忆管理** | ListMemory | 列出记忆 |
+| | Remember | 记住事实 |
+| | Forget | 忘记事实 |
+| | RestoreMemory | 恢复记忆 |
+| | DeleteMemory | 删除记忆 |
+| | SaveDoc | 保存指令文件 |
+| | DeleteDoc | 删除指令文件 |
+| **MCP 连接** | MCPConnectServer | 连接 MCP 服务器 |
+| | MCPDisconnectServer | 断开 MCP 服务器 |
+| | MCPListTools | 列出工具 |
+| | MCPCallTool | 调用工具 |
+| | MCPIsConnected | 检查连接状态 |
+| **仪表盘** | StartDashboard | 启动仪表盘 |
+| | StopDashboard | 停止仪表盘 |
+| | SetDashboardPort | 设置仪表盘端口 |
+| **备份** | TriggerBackup | 触发备份 |
+| | SetBackupMode | 设置备份模式 |
+| **Bot 渠道** | BotConnect | 连接 Bot |
+| | BotDisconnect | 断开 Bot |
+| | BotSend | 发送消息 |
+| | BotIsConnected | 检查连接状态 |
+| | BotListAdapters | 列出适配器 |
+| | BotRemoveAdapter | 移除适配器 |
+| **Config** | SetConfigField | 设置配置字段 |
+| | GetConfigField | 获取配置字段 |
+| | GetConfig | 获取完整配置 |
+| **文件操作** | OpenInExplorer | 在资源管理器中打开 |
+| | GetGlobalPath | 获取全局路径 |
+| | GetProjectPath | 获取项目路径 |
 
 ### 8.1 设计目标
 
