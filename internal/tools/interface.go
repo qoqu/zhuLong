@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -190,8 +191,16 @@ func (t *ExecuteCommandTool) Call(ctx context.Context, params map[string]interfa
 		return "", fmt.Errorf("missing parameter: command")
 	}
 
+	// 检测操作系统，选择正确的 shell
+	shell := "bash"
+	shellFlag := "-c"
+	if runtime.GOOS == "windows" {
+		shell = "cmd"
+		shellFlag = "/c"
+	}
+
 	// Execute command
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	cmd := exec.CommandContext(ctx, shell, shellFlag, command)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(output), fmt.Errorf("command failed: %w", err)
