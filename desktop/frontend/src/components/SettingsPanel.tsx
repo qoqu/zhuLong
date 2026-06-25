@@ -407,8 +407,15 @@ function ModelSettings(props: SettingsPanelProps) {
     } catch { return DEFAULT_PROVIDERS }
   })
   const [showAddModal, setShowAddModal] = useState(false)
+  const [addType, setAddType] = useState<'official' | 'custom'>('official')
   const [addPreset, setAddPreset] = useState<string>('openai')
-  const [addCustom, setAddCustom] = useState({ name: '', baseUrl: '', apiKeyEnv: '', modelsText: '' })
+  const [addCustom, setAddCustom] = useState({
+    name: '',
+    baseUrl: '',
+    apiKeyEnv: '',
+    apiKeyValue: '', // 新增：直接输入 API Key
+    modelsText: '',
+  })
 
   const saveProviders = (ps: Provider[]) => {
     setProviders(ps)
@@ -436,11 +443,12 @@ function ModelSettings(props: SettingsPanelProps) {
     checkKeys()
   }, []) // eslint-disable-line
 
-  const handleAddProvider = () => {
-    if (addPreset === 'custom') {
-      // 自定义：验证必填项
-      if (!addCustom.name.trim()) return
-      if (!addCustom.baseUrl.trim()) return
+  const handleAddProvider = async () => {
+    let newProvider: Provider | null = null
+
+    if (addType === 'custom') {
+      // 自定义供应商
+      if (!addCustom.name.trim() || !addCustom.baseUrl.trim()) return
       const lines = addCustom.modelsText.split('\n').filter(l => l.trim())
       const models: ModelInfo[] = []
       for (const line of lines) {
@@ -449,40 +457,61 @@ function ModelSettings(props: SettingsPanelProps) {
       }
       if (models.length === 0) return
 
-      const newProvider: Provider = {
+      // 如果有 API Key，写入环境变量
+      const envName = addCustom.apiKeyEnv.trim() || `${addCustom.name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`
+      let keySet = false
+      if (addCustom.apiKeyValue.trim()) {
+        try {
+          await backend.SetConfigField(envName, addCustom.apiKeyValue.trim())
+          keySet = true
+        } catch {}
+      }
+
+      newProvider = {
         id: `custom-${Date.now()}`,
         name: addCustom.name.trim(),
         type: 'custom',
         source: 'user',
-        keySet: false,
+        keySet,
         description: `${addCustom.name} — ${addCustom.baseUrl}`,
         apiType: 'openai',
         baseUrl: addCustom.baseUrl.trim(),
-        apiKeyEnv: addCustom.apiKeyEnv.trim(),
+        apiKeyEnv: envName,
         models,
       }
-      saveProviders([...providers, newProvider])
     } else {
-      // 预设
+      // 预设供应商
       const preset = PRESET_MODELS[addPreset]
       if (!preset) return
-      const models: ModelInfo[] = preset.models.map(m => ({ id: m.id, name: m.name, enabled: true }))
-      const newProvider: Provider = {
+
+      // 如果有 API Key，写入环境变量
+      let keySet = false
+      if (addCustom.apiKeyValue.trim()) {
+        try {
+          await backend.SetConfigField(preset.apiKeyEnv, addCustom.apiKeyValue.trim())
+          keySet = true
+        } catch {}
+      }
+
+      newProvider = {
         id: `${addPreset}-${Date.now()}`,
         name: preset.name,
         type: 'official',
         source: 'user',
-        keySet: false,
+        keySet,
         description: `${preset.name} OpenAI-compatible 接入`,
         apiType: preset.apiType,
         baseUrl: preset.baseUrl,
         apiKeyEnv: preset.apiKeyEnv,
-        models,
+        models: preset.models.map(m => ({ id: m.id, name: m.name, enabled: true })),
       }
-      saveProviders([...providers, newProvider])
     }
-    setShowAddModal(false)
-    setAddCustom({ name: '', baseUrl: '', apiKeyEnv: '', modelsText: '' })
+
+    if (newProvider) {
+      saveProviders([...providers, newProvider])
+      setShowAddModal(false)
+      setAddCustom({ name: '', baseUrl: '', apiKeyEnv: '', apiKeyValue: '', modelsText: '' })
+    }
   }
 
   const toggleModel = (providerId: string, modelId: string) => {
@@ -653,21 +682,46 @@ function ModelSettings(props: SettingsPanelProps) {
             </div>
           )}
 
-          {/* ═══ 添加供应商弹窗 ═══ */}
-          {showAddModal && (
-            <div className="settings-add-modal" style={{
-              position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
-            }}>
-              <div style={{
-                background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12,
-                padding: 24, width: 480, maxHeight: '80vh', overflow: 'auto',
-              }}>
-                <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>{isZh ? '添加模型服务' : 'Add Model Provider'}</h3>
+      {/* ═══ 添加供应商弹窗 ═══ */}
+      {showAddModal && (
+        <div className="settings-add-modal" style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+        }}>
+          <div style={{
+            background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12,
+            padding: 24, width: 520, maxHeight: '85vh', overflow: 'auto',
+          }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>
+              {isZh ? '添加供应商' : 'Add Provider'}
+            </h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--fg-faint)' }}>
+              {isZh ? '选择官方预设，或添加一个自定义 OpenAI-compatible 接入。' : 'Choose an official preset, or add a custom OpenAI-compatible provider.'}
+            </p>
 
+            {/* 类型切换 */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <button
+                className={`settings-btn ${addType === 'official' ? 'settings-btn--primary' : 'settings-btn--ghost'}`}
+                onClick={() => setAddType('official')}
+                style={{ flex: 1 }}
+              >
+                {isZh ? '官方供应商' : 'Official'}
+              </button>
+              <button
+                className={`settings-btn ${addType === 'custom' ? 'settings-btn--primary' : 'settings-btn--ghost'}`}
+                onClick={() => setAddType('custom')}
+                style={{ flex: 1 }}
+              >
+                {isZh ? '自定义供应商' : 'Custom'}
+              </button>
+            </div>
+
+            {addType === 'official' && (
+              <>
                 <div style={{ marginBottom: 12 }}>
                   <label style={{ display: 'block', fontSize: 13, color: 'var(--fg-faint)', marginBottom: 4 }}>
-                    {isZh ? '选择预设' : 'Preset'}
+                    {isZh ? '选择服务' : 'Service'}
                   </label>
                   <select className="settings-select settings-select--wide" value={addPreset}
                     onChange={e => setAddPreset(e.target.value)}>
@@ -677,69 +731,106 @@ function ModelSettings(props: SettingsPanelProps) {
                   </select>
                 </div>
 
-                {addPreset === 'custom' && (
-                  <>
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ display: 'block', fontSize: 13, color: 'var(--fg-faint)', marginBottom: 4 }}>
-                        {isZh ? '服务名称' : 'Name'}
-                      </label>
-                      <input className="settings-input" value={addCustom.name}
-                        onChange={e => setAddCustom(p => ({ ...p, name: e.target.value }))}
-                        placeholder="My LLM" />
-                    </div>
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ display: 'block', fontSize: 13, color: 'var(--fg-faint)', marginBottom: 4 }}>
-                        {isZh ? 'API Base URL' : 'API Base URL'}
-                      </label>
-                      <input className="settings-input" value={addCustom.baseUrl}
-                        onChange={e => setAddCustom(p => ({ ...p, baseUrl: e.target.value }))}
-                        placeholder="https://api.example.com/v1" />
-                    </div>
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ display: 'block', fontSize: 13, color: 'var(--fg-faint)', marginBottom: 4 }}>
-                        {isZh ? '环境变量名（存放 API Key）' : 'Env var for API Key'}
-                      </label>
-                      <input className="settings-input" value={addCustom.apiKeyEnv}
-                        onChange={e => setAddCustom(p => ({ ...p, apiKeyEnv: e.target.value }))}
-                        placeholder="MY_API_KEY" />
-                    </div>
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ display: 'block', fontSize: 13, color: 'var(--fg-faint)', marginBottom: 4 }}>
-                        {isZh ? '模型列表（每行一个：model-id,显示名称）' : 'Models (one per line: model-id,display-name)'}
-                      </label>
-                      <textarea className="settings-input settings-textarea" rows={4}
-                        value={addCustom.modelsText}
-                        onChange={e => setAddCustom(p => ({ ...p, modelsText: e.target.value }))}
-                        placeholder={"gpt-4o,GPT-4o\ngpt-4o-mini,GPT-4o Mini"} style={{ fontFamily: 'monospace', fontSize: 12 }} />
-                    </div>
-                  </>
-                )}
-
-                {addPreset !== 'custom' && PRESET_MODELS[addPreset] && (
-                  <div style={{ marginBottom: 12, padding: 12, background: 'var(--bg-soft)', borderRadius: 8, fontSize: 13 }}>
-                    <div style={{ color: 'var(--fg-faint)', marginBottom: 4 }}>{isZh ? '将添加以下模型：' : 'Models to add:'}</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {PRESET_MODELS[addPreset].models.map(m => (
-                        <span key={m.id} style={{ padding: '2px 8px', background: 'var(--bg)', color: 'var(--fg)', borderRadius: 4, fontSize: 12 }}>{m.name}</span>
-                      ))}
-                    </div>
-                    <div style={{ marginTop: 8, color: 'var(--fg-faint)', fontSize: 12 }}>
-                      {isZh ? '添加后请在系统环境变量中配置' : 'After adding, set the env variable:'} <code style={{ color: 'var(--fg)' }}>{PRESET_MODELS[addPreset].apiKeyEnv}</code>
+                {PRESET_MODELS[addPreset] && (
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ display: 'block', fontSize: 13, color: 'var(--fg-faint)', marginBottom: 4 }}>
+                      {isZh ? 'API Key（可选，稍后配置）' : 'API Key (optional, configure later)'}
+                    </label>
+                    <input className="settings-input" type="password"
+                      value={addCustom.apiKeyValue}
+                      onChange={e => setAddCustom(p => ({ ...p, apiKeyValue: e.target.value }))}
+                      placeholder="sk-..." />
+                    <div style={{ marginTop: 4, fontSize: 12, color: 'var(--fg-faint)' }}>
+                      {isZh ? '环境变量：' : 'Env var: '} <code style={{ color: 'var(--fg)' }}>{PRESET_MODELS[addPreset].apiKeyEnv}</code>
                     </div>
                   </div>
                 )}
 
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button className="settings-btn settings-btn--ghost" onClick={() => setShowAddModal(false)}>
-                    {isZh ? '取消' : 'Cancel'}
-                  </button>
-                  <button className="settings-btn settings-btn--primary" onClick={handleAddProvider}>
-                    {isZh ? '添加' : 'Add'}
-                  </button>
+                {PRESET_MODELS[addPreset] && (
+                  <div style={{ marginBottom: 12, padding: 12, background: 'var(--bg-soft)', borderRadius: 8, fontSize: 13 }}>
+                    <div style={{ color: 'var(--fg-faint)', marginBottom: 4 }}>
+                      {isZh ? '将添加以下模型：' : 'Models to add:'}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {PRESET_MODELS[addPreset].models.map(m => (
+                        <span key={m.id} style={{ padding: '2px 8px', background: 'var(--bg)', color: 'var(--fg)', borderRadius: 4, fontSize: 12 }}>
+                          {m.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {addType === 'custom' && (
+              <>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', fontSize: 13, color: 'var(--fg-faint)', marginBottom: 4 }}>
+                    {isZh ? '接入协议' : 'Protocol'}
+                  </label>
+                  <div style={{ padding: '8px 12px', background: 'var(--bg-soft)', borderRadius: 8, fontSize: 13 }}>
+                    <div style={{ fontWeight: 500, marginBottom: 2 }}>OpenAI-compatible</div>
+                    <div style={{ color: 'var(--fg-faint)', fontSize: 12 }}>
+                      {isZh ? '适用于兼容 OpenAI API 的代理、聚合平台和自建服务。' : 'For OpenAI-compatible APIs, proxies, and self-hosted services.'}
+                    </div>
+                  </div>
                 </div>
-              </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', fontSize: 13, color: 'var(--fg-faint)', marginBottom: 4 }}>
+                    {isZh ? '自定义供应商名称' : 'Provider Name'}
+                  </label>
+                  <input className="settings-input" value={addCustom.name}
+                    onChange={e => setAddCustom(p => ({ ...p, name: e.target.value }))}
+                    placeholder="My LLM" />
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', fontSize: 13, color: 'var(--fg-faint)', marginBottom: 4 }}>
+                    API {isZh ? '地址' : 'Base URL'}
+                  </label>
+                  <input className="settings-input" value={addCustom.baseUrl}
+                    onChange={e => setAddCustom(p => ({ ...p, baseUrl: e.target.value }))}
+                    placeholder="https://api.example.com/v1" />
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', fontSize: 13, color: 'var(--fg-faint)', marginBottom: 4 }}>
+                    {isZh ? 'API Key' : 'API Key'}
+                  </label>
+                  <input className="settings-input" type="password"
+                    value={addCustom.apiKeyValue}
+                    onChange={e => setAddCustom(p => ({ ...p, apiKeyValue: e.target.value }))}
+                    placeholder="sk-..." />
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', fontSize: 13, color: 'var(--fg-faint)', marginBottom: 4 }}>
+                    {isZh ? '模型列表（每行一个：model-id,显示名称）' : 'Models (one per line: model-id,display-name)'}
+                  </label>
+                  <textarea className="settings-input settings-textarea" rows={4}
+                    value={addCustom.modelsText}
+                    onChange={e => setAddCustom(p => ({ ...p, modelsText: e.target.value }))}
+                    placeholder={"gpt-4o,GPT-4o\ngpt-4o-mini,GPT-4o Mini"} style={{ fontFamily: 'monospace', fontSize: 12 }} />
+                </div>
+              </>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className="settings-btn settings-btn--ghost" onClick={() => {
+                setShowAddModal(false)
+                setAddCustom({ name: '', baseUrl: '', apiKeyEnv: '', apiKeyValue: '', modelsText: '' })
+              }}>
+                {isZh ? '取消' : 'Cancel'}
+              </button>
+              <button className="settings-btn settings-btn--primary" onClick={handleAddProvider}>
+                {isZh ? '添加' : 'Add'}
+              </button>
             </div>
-          )}
+          </div>
+        </div>
+      )}
         </>
       )}
     </div>
