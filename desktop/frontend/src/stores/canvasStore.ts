@@ -255,8 +255,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     for (const node of nodes) {
       const x = node.position?.x || 0;
       const y = node.position?.y || 0;
-      const width = node.width || 200;
-      const height = node.height || 100;
+      const width = node.size?.width || 200;
+      const height = node.size?.height || 100;
       if (x < minX) minX = x;
       if (y < minY) minY = y;
       if (x + width > maxX) maxX = x + width;
