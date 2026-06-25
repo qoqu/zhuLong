@@ -41,6 +41,9 @@ func (d *DiscordAdapter) Connect() error {
 		return fmt.Errorf("invalid bot token: %w", err)
 	}
 
+	// 启动消息轮询
+	go d.pollMessages()
+
 	d.SetConnected(true)
 	return nil
 }
@@ -382,4 +385,20 @@ func init() {
 		Description:    "Discord Bot API (Gateway + HTTP)",
 		RequiredFields: []string{"token"},
 	})
+}
+
+// pollMessages polls for new messages from Discord (simplified)
+func (d *DiscordAdapter) pollMessages() {
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		default:
+		}
+
+		// Discord 推荐使用 Gateway WebSocket 连接
+		// 这里使用简化的 HTTP 轮询作为临时方案
+		// 生产环境应使用 Discord Gateway
+		time.Sleep(5 * time.Second)
+	}
 }

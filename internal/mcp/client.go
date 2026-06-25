@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -73,6 +74,34 @@ func (c *Client) connectHTTP() error {
 
 	c.connected = true
 	return nil
+}
+
+// sendHTTPRequest sends a JSON-RPC request via HTTP POST
+func (c *Client) sendHTTPRequest(req Request) (*Response, error) {
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	url := c.config.Transport.URL
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Post(url, "application/json", bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var response Response
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	return &response, nil
 }
 
 // connectStdio connects to the MCP server via stdio
@@ -253,6 +282,12 @@ func (c *Client) sendRequest(req Request) (*Response, error) {
 
 // sendRequestWithContext sends a request with context and waits for the response
 func (c *Client) sendRequestWithContext(ctx context.Context, req Request) (*Response, error) {
+	// HTTP transport
+	if c.config.Transport.Type == "http" || c.config.Transport.Type == "sse" {
+		return c.sendHTTPRequest(req)
+	}
+
+	// stdio transport
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -302,6 +337,18 @@ func (c *Client) sendRequestWithContext(ctx context.Context, req Request) (*Resp
 
 // sendNotification sends a notification (no response expected)
 func (c *Client) sendNotification(notif Notification) error {
+	// HTTP transport
+	if c.config.Transport.Type == "http" || c.config.Transport.Type == "sse" {
+		data, err := json.Marshal(notif)
+		if err != nil {
+			return fmt.Errorf("failed to marshal notification: %w", err)
+		}
+		client := &http.Client{Timeout: 10 * time.Second}
+		_, err = client.Post(c.config.Transport.URL, "application/json", bytes.NewReader(data))
+		return err
+	}
+
+	// stdio transport
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

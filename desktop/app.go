@@ -1676,6 +1676,111 @@ func (a *App) handleBotMessage(event *bot.MessageEvent) {
 	}()
 }
 
+// SetConfigField updates a single config field and persists
+func (a *App) SetConfigField(field string, value interface{}) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	switch field {
+	case "deepseekModel":
+		a.config.DeepSeekModel = value.(string)
+	case "deepseekBaseUrl":
+		a.config.DeepSeekBaseURL = value.(string)
+	case "temperature":
+		a.config.Temperature = value.(float64)
+	case "maxTokens":
+		a.config.MaxTokens = value.(int)
+	case "maxLoops":
+		a.config.MaxLoops = value.(int)
+	case "maxWallTime":
+		a.config.MaxWallTime = value.(string)
+	case "budgetMaxTokens":
+		a.config.BudgetMaxTokens = value.(int)
+	case "budgetMaxCost":
+		a.config.BudgetMaxCost = value.(float64)
+	case "budgetWarnAt":
+		a.config.BudgetWarnAt = value.(float64)
+	case "plannerMaxSteps":
+		a.config.PlannerMaxSteps = value.(int)
+	case "toolTimeout":
+		a.config.ToolTimeout = value.(string)
+	case "stagnationWindowSize":
+		a.config.StagnationWindowSize = value.(int)
+	case "explorationBaseTemp":
+		a.config.ExplorationBaseTemp = value.(float64)
+	case "explorationMaxTemp":
+		a.config.ExplorationMaxTemp = value.(float64)
+	case "diversityThreshold":
+		a.config.DiversityThreshold = value.(float64)
+	case "traceEnabled":
+		a.config.TraceEnabled = value.(bool)
+	case "shell":
+		a.config.Shell = value.(string)
+	case "proxyMode":
+		a.config.ProxyMode = value.(string)
+	case "proxyUrl":
+		a.config.ProxyURL = value.(string)
+	case "permMode":
+		a.config.PermMode = value.(string)
+	default:
+		return fmt.Errorf("unknown config field: %s", field)
+	}
+
+	a.saveConfig()
+	return nil
+}
+
+// GetConfigField returns a single config field value
+func (a *App) GetConfigField(field string) interface{} {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	switch field {
+	case "deepseekModel":
+		return a.config.DeepSeekModel
+	case "deepseekBaseUrl":
+		return a.config.DeepSeekBaseURL
+	case "temperature":
+		return a.config.Temperature
+	case "maxTokens":
+		return a.config.MaxTokens
+	case "maxLoops":
+		return a.config.MaxLoops
+	case "maxWallTime":
+		return a.config.MaxWallTime
+	case "budgetMaxTokens":
+		return a.config.BudgetMaxTokens
+	case "budgetMaxCost":
+		return a.config.BudgetMaxCost
+	case "budgetWarnAt":
+		return a.config.BudgetWarnAt
+	case "plannerMaxSteps":
+		return a.config.PlannerMaxSteps
+	case "toolTimeout":
+		return a.config.ToolTimeout
+	case "stagnationWindowSize":
+		return a.config.StagnationWindowSize
+	case "explorationBaseTemp":
+		return a.config.ExplorationBaseTemp
+	case "explorationMaxTemp":
+		return a.config.ExplorationMaxTemp
+	case "diversityThreshold":
+		return a.config.DiversityThreshold
+	case "traceEnabled":
+		return a.config.TraceEnabled
+	case "shell":
+		return a.config.Shell
+	case "proxyMode":
+		return a.config.ProxyMode
+	case "proxyUrl":
+		return a.config.ProxyURL
+	case "permMode":
+		return a.config.PermMode
+	default:
+		return nil
+	}
+}
+
 // === Helpers ===
 
 // OpenInExplorer opens a folder in the system file explorer

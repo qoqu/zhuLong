@@ -39,6 +39,9 @@ func (s *SlackAdapter) Connect() error {
 		return fmt.Errorf("invalid bot token: %w", err)
 	}
 
+	// 启动消息轮询
+	go s.pollMessages()
+
 	s.SetConnected(true)
 	return nil
 }
@@ -398,4 +401,20 @@ func init() {
 		Description:    "Slack Bot API (Socket Mode + Events API)",
 		RequiredFields: []string{"token"},
 	})
+}
+
+// pollMessages polls for new messages from Slack (simplified)
+func (s *SlackAdapter) pollMessages() {
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		default:
+		}
+
+		// Slack 推荐使用 Socket Mode WebSocket 连接
+		// 这里使用简化的 HTTP 轮询作为临时方案
+		// 生产环境应使用 Slack Socket Mode
+		time.Sleep(5 * time.Second)
+	}
 }

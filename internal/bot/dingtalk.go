@@ -19,6 +19,7 @@ type DingTalkAdapter struct {
 	appSecret string
 	webhook   string
 	secret    string
+	token     string
 	client    *http.Client
 	stopCh    chan struct{}
 }
@@ -40,6 +41,21 @@ func NewDingTalkAdapter(config AdapterConfig) Adapter {
 func (d *DingTalkAdapter) Connect() error {
 	if d.webhook == "" && (d.appKey == "" || d.appSecret == "") {
 		return fmt.Errorf("dingtalk webhook or app_key/app_secret is required")
+	}
+
+	// 如果有 appKey/appSecret，获取 access token 并启动轮询
+	if d.appKey != "" && d.appSecret != "" {
+		token, err := d.getAccessToken()
+		if err != nil {
+			return fmt.Errorf("failed to get access token: %w", err)
+		}
+		d.token = token
+
+		// 启动 token 自动刷新
+		go d.refreshTokenLoop()
+
+		// 启动消息轮询
+		go d.pollMessages()
 	}
 
 	d.SetConnected(true)
@@ -335,6 +351,7 @@ func (d *DingTalkAdapter) getAccessToken() (string, error) {
 	var result struct {
 		ErrCode     int    `json:"errcode"`
 		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -346,6 +363,40 @@ func (d *DingTalkAdapter) getAccessToken() (string, error) {
 	}
 
 	return result.AccessToken, nil
+}
+
+// refreshTokenLoop refreshes the access token periodically
+func (d *DingTalkAdapter) refreshTokenLoop() {
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		default:
+		}
+
+		time.Sleep(7000 * time.Second) // Token valid for ~7200s
+
+		token, err := d.getAccessToken()
+		if err != nil {
+			continue
+		}
+		d.token = token
+	}
+}
+
+// pollMessages polls for new messages from DingTalk (simplified)
+func (d *DingTalkAdapter) pollMessages() {
+	for {
+		select {
+		case <-d.stopCh:
+			return
+		default:
+		}
+
+		// DingTalk doesn't have a standard polling API for bot messages
+		// Messages are received via webhook callback
+		time.Sleep(5 * time.Second)
+	}
 }
 
 // sign generates a DingTalk webhook signature.

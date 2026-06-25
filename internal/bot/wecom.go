@@ -44,6 +44,16 @@ func (w *WeComAdapter) Connect() error {
 		return fmt.Errorf("wecom corp_id and secret are required")
 	}
 
+	// 获取 access token
+	token, err := w.getAccessToken()
+	if err != nil {
+		return fmt.Errorf("failed to get access token: %w", err)
+	}
+	w.token = token
+
+	// 启动 token 自动刷新
+	go w.refreshTokenLoop()
+
 	w.SetConnected(true)
 	return nil
 }
@@ -243,6 +253,7 @@ func (w *WeComAdapter) getAccessToken() (string, error) {
 	var result struct {
 		ErrCode     int    `json:"errcode"`
 		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -254,6 +265,25 @@ func (w *WeComAdapter) getAccessToken() (string, error) {
 	}
 
 	return result.AccessToken, nil
+}
+
+// refreshTokenLoop refreshes the access token periodically
+func (w *WeComAdapter) refreshTokenLoop() {
+	for {
+		select {
+		case <-w.stopCh:
+			return
+		default:
+		}
+
+		time.Sleep(7000 * time.Second) // Token valid for ~7200s
+
+		token, err := w.getAccessToken()
+		if err != nil {
+			continue
+		}
+		w.token = token
+	}
 }
 
 // uploadMedia uploads media to WeCom.
