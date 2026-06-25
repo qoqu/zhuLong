@@ -190,6 +190,7 @@ select {
   font-family: inherit;
 }
 
+/* ========== Custom Scrollbar - Apple Design ========== */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -205,6 +206,51 @@ select {
 }
 
 ::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+/* Ensure all scrollable containers show scrollbar */
+.main__transcript,
+.right-panel__content,
+.transcript,
+.transcript__scroll {
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.main__transcript::-webkit-scrollbar,
+.right-panel__content::-webkit-scrollbar,
+.transcript::-webkit-scrollbar,
+.transcript__scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.main__transcript::-webkit-scrollbar-track,
+.right-panel__content::-webkit-scrollbar-track,
+.transcript::-webkit-scrollbar-track,
+.transcript__scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.main__transcript::-webkit-scrollbar-thumb,
+.right-panel__content::-webkit-scrollbar-thumb,
+.transcript::-webkit-scrollbar-thumb,
+.transcript__scroll::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: var(--radius-full);
+}
+
+.main__transcript::-webkit-scrollbar-thumb:hover,
+.right-panel__content::-webkit-scrollbar-thumb:hover,
+.transcript::-webkit-scrollbar-thumb:hover,
+.transcript__scroll::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-hover);
 }
 
