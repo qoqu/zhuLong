@@ -234,7 +234,7 @@ export function Sidebar(props: SidebarProps) {
     }
   }
 
-  const handleWorkspaceAction = (action: string, workspaceId: string) => {
+  const handleWorkspaceAction = async (action: string, workspaceId: string) => {
     switch (action) {
       case 'newSession':
         // Find first project under this workspace and create session there
@@ -244,25 +244,52 @@ export function Sidebar(props: SidebarProps) {
         }
         break
       case 'showInExplorer':
-        // TODO: call Wails backend to open folder
-        console.log(`Show in explorer: ${workspaceId}`)
+        try {
+          const backend = (window as any).go?.main?.App
+          if (backend) {
+            const path = await backend.GetGlobalPath(workspaceId)
+            if (path) await backend.OpenInExplorer(path)
+          }
+        } catch (e) { console.error('Failed to open in explorer:', e) }
         break
       case 'copyPath':
-        navigator.clipboard.writeText(`/workspaces/${workspaceId}`)
+        try {
+          const backend = (window as any).go?.main?.App
+          if (backend) {
+            const path = await backend.GetGlobalPath(workspaceId)
+            if (path) navigator.clipboard.writeText(path)
+          } else {
+            navigator.clipboard.writeText(`/workspaces/${workspaceId}`)
+          }
+        } catch { navigator.clipboard.writeText(`/workspaces/${workspaceId}`) }
         break
     }
   }
 
-  const handleProjectAction = (action: string, projectId: string, globalId: string) => {
+  const handleProjectAction = async (action: string, projectId: string, globalId: string) => {
     switch (action) {
       case 'newSession':
         props.onNewSession(projectId)
         break
       case 'showInExplorer':
-        console.log(`Show in explorer: ${globalId}/${projectId}`)
+        try {
+          const backend = (window as any).go?.main?.App
+          if (backend) {
+            const path = await backend.GetProjectPath(globalId, projectId)
+            if (path) await backend.OpenInExplorer(path)
+          }
+        } catch (e) { console.error('Failed to open in explorer:', e) }
         break
       case 'copyPath':
-        navigator.clipboard.writeText(`/workspaces/${globalId}/${projectId}`)
+        try {
+          const backend = (window as any).go?.main?.App
+          if (backend) {
+            const path = await backend.GetProjectPath(globalId, projectId)
+            if (path) navigator.clipboard.writeText(path)
+          } else {
+            navigator.clipboard.writeText(`/workspaces/${globalId}/${projectId}`)
+          }
+        } catch { navigator.clipboard.writeText(`/workspaces/${globalId}/${projectId}`) }
         break
     }
   }

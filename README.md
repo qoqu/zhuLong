@@ -1,21 +1,23 @@
 # Zhulong（烛龙）
 
-**基于 DeepSeek 的通用自主循环 Agent 框架**
+**基于 DeepSeek 的通用自主循环 Agent 桌面框架**
 
 [![Go Version](https://img.shields.io/badge/Go-1.26.3-blue.svg)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Wails](https://img.shields.io/badge/Wails-v2-646cff.svg)](https://wails.io/)
 
 ## 项目简介
 
-Zhulong（烛龙）是一个基于 DeepSeek 的通用自主循环 Agent 框架，采用 Go 语言实现。它通过状态机驱动的循环控制，实现规划 → 执行 → 反省 → 重规划的自主多轮循环，无需每轮人工触发。
+Zhulong（烛龙）是一个基于 DeepSeek 的通用自主循环 Agent 桌面框架，采用 Go + Wails + React 实现。它通过状态机驱动的循环控制，实现规划 → 执行 → 反省 → 重规划的自主多轮循环，无需每轮人工触发。
 
 ### 核心特性
 
 - **自主多轮循环**：规划 → 执行 → 反省 → 重新规划，无需每轮人工触发
 - **高效上下文管理**：深度优化 DeepSeek prefix-cache，最大化缓存命中率
-- **自适应学习**：成功策略复用、认知模型更新、探索/利用平衡
+- **多平台 Bot 渠道**：支持 Telegram、飞书、钉钉、Discord、Slack、WeCom、GitHub 7 个平台
+- **记忆管理系统**：长期偏好、项目约定、指令文件的完整 CRUD
 - **生产级可靠性**：检查点恢复、成本控制、人机协作断点、完整可观测性
-- **完整桌面端 UI**：6 个右侧 tab + 27 个模块实时状态 + Web Dashboard + 插件系统
+- **完整桌面端 UI**：11 个设置 Tab + 无限画布 + Web Dashboard + 插件系统
 
 ### 设计目标
 
@@ -123,13 +125,15 @@ wails build
 
 #### 桌面端功能
 
+- **11 个设置 Tab**: 通用 / 模型 / 机器人 / MCP / 记忆 / Hooks / 权限 / 沙箱 / 网络 / 外观 / 更新
+- **多平台 Bot 渠道**: Telegram / 飞书 / 钉钉 / Discord / Slack / WeCom / GitHub
+- **记忆管理**: 长期偏好 / 项目约定 / 指令文件的完整 CRUD
+- **MCP 客户端**: 真实连接 MCP 服务器，工具发现和调用
 - **6 个右侧 tab**: Overview / Files / Changes / Memory / Learning / Modules
 - **3 层记忆可视化**: 情景记忆 / 语义记忆 / 程序记忆
 - **27 个模块状态**: P0×12 + P1×6 + P2×4 + P3×5 全部实时联动
 - **执行模式**: ask / auto / yolo 三种模式切换
-- **输入模式**: normal / plan / goal 三种规划策略
 - **温度控制**: auto / 0.0 / 0.3 / 0.7 / 1.0 采样温度
-- **文件树**: 实时监视工作区（深度 2，跳过 node_modules/.git 等）
 - **审批弹窗**: 危险操作前弹出确认（ask/auto 模式）
 - **Web Dashboard**: 浏览器实时监控（端口 7788）
 - **自动备份**: off / immediate / on-completion 三种模式
@@ -138,11 +142,17 @@ wails build
 #### 桌面端设置面板
 
 侧边栏 → 设置 可配置：
-- **环境监控路径**: 修改 envMonitor 监视目录
-- **自动备份模式**: off / immediate / on-completion + 失败时是否备份
-- **Web Dashboard 端口**: 自定义端口（启动/停止）
-- **手动备份**: 立即创建 backup snapshot
-- **语言切换**: 中文 / English
+- **通用**: 语言 / 主题 / 桌面风格 / 关闭行为 / 备份模式
+- **模型**: DeepSeek 模型选择 / Provider 管理
+- **机器人**: 7 个平台 Bot 配置（Token / AppID / Webhook）
+- **MCP**: MCP 服务器连接 / 工具管理
+- **记忆**: 长期偏好 / 项目约定 / 指令文件管理
+- **Hooks**: Shell 自动化配置
+- **权限**: 写操作模式 / 细粒度规则
+- **沙箱**: Shell 解释器 / 网络访问 / 工作区根目录
+- **网络**: 代理模式 / 自定义代理配置
+- **外观**: 主题 / 视觉风格 / 字号 / 字体
+- **更新**: 版本检查 / 匿名统计
 
 ### 编程接口使用
 
@@ -281,25 +291,39 @@ zhuLong/
 │   └── default.yaml      # 默认配置
 ├── desktop/              # Windows 桌面端（Wails + React）
 │   ├── main.go
-│   ├── app.go
-│   ├── agent.go
+│   ├── app.go            # Wails 绑定（30+ 个方法）
+│   ├── agent.go          # Agent 执行逻辑
 │   └── frontend/         # React 前端
 ├── docs/                 # 文档
 │   └── design.md         # 详细设计文档
 ├── internal/             # 内部模块
 │   ├── approval/         # 审批引擎
+│   ├── backup/           # 备份管理
+│   ├── bot/              # Bot 渠道系统（7 个平台适配器）
+│   │   ├── types.go      # 统一消息格式
+│   │   ├── manager.go    # 适配器管理
+│   │   ├── telegram.go   # Telegram 适配器
+│   │   ├── feishu.go     # 飞书适配器
+│   │   ├── dingtalk.go   # 钉钉适配器
+│   │   ├── discord.go    # Discord 适配器
+│   │   ├── slack.go      # Slack 适配器
+│   │   ├── wecom.go      # WeCom 适配器
+│   │   └── github.go     # GitHub 适配器
 │   ├── budget/           # 成本控制
 │   ├── checkpoint/       # 检查点
 │   ├── compressor/       # 上下文压缩
 │   ├── controller/       # 状态机控制器
+│   ├── dashboard/        # Web Dashboard
 │   ├── environment/      # 环境感知
 │   ├── executor/         # 执行器
 │   ├── exploration/      # 探索触发
 │   ├── human/            # 人机协作
 │   ├── information/      # 信息论
 │   ├── learning/         # 自适应学习
+│   ├── mcp/              # MCP 客户端
 │   ├── memory/           # 记忆系统
 │   ├── planner/          # 规划器
+│   ├── plugins/          # 插件管理
 │   ├── provider/         # LLM Provider
 │   ├── reflector/        # 反省器
 │   ├── skills/           # 技能管理
@@ -345,6 +369,7 @@ Zhulong 融合六大系统科学理论：
 - **Phase 3**: 生产级特性（检查点+Trace+人机断点+并行+骨架压缩）✅ 已完成
 - **Phase 4**: 多模型+工具生态 ✅ 已完成（含 53 个后端模块 + 桌面端 UI 100% 联通）
 - **Phase 5**: 打磨+文档 ✅ 已完成（含 Web Dashboard + 插件系统）
+- **Phase 6**: Bot 渠道+设置系统 ✅ 已完成（含 7 个平台适配器 + 11 个设置 Tab + 记忆管理）
 
 ## 贡献
 
@@ -364,6 +389,7 @@ Zhulong 融合六大系统科学理论：
 
 - [DeepSeek](https://www.deepseek.com/) - 提供强大的 LLM API
 - [Wails](https://wails.io/) - Go 桌面应用框架
+- [Hermes](https://github.com/NousResearch/hermes-agent) - Bot 渠道架构参考
 - [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) - 设计灵感来源
 
 ## 联系方式

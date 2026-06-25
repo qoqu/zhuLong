@@ -1497,6 +1497,38 @@ func (a *App) handleBotMessage(event *bot.MessageEvent) {
 
 // === Helpers ===
 
+// OpenInExplorer opens a folder in the system file explorer
+func (a *App) OpenInExplorer(path string) {
+	runtime.BrowserOpenURL(a.ctx, path)
+}
+
+// GetGlobalPath returns the filesystem path for a global workspace
+func (a *App) GetGlobalPath(globalID string) string {
+	for _, g := range a.globals {
+		if g.ID == globalID {
+			if g.Path != "" {
+				return g.Path
+			}
+			return filepath.Join(zhulongDir(), "workspaces", g.ID)
+		}
+	}
+	return ""
+}
+
+// GetProjectPath returns the filesystem path for a project
+func (a *App) GetProjectPath(globalID, projectID string) string {
+	for _, g := range a.globals {
+		if g.ID == globalID {
+			for _, p := range g.Projects {
+				if p.ID == projectID {
+					return filepath.Join(zhulongDir(), "workspaces", g.ID, p.ID)
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func (a *App) appendLog(s *SessionState, phase, event, detail string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
