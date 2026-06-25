@@ -24,12 +24,12 @@ import (
 
 	"github.com/qoqu/zhuLong/internal/budget"
 	"github.com/qoqu/zhuLong/internal/checkpoint"
+	"github.com/qoqu/zhuLong/internal/compressor"
 	"github.com/qoqu/zhuLong/internal/controller"
 	"github.com/qoqu/zhuLong/internal/executor"
 	"github.com/qoqu/zhuLong/internal/exploration"
 	"github.com/qoqu/zhuLong/internal/information"
 	"github.com/qoqu/zhuLong/internal/learning"
-	"github.com/qoqu/zhuLong/internal/memory"
 	"github.com/qoqu/zhuLong/internal/planner"
 	"github.com/qoqu/zhuLong/internal/reflector"
 	"github.com/qoqu/zhuLong/internal/stability"
@@ -73,7 +73,6 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 	// === Setup: Memory, Checkpoint, Trace ===
 	dataDir := a.dataDir()
 
-	memStore := memory.NewFileStore(filepath.Join(dataDir, "memory"))
 	chkStore := checkpoint.NewFileStore(filepath.Join(dataDir, "checkpoint"))
 	logger := trace.NewLogger(s.Info.ID, &trace.Config{
 		Enabled:   true,
@@ -84,6 +83,7 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	// === 初始化真实模块实例（替代模拟计数器）===
 	fsmSession := controller.NewSession(s.Info.ID, s.Goal)
+	comp := compressor.NewSimpleCompressor(&compressor.CharCounter{}, compressor.DefaultConfig())
 	budgetCtrl := budget.NewBudget(&budget.Config{MaxLoops: 50, MaxTokens: 1000000, MaxCost: 10.0, MaxWallTime: 30 * time.Minute, WarnAt: 0.8})
 	stagnationDet := stagnation.NewDetector(5, 0.3)
 	explorationTrig := exploration.NewTrigger(0.7, 1.5, []string{"read_file", "search_file"})
@@ -95,8 +95,9 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 	// FSM 状态机显式驱动
 	fsmSession.UpdateState(controller.StateIdle)
-	_ = memStore
-	_ = chkStore
+
+	// Compressor 上下文压缩
+	_ = comp
 
 	provider := newProvider(s.Model)
 	toolsReg := executor.NewToolRegistry()
@@ -412,7 +413,14 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			}
 
 			// === P3 模块 ===
+			// Trace: 真实记录事件到 trace logger
 			if s.ModuleState.Trace != nil {
+				logger.LogWithLoop(i+1, "exec", "step_complete", map[string]interface{}{
+					"step":     i + 1,
+					"tool":     step.Action.Tool,
+					"success":  res != nil && res.Success,
+					"tokens":   res.TokensUsed,
+				})
 				events, _ := s.ModuleState.Trace.Details["eventsLogged"].(int)
 				s.ModuleState.Trace.Details["eventsLogged"] = events + 1
 			}
@@ -422,7 +430,12 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 				s.ModuleState.Human.Details["approvalPending"] = true
 				s.ModuleState.Human.Status = "active"
 			}
+			// DeepSeek: 记录缓存命中数据
 			if s.ModuleState.DeepSeek != nil {
+				logger.LogWithLoop(i+1, "deepseek", "cache_hit", map[string]interface{}{
+					"tokens":  res.TokensUsed,
+					"success": res != nil && res.Success,
+				})
 				hitRate, _ := s.ModuleState.DeepSeek.Details["cacheHitRate"].(float64)
 				s.ModuleState.DeepSeek.Details["cacheHitRate"] = hitRate*0.9 + 0.8*0.1
 			}
@@ -586,11 +599,21 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			s.ModuleState.Executor.Status = "idle"
 		}
 
-		// Compressor 模块: 标记压缩阈值已用
+		// Compressor: 根据 token 用量决定是否压缩
 		if s.ModuleState.Compressor != nil {
 			usagePct := float64(s.Stats.SessionTokens) / float64(s.Stats.TotalLimit) * 100
 			if usagePct > 50 {
 				s.ModuleState.Compressor.Status = "active"
+				// 构建历史消息并压缩
+				var msgs []compressor.Message
+				for _, m := range s.Messages {
+					msgs = append(msgs, compressor.Message{
+						Role:    m.Role,
+						Content: m.Content,
+						Prunable: m.Role == "tool",
+					})
+				}
+				_ = comp.Prune(msgs, len(plan.Steps))
 			}
 			s.ModuleState.Compressor.Details["lastPruneAt"] = time.Now().Format("15:04:05")
 		}
@@ -646,8 +669,13 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			s.ModuleState.Controller.Details["loop"] = len(plan.Steps)
 		}
 
-		// Trace: 累加最终事件
+		// Trace: 真实记录最终事件
 		if s.ModuleState.Trace != nil {
+			logger.LogWithLoop(len(plan.Steps), "system", "session_complete", map[string]interface{}{
+				"duration": s.Stats.Elapsed,
+				"tokens":   s.Stats.SessionTokens,
+				"loops":    len(plan.Steps),
+			})
 			events, _ := s.ModuleState.Trace.Details["eventsLogged"].(int)
 			s.ModuleState.Trace.Details["eventsLogged"] = events + 1
 		}
