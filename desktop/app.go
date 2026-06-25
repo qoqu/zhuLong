@@ -1726,6 +1726,15 @@ func (a *App) SetConfigField(field string, value interface{}) error {
 		// 模型供应商配置（由前端管理，保存到 JSON 文件）
 		a.saveModelProviders(value)
 	default:
+		// 尝试作为环境变量处理（用于 API Key 等）
+		// 如果字段名看起来像环境变量（大写字母+下划线），尝试设置
+		if len(field) > 0 && field == strings.ToUpper(field) && strings.Contains(field, "_") {
+			// 这是一个环境变量字段，尝试设置到系统环境
+			// 注意：Windows 下需要管理员权限才能永久设置系统环境变量
+			// 这里我们先保存到配置文件
+			a.saveEnvVar(field, value.(string))
+			return nil
+		}
 		return fmt.Errorf("unknown config field: %s", field)
 	}
 
@@ -1743,6 +1752,29 @@ func (a *App) saveModelProviders(providers interface{}) {
 	os.MkdirAll(configDir, 0755)
 	providersPath := filepath.Join(configDir, "providers.json")
 	os.WriteFile(providersPath, data, 0644)
+}
+
+// saveEnvVar saves an environment variable value to a config file
+func (a *App) saveEnvVar(name string, value string) {
+	configDir := filepath.Join(os.Getenv("APPDATA"), "zhulong")
+	os.MkdirAll(configDir, 0755)
+	envPath := filepath.Join(configDir, "env.json")
+
+	// 读取现有环境变量
+	envVars := make(map[string]string)
+	if data, err := os.ReadFile(envPath); err == nil {
+		json.Unmarshal(data, &envVars)
+	}
+
+	// 更新
+	envVars[name] = value
+
+	// 保存
+	data, _ := json.Marshal(envVars)
+	os.WriteFile(envPath, data, 0644)
+
+	// 同时设置到当前进程环境变量（这样 Agent 可以立即使用）
+	os.Setenv(name, value)
 }
 
 // GetConfigField returns a single config field value
