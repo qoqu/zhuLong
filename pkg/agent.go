@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -1749,8 +1750,17 @@ func (s *SecureExecuteCommand) Call(ctx context.Context, params map[string]inter
 			return "", fmt.Errorf("security blocked: %s", r.Message)
 		}
 	}
+
+	// 检测操作系统，选择正确的 shell
+	shell := "sh"
+	shellFlag := "-c"
+	if runtime.GOOS == "windows" {
+		shell = "cmd"
+		shellFlag = "/c"
+	}
+
 	// 通过终端后端执行（支持 Local/Docker/SSH 切换）
-	result, err := s.Terminal.Execute(ctx, "sh", "-c", command)
+	result, err := s.Terminal.Execute(ctx, shell, shellFlag, command)
 	if err != nil {
 		// 回退到原始工具（terminal backend 不可用时）
 		t := &tools.ExecuteCommandTool{}
