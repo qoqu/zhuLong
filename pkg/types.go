@@ -72,12 +72,13 @@ type Action struct {
 
 // StepResult represents the result of executing a step
 type StepResult struct {
-	StepID      string
-	Success     bool
-	Output      string
-	TokensUsed  int
-	Duration    time.Duration
-	Error       error
+	StepID       string
+	Success      bool
+	Output       string
+	TokensUsed   int
+	CachedTokens int // DeepSeek prefix-cache 命中的 token 数
+	Duration     time.Duration
+	Error        error
 }
 
 // Assessment represents a reflection assessment

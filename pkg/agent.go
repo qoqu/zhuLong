@@ -14,6 +14,7 @@ import (
 	"github.com/qoqu/zhuLong/internal/blueprint"
 	"github.com/qoqu/zhuLong/internal/breaker"
 	"github.com/qoqu/zhuLong/internal/budget"
+	"github.com/qoqu/zhuLong/internal/cache"
 	"github.com/qoqu/zhuLong/internal/checkpoint"
 	"github.com/qoqu/zhuLong/internal/compressor"
 	"github.com/qoqu/zhuLong/internal/controller"
@@ -116,6 +117,9 @@ type Agent struct {
 	backupMgr    *backup.Manager               // 备份管理器
 	blueprintCat *blueprint.Catalog            // 自动化蓝图目录（7 个内置模板）
 	skillsetReg  *skillset.Registry            // 预置技能注册表（harness-init/harness-gc 等）
+
+	// 缓存优化（DeepSeek prefix-cache 核心）
+	prefixCache *cache.PrefixCache             // 前缀缓存管理（热/温/冷状态）
 
 	// 运行状态
 	startedAt     time.Time            // 启动时间
@@ -486,6 +490,7 @@ func NewAgent(opts ...Option) (*Agent, error) {
 		backupMgr:          backupMgrInst,
 		blueprintCat:       blueprintCatInst,
 		skillsetReg:        skillsetRegInst,
+		prefixCache:        cache.NewPrefixCache(cache.DefaultConfig()),
 		startedAt:          time.Now(),
 		sessionID:          sessionID,
 	}, nil
@@ -631,6 +636,15 @@ func (a *Agent) Run() (*AgentResult, error) {
 
 	// 内存存储
 	mem := NewRunMemory(a.goal)
+
+	// === 缓存优化：记录当前会话的 prefix 到 PrefixCache ===
+	// 遵循铁律：prefix 只追加不修改，所以整个 system prompt 就是 prefix
+	a.prefixCache.Set(a.sessionID, systemPrompt, (&compressor.CharCounter{}).Count(systemPrompt))
+	logger.Log("cache", "prefix_set", map[string]interface{}{
+		"session_id": a.sessionID,
+		"tokens":     (&compressor.CharCounter{}).Count(systemPrompt),
+		"state":      a.prefixCache.GetState(a.sessionID).String(),
+	})
 
 	logger.Log("system", "session_start", map[string]string{
 		"goal":         a.goal,

@@ -432,14 +432,23 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 				s.ModuleState.Human.Details["approvalPending"] = true
 				s.ModuleState.Human.Status = "active"
 			}
-			// DeepSeek: 记录缓存命中数据
-			if s.ModuleState.DeepSeek != nil {
+			// DeepSeek: 记录缓存命中数据（真实值从 API 响应获取）
+			if s.ModuleState.DeepSeek != nil && res != nil {
+				cachedTokens := res.CachedTokens
+				promptTokens := res.TokensUsed
+				hitRate := float64(0)
+				if promptTokens > 0 {
+					hitRate = float64(cachedTokens) / float64(promptTokens)
+				}
 				logger.LogWithLoop(i+1, "deepseek", "cache_hit", map[string]interface{}{
-					"tokens":  res.TokensUsed,
-					"success": res != nil && res.Success,
+					"prompt_tokens":   promptTokens,
+					"cached_tokens":   cachedTokens,
+					"cache_hit_rate":  hitRate,
+					"success":         res.Success,
 				})
-				hitRate, _ := s.ModuleState.DeepSeek.Details["cacheHitRate"].(float64)
-				s.ModuleState.DeepSeek.Details["cacheHitRate"] = hitRate*0.9 + 0.8*0.1
+				s.ModuleState.DeepSeek.Details["cacheHitRate"] = hitRate
+				s.ModuleState.DeepSeek.Details["cachedTokens"] = cachedTokens
+				s.ModuleState.DeepSeek.Details["promptTokens"] = promptTokens
 			}
 			if s.ModuleState.Checkpoint != nil && (i+1)%3 == 0 {
 				s.ModuleState.Checkpoint.Details["lastCheckpointId"] = fmt.Sprintf("cp-%s-step%d", s.Info.ID, i+1)
