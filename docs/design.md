@@ -1139,7 +1139,7 @@ zhulong/
 - [x] 使用示例
 - [x] API 文档
 - [x] README + 贡献指南
-- [ ] 桌面端打包（Windows 安装包）
+- [ ] 桌面端打包（Windows 安装包 — 需要 NSIS/installer 工具链，非代码功能）
 
 ### Phase 5: Bot 渠道 + 设置系统 ✅ 已完成
 

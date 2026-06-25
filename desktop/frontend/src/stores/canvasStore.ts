@@ -243,8 +243,44 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   fitView: () => {
-    // TODO: 实现自适应视图
-    set({ viewport: { x: 0, y: 0, zoom: 1 } });
+    // 自适应视图：计算所有节点的边界框，然后调整缩放和位置
+    const state = get();
+    const nodes = state.nodes;
+    if (nodes.length === 0) {
+      set({ viewport: { x: 0, y: 0, zoom: 1 } });
+      return;
+    }
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const node of nodes) {
+      const x = node.position?.x || 0;
+      const y = node.position?.y || 0;
+      const width = node.width || 200;
+      const height = node.height || 100;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x + width > maxX) maxX = x + width;
+      if (y + height > maxY) maxY = y + height;
+    }
+
+    const padding = 80;
+    const canvasWidth = typeof window !== 'undefined' ? window.innerWidth - 400 : 1200;
+    const canvasHeight = typeof window !== 'undefined' ? window.innerHeight - 100 : 700;
+
+    const contentWidth = maxX - minX + padding * 2;
+    const contentHeight = maxY - minY + padding * 2;
+    const zoom = Math.min(canvasWidth / contentWidth, canvasHeight / contentHeight, 1.5);
+
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    set({
+      viewport: {
+        x: canvasWidth / 2 - centerX * zoom,
+        y: canvasHeight / 2 - centerY * zoom,
+        zoom,
+      },
+    });
   },
 
   zoomIn: () => {

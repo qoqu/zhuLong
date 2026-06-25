@@ -120,7 +120,7 @@ function App() {
   }
 
   // View mode
-  const [viewMode, setViewMode] = useState<'chat' | 'canvas' | 'models'>('chat')
+  const [viewMode, setViewMode] = useState<'chat' | 'canvas'>('chat')
 
   // Sidebar
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
