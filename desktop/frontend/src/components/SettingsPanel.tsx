@@ -682,6 +682,17 @@ function ModelSettings(props: SettingsPanelProps) {
                   isZh={isZh}
                   onToggleModel={(mid) => toggleModel(provider.id, mid)}
                   onRemove={() => removeProvider(provider.id)}
+                  onSetApiKey={() => {
+                    // 刷新密钥状态
+                    if (backend && provider.apiKeyEnv) {
+                      backend.CheckEnvVar(provider.apiKeyEnv).then((hasKey: boolean) => {
+                        const updated = providers.map(p =>
+                          p.id === provider.id ? { ...p, keySet: hasKey } : p
+                        )
+                        saveProviders(updated)
+                      })
+                    }
+                  }}
                 />
               ))}
             </div>
@@ -865,13 +876,30 @@ function ModelSelector({ value, options, isZh, onChange }: {
 // Provider Card — 供应商接入卡片
 // ════════════════════════════════════════
 
-function ProviderCard({ provider, isZh, onToggleModel, onRemove }: {
+function ProviderCard({ provider, isZh, onToggleModel, onRemove, onSetApiKey }: {
   provider: Provider
   isZh: boolean
   onToggleModel: (modelId: string) => void
   onRemove: () => void
+  onSetApiKey?: (apiKey: string) => void
 }) {
+  const [showKeyInput, setShowKeyInput] = useState(false)
+  const [apiKey, setApiKey] = useState('')
   const enabledCount = provider.models.filter(m => m.enabled).length
+
+  const handleSaveKey = async () => {
+    if (!apiKey.trim()) return
+    if (backend && provider.apiKeyEnv) {
+      try {
+        await backend.SetConfigField(provider.apiKeyEnv, apiKey.trim())
+        setShowKeyInput(false)
+        setApiKey('')
+        if (onSetApiKey) onSetApiKey(apiKey.trim())
+      } catch (e) {
+        console.error('Failed to set API key:', e)
+      }
+    }
+  }
 
   return (
     <div className="settings-provider-card">
@@ -899,15 +927,11 @@ function ProviderCard({ provider, isZh, onToggleModel, onRemove }: {
           )}
         </div>
         <div className="settings-provider-card__actions">
-          {provider.source !== 'builtin' && (
-            <>
-              <button className="settings-btn settings-btn--ghost" style={{ fontSize: 12 }}>
-                {isZnZz(isZh, '配置', 'Config')}
-              </button>
-              <button className="settings-btn settings-btn--ghost" style={{ fontSize: 12 }}>
-                {isZnZz(isZh, '刷新模型', 'Refresh')}
-              </button>
-            </>
+          {!provider.keySet && (
+            <button className="settings-btn settings-btn--ghost" style={{ fontSize: 12 }}
+              onClick={() => setShowKeyInput(!showKeyInput)}>
+              {isZnZz(isZh, '设置密钥', 'Set Key')}
+            </button>
           )}
           {provider.source !== 'builtin' && (
             <button className="settings-btn settings-btn--ghost settings-btn--danger" style={{ fontSize: 12 }} onClick={onRemove}>
@@ -916,6 +940,30 @@ function ProviderCard({ provider, isZh, onToggleModel, onRemove }: {
           )}
         </div>
       </div>
+
+      {/* API Key 输入框（未设密钥时显示） */}
+      {showKeyInput && (
+        <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input className="settings-input" type="password" value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder={isZh ? '输入 API Key...' : 'Enter API Key...'}
+              style={{ flex: 1, fontSize: 12 }}
+              onKeyDown={e => { if (e.key === 'Enter') handleSaveKey() }} />
+            <button className="settings-btn settings-btn--primary" style={{ fontSize: 12, padding: '4px 12px' }}
+              onClick={handleSaveKey}>
+              {isZh ? '保存' : 'Save'}
+            </button>
+            <button className="settings-btn settings-btn--ghost" style={{ fontSize: 12 }}
+              onClick={() => { setShowKeyInput(false); setApiKey('') }}>
+              {isZh ? '取消' : 'Cancel'}
+            </button>
+          </div>
+          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--fg-faint)' }}>
+            {isZh ? '环境变量：' : 'Env var: '} <code style={{ color: 'var(--fg)' }}>{provider.apiKeyEnv}</code>
+          </div>
+        </div>
+      )}
 
       {/* Description */}
       <div className="settings-provider-card__desc">{provider.description}</div>
