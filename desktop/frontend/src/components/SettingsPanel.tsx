@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import type { Language, ExecutionMode } from '../types'
 import { resolveLanguage } from '../i18n'
 
+const backend = typeof window !== 'undefined' && (window as any).go?.main?.App ? (window as any).go.main.App : null
+
 type SettingsTab = 'general' | 'model' | 'bots' | 'mcp' | 'memory' | 'hooks' | 'permissions' | 'sandbox' | 'network' | 'appearance' | 'updates'
 
 interface SettingsPanelProps {
@@ -382,7 +384,6 @@ const PRESET_MODELS: Record<string, { name: string; apiType: string; baseUrl: st
 
 function ModelSettings(props: SettingsPanelProps) {
   const isZh = resolveLanguage(props.language) === 'zh'
-  const backend = typeof window !== 'undefined' && (window as any).go?.main?.App ? (window as any).go.main.App : null
 
   // ── 子 Tab 状态 ──
   type ModelSubTab = 'usage' | 'access'
@@ -761,9 +762,13 @@ function ProviderCard({ provider, isZh, onToggleModel, onRemove }: {
           {provider.source === 'builtin' && (
             <span className="settings-provider-badge settings-provider-badge--builtin">内置</span>
           )}
-          {provider.keySet && (
+          {provider.keySet ? (
             <span className="settings-provider-badge settings-provider-badge--ok">
               {isZnZz(isZh, '已设密钥', 'Key Set')}
+            </span>
+          ) : (
+            <span className="settings-provider-badge" style={{ background: 'var(--danger-bg, #fee)', color: 'var(--danger, #c33)' }}>
+              {isZnZz(isZh, '未设密钥', 'No Key')}
             </span>
           )}
         </div>
