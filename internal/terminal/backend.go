@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -54,6 +55,10 @@ func (b *LocalBackend) Execute(ctx context.Context, command string, args []strin
 	cmd.Env = os.Environ()
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+	// Windows 下设置 UTF-8 编码
+	if runtime.GOOS == "windows" {
+		cmd.Env = append(cmd.Env, "CHCP=65001")
 	}
 
 	var stdout, stderr bytes.Buffer
