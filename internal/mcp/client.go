@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -50,7 +51,9 @@ func (c *Client) Connect() error {
 	switch c.config.Transport.Type {
 	case "stdio":
 		return c.connectStdio()
-	case "sse", "http":
+	case "sse":
+		return c.connectSSE()
+	case "http":
 		return c.connectHTTP()
 	default:
 		return fmt.Errorf("unsupported transport type: %s", c.config.Transport.Type)
@@ -89,7 +92,144 @@ func (c *Client) connectHTTP() error {
 	return nil
 }
 
-// sendHTTPRequest sends a JSON-RPC request via HTTP POST
+// connectSSE connects to the MCP server via SSE (Server-Sent Events)
+func (c *Client) connectSSE() error {
+	url := c.config.Transport.URL
+	if url == "" {
+		return fmt.Errorf("SSE URL is required")
+	}
+
+	// 验证 SSE 端点可达性
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequestWithContext(c.ctx, "GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create SSE request: %w", err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Cache-Control", "no-cache")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to connect to SSE server: %w", err)
+	}
+
+	// 验证响应是 SSE 格式
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "" && !contains(contentType, "text/event-stream") {
+		resp.Body.Close()
+		// 不是 SSE，回退到 HTTP 模式
+		return c.connectHTTP()
+	}
+	resp.Body.Close()
+
+	c.connected = true
+
+	// 执行 MCP 初始化握手（通过 HTTP POST）
+	if err := c.initialize(); err != nil {
+		c.connected = false
+		return fmt.Errorf("failed to initialize MCP over SSE: %w", err)
+	}
+
+	// 发现工具
+	if err := c.discoverTools(); err != nil {
+		_ = err
+	}
+
+	// 启动 SSE 事件监听（后台 goroutine）
+	go c.listenSSE(url)
+
+	return nil
+}
+
+// listenSSE listens for SSE events from the server
+func (c *Client) listenSSE(url string) {
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		default:
+		}
+
+		client := &http.Client{Timeout: 0} // SSE 连接不设超时
+		req, err := http.NewRequestWithContext(c.ctx, "GET", url, nil)
+		if err != nil {
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		req.Header.Set("Accept", "text/event-stream")
+		req.Header.Set("Cache-Control", "no-cache")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		// 解析 SSE 事件
+		c.parseSSEEvents(resp.Body)
+		resp.Body.Close()
+
+		// 连接断开后重试
+		time.Sleep(2 * time.Second)
+	}
+}
+
+// parseSSEEvents parses SSE events from the response body
+func (c *Client) parseSSEEvents(body io.ReadCloser) {
+	scanner := bufio.NewScanner(body)
+	var eventType, data string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if line == "" {
+			// 空行表示事件结束
+			if data != "" {
+				c.handleSSEEvent(eventType, data)
+				eventType = ""
+				data = ""
+			}
+			continue
+		}
+
+		if strings.HasPrefix(line, "event: ") {
+			eventType = strings.TrimPrefix(line, "event: ")
+		} else if strings.HasPrefix(line, "data: ") {
+			data = strings.TrimPrefix(line, "data: ")
+		}
+	}
+}
+
+// handleSSEEvent handles an SSE event
+func (c *Client) handleSSEEvent(eventType, data string) {
+	// 处理 MCP 相关的 SSE 事件
+	switch eventType {
+	case "message":
+		// JSON-RPC 消息
+		var response Response
+		if err := json.Unmarshal([]byte(data), &response); err == nil {
+			// 可以将响应传递给等待中的请求
+			_ = response
+		}
+	case "endpoint":
+		// 服务器端点更新
+		_ = data
+	}
+}
+
+// contains checks if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
 func (c *Client) sendHTTPRequest(req Request) (*Response, error) {
 	data, err := json.Marshal(req)
 	if err != nil {

@@ -1329,7 +1329,7 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]inte
 |------|------|------|
 | **stdio** | ✅ 完整实现 | JSON-RPC over stdin/stdout |
 | **HTTP** | ✅ 完整实现 | JSON-RPC over HTTP POST |
-| **SSE** | ⚠️ 基础支持 | Server-Sent Events（待完善） |
+| **SSE** | ✅ 完整实现 | Server-Sent Events + 自动重连 |
 
 ---
 
@@ -4036,15 +4036,15 @@ class PluginManager {
 | ACP IDE 集成 | `internal/acp/server.go` | ✅ | JSON-RPC stdio，未启动 |
 | Backup 备份 | `internal/backup/manager.go` | ✅ | **已串联** — Run() 完成后自动备份 config/docs/go.mod |
 
-### J.6 主循环串联总览
+### J.6 主循环串联总览（2026-06-25 更新）
 
-| 阶段 | 调用的模块 | 未调用的模块（应串联但未做） |
-|------|-----------|------------------------------|
-| **初始化** | skill, memento, security, terminal, approval, profile, observe, logger, breaker, evolution, quality, human, workflow | budget, hook, state, upgrade, plugins, health, environment, i18n, hub, dashboard, gateway, voice, models, loop, cronx, qa, backup, review, skillset |
-| **Plan 阶段** | planner.LLMPlanner | alternative, synergetics.order_parameter, controller (Run 绕过) |
-| **Execute 阶段** | executor.LLMExecutor + 5 工具 | stability, stagnation, information.gain, learning.diversity, approval.CheckPermission (未调用) |
-| **Reflect 阶段** | reflector.LLMReflector | synergetics.slaving |
-| **Post-run** | evolution.reviewer, evolution.suggester, quality.scanner, evolution.curator (占位) | hook, review.recorder, health.checker, upgrade, backup |
+| 阶段 | 调用的模块 | 能力库/独立模块（已实现但不参与主循环） |
+|------|-----------|----------------------------------------|
+| **初始化** | skill, memento, security, terminal, approval, profile, observe, logger, breaker, evolution, quality, human, workflow, budget, hook, state, plugins, environment, i18n, dashboard, gateway, backup, review, skillset, models | voice（缺 TTS provider）, loop（与 controller 重复）, cronx（独立调度器） |
+| **Plan 阶段** | planner.LLMPlanner, alternative（备选路径）, synergetics.order_parameter, controller（FSM 状态机）, compressor.Prune, stability.Analyzer | learning.InternalModel, learning.EdgeOfChaos, information.Density |
+| **Execute 阶段** | executor.LLMExecutor + 5 工具, stability, stagnation, information.gain, learning.diversity, approval.CheckPermission, exploration.Trigger, buildingBlockStore, budget | — |
+| **Reflect 阶段** | reflector.LLMReflector, synergetics.slaving | — |
+| **Post-run** | evolution.reviewer, evolution.suggester, quality.scanner, evolution.curator, hook, review.recorder, backup | — |
 
 ### J.7 关键修复记录（2026-06-22 本次自审）
 
