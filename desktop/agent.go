@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,7 +42,21 @@ import (
 
 // newProvider creates a new provider based on the model and environment
 func newProvider(model string) pkg.Provider {
+	// 优先从环境变量读取
 	apiKey := os.Getenv("DEEPSEEK_API_KEY")
+	
+	// 如果环境变量为空，尝试从配置文件读取
+	if apiKey == "" {
+		configDir := filepath.Join(os.Getenv("APPDATA"), "zhulong")
+		envPath := filepath.Join(configDir, "env.json")
+		if data, err := os.ReadFile(envPath); err == nil {
+			var envVars map[string]string
+			if json.Unmarshal(data, &envVars) == nil {
+				apiKey = envVars["DEEPSEEK_API_KEY"]
+			}
+		}
+	}
+	
 	if apiKey != "" {
 		return pkg.NewDeepSeekProvider(apiKey, model)
 	}
