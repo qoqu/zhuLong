@@ -191,16 +191,23 @@ func (t *ExecuteCommandTool) Call(ctx context.Context, params map[string]interfa
 		return "", fmt.Errorf("missing parameter: command")
 	}
 
-	// 检测操作系统，选择正确的 shell
+	// 检测操作系统，选择正确的 shell 和编码
 	shell := "bash"
 	shellFlag := "-c"
+	env := map[string]string{}
 	if runtime.GOOS == "windows" {
 		shell = "cmd"
 		shellFlag = "/c"
+		// Windows 下设置 UTF-8 编码
+		env["CHCP"] = "65001"
 	}
 
 	// Execute command
 	cmd := exec.CommandContext(ctx, shell, shellFlag, command)
+	cmd.Env = os.Environ()
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(output), fmt.Errorf("command failed: %w", err)
