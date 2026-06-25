@@ -1722,12 +1722,27 @@ func (a *App) SetConfigField(field string, value interface{}) error {
 		a.config.ProxyURL = value.(string)
 	case "permMode":
 		a.config.PermMode = value.(string)
+	case "modelProviders":
+		// 模型供应商配置（由前端管理，保存到 JSON 文件）
+		a.saveModelProviders(value)
 	default:
 		return fmt.Errorf("unknown config field: %s", field)
 	}
 
 	a.saveConfig()
 	return nil
+}
+
+// saveModelProviders saves model providers to a JSON file
+func (a *App) saveModelProviders(providers interface{}) {
+	data, err := json.Marshal(providers)
+	if err != nil {
+		return
+	}
+	configDir := filepath.Join(os.Getenv("APPDATA"), "zhulong")
+	os.MkdirAll(configDir, 0755)
+	providersPath := filepath.Join(configDir, "providers.json")
+	os.WriteFile(providersPath, data, 0644)
 }
 
 // GetConfigField returns a single config field value

@@ -891,9 +891,11 @@ function ProviderCard({ provider, isZh, onToggleModel, onRemove, onSetApiKey }: 
     if (!apiKey.trim()) return
     if (backend && provider.apiKeyEnv) {
       try {
+        // 设置环境变量
         await backend.SetConfigField(provider.apiKeyEnv, apiKey.trim())
         setShowKeyInput(false)
         setApiKey('')
+        // 通知父组件刷新密钥状态
         if (onSetApiKey) onSetApiKey(apiKey.trim())
       } catch (e) {
         console.error('Failed to set API key:', e)
