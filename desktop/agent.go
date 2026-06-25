@@ -274,6 +274,14 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 		a.wait(ctx, 200*time.Millisecond)
 
 		execStep := pkg.PlannerStepToExec(step)
+		// 确保 action type 正确（LLM 可能返回不规范的类型）
+		if execStep.Action.Type == "" {
+			if execStep.Action.Tool != "" {
+				execStep.Action.Type = "tool_call"
+			} else {
+				execStep.Action.Type = "llm_generate"
+			}
+		}
 		res, err := ex.Execute(ctx, execStep, mem.AsExecutorReader())
 		if err != nil || res == nil {
 			s.Plan[i].Status = "failed"
