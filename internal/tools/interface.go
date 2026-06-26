@@ -213,13 +213,12 @@ func (t *ExecuteCommandTool) Call(ctx context.Context, params map[string]interfa
 
 	// 检测操作系统，选择正确的 shell 和编码
 	if runtime.GOOS == "windows" {
-		// Windows: 先 chcp 65001 切换到 UTF-8 代码页，再执行用户命令
-		// CHCP 是 cmd 内部命令，不能作为环境变量，必须作为命令前缀
-		// 同时设置代码页到 65001 确保中文输出正常
+		// Windows: 自动转换常见 Unix 命令为 Windows 等价命令
+		command = convertUnixToWindows(command)
+		// 先 chcp 65001 切换到 UTF-8 代码页，再执行用户命令
 		fullCmd := fmt.Sprintf("chcp 65001 >nul 2>&1 & %s", command)
 		cmd := exec.CommandContext(ctx, "cmd", "/c", fullCmd)
 		output, err := cmd.CombinedOutput()
-		// 即使有错误也返回输出（可能是部分成功）
 		result := string(output)
 		if err != nil && result == "" {
 			return result, fmt.Errorf("command failed: %w", err)
@@ -235,6 +234,117 @@ func (t *ExecuteCommandTool) Call(ctx context.Context, params map[string]interfa
 		return result, fmt.Errorf("command failed: %w", err)
 	}
 	return result, nil
+}
+
+// convertUnixToWindows 将常见 Unix 命令转换为 Windows 等价命令
+func convertUnixToWindows(cmd string) string {
+	cmd = strings.TrimSpace(cmd)
+
+	// grep pattern file → findstr /i "pattern" file
+	if strings.HasPrefix(cmd, "grep ") {
+		// grep -r pattern dir → findstr /s /i "pattern" dir\*
+		// grep pattern file → findstr /i "pattern" file
+		parts := strings.SplitN(cmd, " ", 4)
+		if len(parts) >= 3 {
+			flags := ""
+			pattern := ""
+			target := ""
+			idx := 1
+			// 跳过 -r, -n 等 grep 标志
+			for idx < len(parts) && strings.HasPrefix(parts[idx], "-") {
+				flags += parts[idx][1:]
+				idx++
+			}
+			if idx < len(parts) {
+				pattern = strings.Trim(parts[idx], "\"'")
+				idx++
+			}
+			if idx < len(parts) {
+				target = parts[idx]
+			}
+
+			findstrFlags := "/i"
+			if strings.Contains(flags, "r") || strings.Contains(flags, "R") {
+				findstrFlags += " /s" // 递归搜索
+			}
+			if strings.Contains(flags, "n") {
+				findstrFlags += " /n" // 显示行号
+			}
+
+			if target != "" {
+				return fmt.Sprintf("findstr %s \"%s\" %s\\*", findstrFlags, pattern, target)
+			}
+			return fmt.Sprintf("findstr %s \"%s\" *", findstrFlags, pattern)
+		}
+	}
+
+	// head -n N file → powershell -Command "Get-Content file -Head N"
+	if strings.HasPrefix(cmd, "head ") {
+		parts := strings.Fields(cmd)
+		n := "10"
+		file := ""
+		for i := 1; i < len(parts); i++ {
+			if parts[i] == "-n" && i+1 < len(parts) {
+				n = parts[i+1]
+				i++
+			} else if !strings.HasPrefix(parts[i], "-") {
+				file = parts[i]
+			}
+		}
+		if file != "" {
+			return fmt.Sprintf("powershell -Command \"Get-Content '%s' -Head %s\"", file, n)
+		}
+	}
+
+	// tail -n N file → powershell -Command "Get-Content file -Tail N"
+	if strings.HasPrefix(cmd, "tail ") {
+		parts := strings.Fields(cmd)
+		n := "10"
+		file := ""
+		for i := 1; i < len(parts); i++ {
+			if parts[i] == "-n" && i+1 < len(parts) {
+				n = parts[i+1]
+				i++
+			} else if !strings.HasPrefix(parts[i], "-") {
+				file = parts[i]
+			}
+		}
+		if file != "" {
+			return fmt.Sprintf("powershell -Command \"Get-Content '%s' -Tail %s\"", file, n)
+		}
+	}
+
+	// ls → dir /b
+	if cmd == "ls" || strings.HasPrefix(cmd, "ls ") {
+		return "dir /b"
+	}
+
+	// cat file → type file
+	if strings.HasPrefix(cmd, "cat ") {
+		file := strings.TrimPrefix(cmd, "cat ")
+		return "type " + file
+	}
+
+	// wc -l file → powershell -Command "(Get-Content file).Count"
+	if strings.HasPrefix(cmd, "wc ") {
+		parts := strings.Fields(cmd)
+		file := ""
+		for _, p := range parts {
+			if !strings.HasPrefix(p, "-") {
+				file = p
+			}
+		}
+		if file != "" {
+			return fmt.Sprintf("powershell -Command \"(Get-Content '%s').Count\"", file)
+		}
+	}
+
+	// find file → where file
+	if strings.HasPrefix(cmd, "find ") {
+		return "where " + strings.TrimPrefix(cmd, "find ")
+	}
+
+	return cmd
 }
 
 // RegisterBuiltinTools registers all built-in tools
