@@ -278,7 +278,7 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 		// 已知工具名称列表
 		knownTools := map[string]bool{
 			"read_file": true, "write_file": true, "search_file": true,
-			"execute_command": true, "web_search": true,
+			"execute_command": true, "web_search": true, "list_dir": true,
 			"memory_note": true, "memory_profile": true,
 		}
 		if execStep.Action.Type == "" {

@@ -143,29 +143,49 @@ func (t *SearchFileTool) Call(ctx context.Context, params map[string]interface{}
 		dir = "."
 	}
 
+	// 默认排除目录
+	excludeDirs := map[string]bool{
+		".git": true, "node_modules": true, ".workbuddy": true,
+		"vendor": true, "__pycache__": true, ".vscode": true,
+		"dist": true, "build": true, ".next": true,
+	}
+
 	var matches []string
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
-
-		matched, err := filepath.Match(pattern, info.Name())
-		if err != nil {
+		// 跳过排除目录
+		if info.IsDir() && excludeDirs[info.Name()] {
+			return filepath.SkipDir
+		}
+		if info.IsDir() {
 			return nil
 		}
 
+		matched, _ := filepath.Match(pattern, info.Name())
 		if matched {
-			matches = append(matches, path)
+			rel, _ := filepath.Rel(dir, path)
+			matches = append(matches, rel)
 		}
-
 		return nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to search files: %w", err)
+		return "", fmt.Errorf("search failed: %w", err)
 	}
 
 	if len(matches) == 0 {
-		return "No files found", nil
+		return "No files found.", nil
+	}
+
+	// 限制输出数量
+	if len(matches) > 30 {
+		result := fmt.Sprintf("Found %d files (showing first 30):\n", len(matches))
+		for _, m := range matches[:30] {
+			result += m + "\n"
+		}
+		result += fmt.Sprintf("... and %d more", len(matches)-30)
+		return result, nil
 	}
 
 	return strings.Join(matches, "\n"), nil
@@ -221,4 +241,59 @@ func RegisterBuiltinTools(registry *Registry) {
 	registry.Register(&SearchFileTool{})
 	registry.Register(&ExecuteCommandTool{})
 	registry.Register(&WebSearchTool{})
+	registry.Register(&ListDirTool{})
+}
+
+// ListDirTool lists directory contents
+type ListDirTool struct{}
+
+func (t *ListDirTool) Name() string        { return "list_dir" }
+func (t *ListDirTool) Description() string { return "List files and subdirectories in a directory" }
+
+func (t *ListDirTool) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	dir, _ := params["path"].(string)
+	if dir == "" {
+		dir = "."
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("cannot read directory: %w", err)
+	}
+
+	// 排除目录
+	excludeDirs := map[string]bool{
+		".git": true, "node_modules": true, ".workbuddy": true,
+		"vendor": true, "__pycache__": true,
+	}
+
+	var dirs, files []string
+	for _, e := range entries {
+		if e.IsDir() {
+			if excludeDirs[e.Name()] {
+				continue
+			}
+			dirs = append(dirs, e.Name()+"/")
+		} else {
+			files = append(files, e.Name())
+		}
+	}
+
+	var result strings.Builder
+	if len(dirs) > 0 {
+		result.WriteString("Directories:\n")
+		for _, d := range dirs {
+			result.WriteString("  " + d + "\n")
+		}
+	}
+	if len(files) > 0 {
+		result.WriteString("Files:\n")
+		for _, f := range files {
+			result.WriteString("  " + f + "\n")
+		}
+	}
+	if result.Len() == 0 {
+		return "(empty directory)", nil
+	}
+	return result.String(), nil
 }

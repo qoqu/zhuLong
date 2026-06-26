@@ -192,6 +192,7 @@ Return a JSON object with the following structure:
 - **web_search**: MUST include "query" param. Example: {"type":"tool_call","tool":"web_search","params":{"query":"Go web framework"}}
 
 ## Tool Parameter Reference
+- list_dir: {"path": "directory_path"} — list directory contents (first step to understand project structure)
 - read_file: {"path": "file_path"}
 - search_file: {"pattern": "glob_pattern", "path": "optional_directory"}
 - execute_command: {"command": "shell_command"}
@@ -203,10 +204,12 @@ Return a JSON object with the following structure:
 2. Clearly mark dependencies between steps
 3. Mark high-risk steps with breakpoint: true
 4. Keep total steps reasonable (3-15)
-5. First step should usually be "gather information/understand context"
+5. First step should ALWAYS be: list_dir to understand project structure
 6. Always include ALL required parameters for each tool
+7. Use actual file paths found in previous steps, never use placeholder paths
 
 ## Available Tools
+- list_dir: List directory contents (requires: path) — use first to understand project structure
 - read_file: Read file contents (requires: path)
 - write_file: Write file contents (requires: path, content)
 - search_file: Search for files (requires: pattern; optional: path)
@@ -294,7 +297,7 @@ func (p *LLMPlanner) parsePlan(response string) (*Plan, error) {
 		// 规范化 action type（LLM 可能返回工具名作为 type）
 		knownTools := map[string]bool{
 			"read_file": true, "write_file": true, "search_file": true,
-			"execute_command": true, "web_search": true,
+			"execute_command": true, "web_search": true, "list_dir": true,
 		}
 		if plan.Steps[i].Action.Type == "" {
 			if plan.Steps[i].Action.Tool != "" {
@@ -323,6 +326,10 @@ func ensureToolParams(a *Action) {
 	}
 	// 根据工具名称补充缺失的参数
 	switch a.Tool {
+	case "list_dir":
+		if _, ok := a.Params["path"]; !ok {
+			a.Params["path"] = "."
+		}
 	case "read_file":
 		if _, ok := a.Params["path"]; !ok {
 			a.Params["path"] = "."

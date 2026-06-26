@@ -222,8 +222,8 @@ func TestSearchFileTool_Call_NoMatches(t *testing.T) {
 	if err != nil {
 		t.Errorf("SearchFileTool.Call() error = %v", err)
 	}
-	if result != "No files found" {
-		t.Errorf("SearchFileTool.Call() = %v, want 'No files found'", result)
+	if result != "No files found." {
+		t.Errorf("SearchFileTool.Call() = %v, want 'No files found.'", result)
 	}
 }
 
@@ -266,12 +266,12 @@ func TestRegisterBuiltinTools(t *testing.T) {
 
 	RegisterBuiltinTools(registry)
 
-	if len(registry.List()) != 5 {
-		t.Errorf("RegisterBuiltinTools() registered %v tools, want 5", len(registry.List()))
+	if len(registry.List()) != 6 {
+		t.Errorf("RegisterBuiltinTools() registered %v tools, want 6", len(registry.List()))
 	}
 
 	// Verify all tools are registered
-	toolNames := []string{"read_file", "write_file", "search_file", "execute_command", "web_search"}
+	toolNames := []string{"read_file", "write_file", "search_file", "execute_command", "web_search", "list_dir"}
 	for _, name := range toolNames {
 		_, err := registry.Get(name)
 		if err != nil {
