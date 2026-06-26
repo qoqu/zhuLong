@@ -480,8 +480,13 @@ func (a *App) seedDefaults() {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
+	// 先加载配置（包括 workDir），再设置工作目录
+	if !a.loadState() {
+		a.seedDefaults()
+	}
+	a.loadConfig()
+
 	// 设置工作目录：优先使用配置的 WorkDir，否则用用户主目录
-	// .exe 从 build/bin/ 运行时，cwd 默认在那里，所有文件操作都会失败
 	workDir := a.config.WorkDir
 	if workDir == "" {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -492,11 +497,6 @@ func (a *App) startup(ctx context.Context) {
 	}
 	os.Chdir(workDir)
 
-	// Load persisted state; fall back to seedDefaults if missing.
-	if !a.loadState() {
-		a.seedDefaults()
-	}
-	a.loadConfig()
 	a.loadActiveIDs()
 	a.markWailsReady()
 	a.initEnvironmentMonitor()
