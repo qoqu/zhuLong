@@ -43,6 +43,9 @@ type AppConfig struct {
 	Temperature     float64 `json:"temperature"`
 	MaxTokens       int     `json:"maxTokens"`
 
+	// 工作目录（Agent 执行命令的默认目录）
+	WorkDir string `json:"workDir"`
+
 	// 循环控制
 	MaxLoops    int    `json:"maxLoops"`
 	MaxWallTime string `json:"maxWallTime"` // duration string like "30m"
@@ -476,6 +479,19 @@ func (a *App) seedDefaults() {
 // startup is called by Wails at app start.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// 设置工作目录：优先使用配置的 WorkDir，否则用用户主目录
+	// .exe 从 build/bin/ 运行时，cwd 默认在那里，所有文件操作都会失败
+	workDir := a.config.WorkDir
+	if workDir == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			workDir = home
+		} else {
+			workDir = "."
+		}
+	}
+	os.Chdir(workDir)
+
 	// Load persisted state; fall back to seedDefaults if missing.
 	if !a.loadState() {
 		a.seedDefaults()
@@ -1690,6 +1706,8 @@ func (a *App) SetConfigField(field string, value interface{}) error {
 		a.config.DeepSeekModel = value.(string)
 	case "deepseekBaseUrl":
 		a.config.DeepSeekBaseURL = value.(string)
+	case "workDir":
+		a.config.WorkDir = value.(string)
 	case "temperature":
 		a.config.Temperature = value.(float64)
 	case "maxTokens":
@@ -1791,6 +1809,8 @@ func (a *App) GetConfigField(field string) interface{} {
 		return a.config.DeepSeekModel
 	case "deepseekBaseUrl":
 		return a.config.DeepSeekBaseURL
+	case "workDir":
+		return a.config.WorkDir
 	case "temperature":
 		return a.config.Temperature
 	case "maxTokens":

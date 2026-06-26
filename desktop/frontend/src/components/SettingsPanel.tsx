@@ -2424,6 +2424,12 @@ function SandboxSettings({ language }: { language: Language }) {
   const [network, setNetwork] = useState<boolean>(() => loadJSON('zhulong-sandbox-network', true))
   const [workspaceRoot, setWorkspaceRoot] = useState<string>(() => loadJSON('zhulong-sandbox-root', ''))
   const [allowWrite, setAllowWrite] = useState<string[]>(() => loadJSON('zhulong-sandbox-allowwrite', []))
+  const [workDir, setWorkDir] = useState<string>(() => loadJSON('zhulong-workdir', ''))
+
+  useEffect(() => {
+    saveJSON('zhulong-workdir', workDir)
+    if (backend) try { backend.SetConfigField('workDir', workDir) } catch {}
+  }, [workDir])
 
   useEffect(() => {
     saveJSON('zhulong-sandbox-shell', shell)
@@ -2481,6 +2487,11 @@ function SandboxSettings({ language }: { language: Language }) {
           <span className="settings-row__label">{isZnZz(isZh, '工作区根目录', 'Workspace Root')}</span>
           <input className="settings-input" value={workspaceRoot} onChange={e => setWorkspaceRoot(e.target.value)}
             placeholder={isZnZz(isZh, '（默认：当前目录）', '(default: current directory)')} />
+        </div>
+        <div className="settings-row">
+          <span className="settings-row__label">{isZnZz(isZh, 'Agent 工作目录', 'Agent Working Directory')}</span>
+          <input className="settings-input" value={workDir} onChange={e => setWorkDir(e.target.value)}
+            placeholder={isZnZz(isZh, '（默认：用户主目录）', '(default: user home)')} />
         </div>
         <div className="settings-row settings-row--top">
           <span className="settings-row__label">{isZnZz(isZh, '允许写入路径', 'Allow Write Paths')}</span>
