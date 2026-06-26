@@ -175,7 +175,7 @@ Return a JSON object with the following structure:
       "action": {
         "type": "tool_call",
         "tool": "tool_name",
-        "params": {}
+        "params": {"param_name": "value"}
       },
       "depends_on": [],
       "breakpoint": false
@@ -184,19 +184,34 @@ Return a JSON object with the following structure:
   "rationale": "Why this plan was created this way"
 }
 
+## CRITICAL: Tool Call Parameter Rules
+- **read_file**: MUST include "path" param. Example: {"type":"tool_call","tool":"read_file","params":{"path":"go.mod"}}
+- **search_file**: MUST include "pattern" param. Example: {"type":"tool_call","tool":"search_file","params":{"pattern":"*.go"}}
+- **execute_command**: MUST include "command" param. Example: {"type":"tool_call","tool":"execute_command","params":{"command":"ls -la"}}
+- **write_file**: MUST include "path" and "content" params.
+- **web_search**: MUST include "query" param. Example: {"type":"tool_call","tool":"web_search","params":{"query":"Go web framework"}}
+
+## Tool Parameter Reference
+- read_file: {"path": "file_path"}
+- search_file: {"pattern": "glob_pattern", "path": "optional_directory"}
+- execute_command: {"command": "shell_command"}
+- write_file: {"path": "file_path", "content": "file_content"}
+- web_search: {"query": "search_query"}
+
 ## Planning Principles
 1. Each step should be atomic and independently verifiable
 2. Clearly mark dependencies between steps
 3. Mark high-risk steps with breakpoint: true
 4. Keep total steps reasonable (3-15)
 5. First step should usually be "gather information/understand context"
+6. Always include ALL required parameters for each tool
 
 ## Available Tools
-- read_file: Read file contents
-- write_file: Write file contents
-- search_file: Search for files
-- execute_command: Execute shell command
-- web_search: Search the web
+- read_file: Read file contents (requires: path)
+- write_file: Write file contents (requires: path, content)
+- search_file: Search for files (requires: pattern; optional: path)
+- execute_command: Execute shell command (requires: command)
+- web_search: Search the web (requires: query)
 
 ## Current Context
 ` + memory.GetSessionSummary()
@@ -216,11 +231,19 @@ func (p *LLMPlanner) buildReplanPrompt(goal string, currentPlan *Plan, memory Me
 ## Output Format
 Return a JSON object with the same structure as the original plan.
 
+## CRITICAL: Tool Call Parameter Rules (same as original plan)
+- **read_file**: MUST include "path" param. Example: {"type":"tool_call","tool":"read_file","params":{"path":"go.mod"}}
+- **search_file**: MUST include "pattern" param. Example: {"type":"tool_call","tool":"search_file","params":{"pattern":"*.go"}}
+- **execute_command**: MUST include "command" param. Example: {"type":"tool_call","tool":"execute_command","params":{"command":"ls -la"}}
+- **write_file**: MUST include "path" and "content" params.
+- **web_search**: MUST include "query" param.
+
 ## Re-planning Principles
 1. Preserve completed successful steps
 2. Fix failed steps with different strategies
 3. Adjust subsequent steps based on new findings
 4. Avoid repeating completed work
+5. Always include ALL required parameters for each tool
 
 ## Current Goal
 ` + goal
@@ -268,9 +291,62 @@ func (p *LLMPlanner) parsePlan(response string) (*Plan, error) {
 		if plan.Steps[i].ID == "" {
 			plan.Steps[i].ID = fmt.Sprintf("step-%d", i+1)
 		}
+		// 规范化 action type（LLM 可能返回工具名作为 type）
+		knownTools := map[string]bool{
+			"read_file": true, "write_file": true, "search_file": true,
+			"execute_command": true, "web_search": true,
+		}
+		if plan.Steps[i].Action.Type == "" {
+			if plan.Steps[i].Action.Tool != "" {
+				plan.Steps[i].Action.Type = "tool_call"
+			} else {
+				plan.Steps[i].Action.Type = "llm_generate"
+			}
+		} else if knownTools[plan.Steps[i].Action.Type] {
+			plan.Steps[i].Action.Tool = plan.Steps[i].Action.Type
+			plan.Steps[i].Action.Type = "tool_call"
+		}
+		// 确保工具调用有必要的参数
+		ensureToolParams(&plan.Steps[i].Action)
 	}
 
 	return &plan, nil
+}
+
+// ensureToolParams 确保工具调用有必要的参数
+func ensureToolParams(a *Action) {
+	if a.Type != "tool_call" || a.Tool == "" {
+		return
+	}
+	if a.Params == nil {
+		a.Params = make(map[string]interface{})
+	}
+	// 根据工具名称补充缺失的参数
+	switch a.Tool {
+	case "read_file":
+		if _, ok := a.Params["path"]; !ok {
+			a.Params["path"] = "."
+		}
+	case "search_file":
+		if _, ok := a.Params["pattern"]; !ok {
+			a.Params["pattern"] = "*"
+		}
+	case "execute_command":
+		if _, ok := a.Params["command"]; !ok {
+			a.Params["command"] = "echo no-command"
+		}
+	case "web_search":
+		if _, ok := a.Params["query"]; !ok {
+			a.Params["query"] = "test"
+		}
+	case "write_file":
+		if _, ok := a.Params["path"]; !ok {
+			a.Params["path"] = "output.txt"
+		}
+		if _, ok := a.Params["content"]; !ok {
+			a.Params["content"] = ""
+		}
+	}
 }
 
 // validatePlan validates the plan
