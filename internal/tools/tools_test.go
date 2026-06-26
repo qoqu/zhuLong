@@ -266,12 +266,12 @@ func TestRegisterBuiltinTools(t *testing.T) {
 
 	RegisterBuiltinTools(registry)
 
-	if len(registry.List()) != 4 {
-		t.Errorf("RegisterBuiltinTools() registered %v tools, want 4", len(registry.List()))
+	if len(registry.List()) != 5 {
+		t.Errorf("RegisterBuiltinTools() registered %v tools, want 5", len(registry.List()))
 	}
 
 	// Verify all tools are registered
-	toolNames := []string{"read_file", "write_file", "search_file", "execute_command"}
+	toolNames := []string{"read_file", "write_file", "search_file", "execute_command", "web_search"}
 	for _, name := range toolNames {
 		_, err := registry.Get(name)
 		if err != nil {

@@ -222,4 +222,5 @@ func RegisterBuiltinTools(registry *Registry) {
 	registry.Register(&WriteFileTool{})
 	registry.Register(&SearchFileTool{})
 	registry.Register(&ExecuteCommandTool{})
+	registry.Register(&WebSearchTool{})
 }

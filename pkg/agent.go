@@ -561,6 +561,7 @@ func (a *Agent) Run() (*AgentResult, error) {
 	toolsReg.Register(&SecureWriteFile{Engine: a.security})
 	toolsReg.Register(&AdapterSearchFile{})
 	toolsReg.Register(&SecureExecuteCommand{Engine: a.security, Terminal: a.terminal})
+	toolsReg.Register(&tools.WebSearchTool{})
 
 	// 技能工具
 	toolsReg.Register(&SkillViewTool{Pipeline: a.skillPipeline})
