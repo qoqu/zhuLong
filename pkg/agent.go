@@ -963,6 +963,8 @@ executeLoop:
 		})
 
 		execStep := PlannerStepToExec(step)
+		// 规范化 action type（LLM 可能返回工具名作为 type）
+		normalizeActionType(&execStep.Action)
 		res, err := ex.Execute(ctx, execStep, mem.AsExecutorReader())
 		if err != nil || res == nil {
 			a.circuitBreaker.Failure()
@@ -1643,6 +1645,32 @@ func PlannerStepToExec(s planner.Step) executor.Step {
 		},
 		DependsOn:  s.DependsOn,
 		Breakpoint: s.Breakpoint,
+	}
+}
+
+// normalizeActionType 规范化 action type
+// LLM 可能返回工具名（如 search_file）作为 action type，需要修正为 tool_call
+func normalizeActionType(a *executor.Action) {
+	knownTools := map[string]bool{
+		"read_file": true, "write_file": true, "search_file": true,
+		"execute_command": true, "web_search": true,
+		"memory_note": true, "memory_profile": true,
+	}
+	if a.Type == "" {
+		if a.Tool != "" {
+			a.Type = "tool_call"
+		} else {
+			a.Type = "llm_generate"
+		}
+	} else if knownTools[a.Type] {
+		a.Tool = a.Type
+		a.Type = "tool_call"
+	} else if a.Type != "tool_call" && a.Type != "llm_generate" {
+		if a.Tool != "" {
+			a.Type = "tool_call"
+		} else {
+			a.Type = "llm_generate"
+		}
 	}
 }
 

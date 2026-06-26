@@ -275,7 +275,24 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 
 		execStep := pkg.PlannerStepToExec(step)
 		// 确保 action type 正确（LLM 可能返回不规范的类型）
+		// 已知工具名称列表
+		knownTools := map[string]bool{
+			"read_file": true, "write_file": true, "search_file": true,
+			"execute_command": true, "web_search": true,
+			"memory_note": true, "memory_profile": true,
+		}
 		if execStep.Action.Type == "" {
+			if execStep.Action.Tool != "" {
+				execStep.Action.Type = "tool_call"
+			} else {
+				execStep.Action.Type = "llm_generate"
+			}
+		} else if knownTools[execStep.Action.Type] {
+			// LLM 把工具名当作 action type 了，修正为 tool_call
+			execStep.Action.Tool = execStep.Action.Type
+			execStep.Action.Type = "tool_call"
+		} else if execStep.Action.Type != "tool_call" && execStep.Action.Type != "llm_generate" {
+			// 未知类型，尝试根据是否有 tool 名称推断
 			if execStep.Action.Tool != "" {
 				execStep.Action.Type = "tool_call"
 			} else {
