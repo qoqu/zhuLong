@@ -15,6 +15,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -167,6 +168,21 @@ func (e *LLMExecutor) Execute(ctx context.Context, step Step, memory MemoryReade
 
 // executeToolCall executes a tool call
 func (e *LLMExecutor) executeToolCall(ctx context.Context, step Step, startTime time.Time) (*StepResult, error) {
+	// 安全过滤：如果 LLM 错误地用 execute_command 输出文字（echo），转为直接回复
+	if step.Action.Tool == "execute_command" {
+		cmd, _ := step.Action.Params["command"].(string)
+		if isEchoCommand(cmd) {
+			// 提取 echo 的内容，作为直接回复返回
+			text := extractEchoText(cmd)
+			return &StepResult{
+				StepID:  step.ID,
+				Success: true,
+				Output:  text,
+				Duration: time.Since(startTime),
+			}, nil
+		}
+	}
+
 	// Get tool
 	tool, err := e.tools.Get(step.Action.Tool)
 	if err != nil {
@@ -226,4 +242,47 @@ func (e *LLMExecutor) executeLLMGenerate(ctx context.Context, step Step, memory 
 		Output:   response,
 		Duration: time.Since(startTime),
 	}, nil
+}
+
+// isEchoCommand 检测是否为 echo 命令（LLM 错误地用命令输出文字）
+func isEchoCommand(cmd string) bool {
+	cmd = strings.TrimSpace(cmd)
+	// Windows: echo text
+	if strings.HasPrefix(strings.ToLower(cmd), "echo ") {
+		return true
+	}
+	// PowerShell: Write-Output text
+	if strings.HasPrefix(strings.ToLower(cmd), "write-output ") {
+		return true
+	}
+	// PowerShell: Write-Host text
+	if strings.HasPrefix(strings.ToLower(cmd), "write-host ") {
+		return true
+	}
+	return false
+}
+
+// extractEchoText 提取 echo 命令中的文本
+func extractEchoText(cmd string) string {
+	cmd = strings.TrimSpace(cmd)
+	// echo text → text
+	if strings.HasPrefix(strings.ToLower(cmd), "echo ") {
+		text := cmd[5:]
+		// 去掉引号
+		text = strings.Trim(text, "\"'")
+		return text
+	}
+	// Write-Output text → text
+	if strings.HasPrefix(strings.ToLower(cmd), "write-output ") {
+		text := cmd[13:]
+		text = strings.Trim(text, "\"'")
+		return text
+	}
+	// Write-Host text → text
+	if strings.HasPrefix(strings.ToLower(cmd), "write-host ") {
+		text := cmd[11:]
+		text = strings.Trim(text, "\"'")
+		return text
+	}
+	return cmd
 }
