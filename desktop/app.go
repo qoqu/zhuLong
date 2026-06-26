@@ -1708,6 +1708,10 @@ func (a *App) SetConfigField(field string, value interface{}) error {
 		a.config.DeepSeekBaseURL = value.(string)
 	case "workDir":
 		a.config.WorkDir = value.(string)
+		// 立即切换工作目录
+		if v, ok := value.(string); ok && v != "" {
+			os.Chdir(v)
+		}
 	case "temperature":
 		a.config.Temperature = value.(float64)
 	case "maxTokens":
