@@ -215,23 +215,26 @@ func (t *ExecuteCommandTool) Call(ctx context.Context, params map[string]interfa
 	if runtime.GOOS == "windows" {
 		// Windows: 先 chcp 65001 切换到 UTF-8 代码页，再执行用户命令
 		// CHCP 是 cmd 内部命令，不能作为环境变量，必须作为命令前缀
+		// 同时设置代码页到 65001 确保中文输出正常
 		fullCmd := fmt.Sprintf("chcp 65001 >nul 2>&1 & %s", command)
 		cmd := exec.CommandContext(ctx, "cmd", "/c", fullCmd)
 		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return string(output), fmt.Errorf("command failed: %w", err)
+		// 即使有错误也返回输出（可能是部分成功）
+		result := string(output)
+		if err != nil && result == "" {
+			return result, fmt.Errorf("command failed: %w", err)
 		}
-		return string(output), nil
+		return result, nil
 	}
 
 	// Linux/macOS: 直接执行
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(output), fmt.Errorf("command failed: %w", err)
+	result := string(output)
+	if err != nil && result == "" {
+		return result, fmt.Errorf("command failed: %w", err)
 	}
-
-	return string(output), nil
+	return result, nil
 }
 
 // RegisterBuiltinTools registers all built-in tools

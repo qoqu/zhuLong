@@ -122,6 +122,7 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 	toolsReg.Register(&pkg.AdapterWriteFile{})
 	toolsReg.Register(&pkg.AdapterSearchFile{})
 	toolsReg.Register(&pkg.AdapterExecuteCommand{})
+	toolsReg.Register(&pkg.AdapterListDir{})
 
 	pl := planner.NewLLMPlanner(&pkg.PlannerProvider{Provider: provider}, planner.DefaultConfig())
 	ex := executor.NewLLMExecutor(&pkg.ExecutorProvider{Provider: provider}, toolsReg, executor.DefaultConfig())

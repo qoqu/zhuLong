@@ -1765,6 +1765,21 @@ func (a *AdapterExecuteCommand) Call(ctx context.Context, params map[string]inte
 	return t.Call(ctx, params)
 }
 
+// AdapterListDir adapts the internal list_dir tool
+type AdapterListDir struct{}
+
+// Name returns the tool name
+func (a *AdapterListDir) Name() string { return "list_dir" }
+
+// Description returns the tool description
+func (a *AdapterListDir) Description() string { return "List files and subdirectories in a directory" }
+
+// Call executes the tool
+func (a *AdapterListDir) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	t := &tools.ListDirTool{}
+	return t.Call(ctx, params)
+}
+
 // ========== 安全增强工具适配器 ==========
 // 所有工具调用经过security引擎检查后再执行
 
