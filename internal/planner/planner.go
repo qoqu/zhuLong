@@ -378,7 +378,7 @@ func (p *LLMPlanner) validatePlan(plan *Plan) error {
 
 // extractJSON extracts JSON from a string
 func extractJSON(s string) string {
-	// Find the first { and last }
+	// 找到第一个 { 和最后一个 }
 	start := -1
 	end := -1
 
@@ -395,5 +395,79 @@ func extractJSON(s string) string {
 		return ""
 	}
 
-	return s[start : end+1]
+	raw := s[start : end+1]
+	// 清理 JSON 中的注释和尾部逗号
+	raw = cleanJSON(raw)
+	return raw
+}
+
+// cleanJSON 清理 LLM 可能生成的非标准 JSON
+func cleanJSON(s string) string {
+	var result []byte
+	inString := false
+	escape := false
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+
+		if escape {
+			result = append(result, c)
+			escape = false
+			continue
+		}
+
+		if c == '\\' && inString {
+			result = append(result, c)
+			escape = true
+			continue
+		}
+
+		if c == '"' {
+			inString = !inString
+			result = append(result, c)
+			continue
+		}
+
+		if inString {
+			result = append(result, c)
+			continue
+		}
+
+		// 跳过行注释 //
+		if c == '/' && i+1 < len(s) && s[i+1] == '/' {
+			// 跳到行尾
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+			continue
+		}
+
+		// 跳过块注释 /* */
+		if c == '/' && i+1 < len(s) && s[i+1] == '*' {
+			i += 2
+			for i < len(s)-1 && !(s[i] == '*' && s[i+1] == '/') {
+				i++
+			}
+			i++ // skip */
+			continue
+		}
+
+		result = append(result, c)
+	}
+
+	// 移除尾部逗号（,] 或 ,}）
+	raw := string(result)
+	// 简单替换：,} → } 和 ,] → ]
+	var cleaned []byte
+	for i := 0; i < len(raw); i++ {
+		if raw[i] == ',' && i+1 < len(raw) {
+			next := raw[i+1]
+			if next == '}' || next == ']' {
+				continue // 跳过尾部逗号
+			}
+		}
+		cleaned = append(cleaned, raw[i])
+	}
+
+	return string(cleaned)
 }
