@@ -192,22 +192,20 @@ func (t *ExecuteCommandTool) Call(ctx context.Context, params map[string]interfa
 	}
 
 	// 检测操作系统，选择正确的 shell 和编码
-	shell := "bash"
-	shellFlag := "-c"
-	env := map[string]string{}
 	if runtime.GOOS == "windows" {
-		shell = "cmd"
-		shellFlag = "/c"
-		// Windows 下设置 UTF-8 编码
-		env["CHCP"] = "65001"
+		// Windows: 先 chcp 65001 切换到 UTF-8 代码页，再执行用户命令
+		// CHCP 是 cmd 内部命令，不能作为环境变量，必须作为命令前缀
+		fullCmd := fmt.Sprintf("chcp 65001 >nul 2>&1 & %s", command)
+		cmd := exec.CommandContext(ctx, "cmd", "/c", fullCmd)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return string(output), fmt.Errorf("command failed: %w", err)
+		}
+		return string(output), nil
 	}
 
-	// Execute command
-	cmd := exec.CommandContext(ctx, shell, shellFlag, command)
-	cmd.Env = os.Environ()
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, k+"="+v)
-	}
+	// Linux/macOS: 直接执行
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(output), fmt.Errorf("command failed: %w", err)
