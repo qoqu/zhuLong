@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"sync"
 	"time"
@@ -539,14 +540,25 @@ func (f *FeishuAdapter) uploadImage(imageURL string) (string, error) {
 	url := "https://open.feishu.cn/open-apis/im/v1/images"
 
 	var buf bytes.Buffer
-	// Simplified - in production, use multipart form
-	_ = imageData
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("image", "image.png")
+	if err != nil {
+		return "", err
+	}
+	if _, err := part.Write(imageData); err != nil {
+		return "", err
+	}
+	writer.WriteField("image_type", "message")
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
 
 	req, err := http.NewRequest("POST", url, &buf)
 	if err != nil {
 		return "", err
 	}
 
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Authorization", "Bearer "+f.token)
 
 	uploadResp, err := f.client.Do(req)

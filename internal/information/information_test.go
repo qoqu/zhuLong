@@ -32,10 +32,10 @@ func TestInformationGain_AddResult(t *testing.T) {
 func TestInformationGain_EstimateGain(t *testing.T) {
 	ig := NewInformationGain()
 
-	// New tool should have high gain
+	// New tool should have max gain (1.0)
 	gain := ig.EstimateGain("new_tool")
-	if gain != 0.8 {
-		t.Errorf("New tool gain = %v, want 0.8", gain)
+	if gain != 1.0 {
+		t.Errorf("New tool gain = %v, want 1.0", gain)
 	}
 
 	// Add some results
@@ -44,8 +44,8 @@ func TestInformationGain_EstimateGain(t *testing.T) {
 
 	// Existing tool should have lower gain
 	gain = ig.EstimateGain("read_file")
-	if gain >= 0.8 {
-		t.Errorf("Existing tool gain = %v, should be < 0.8", gain)
+	if gain >= 1.0 {
+		t.Errorf("Existing tool gain = %v, should be < 1.0", gain)
 	}
 }
 

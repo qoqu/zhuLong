@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -86,6 +87,20 @@ func (m *Manager) Restore(snapshot *Snapshot, targetDir string) error {
 
 	for _, f := range r.File {
 		target := filepath.Join(targetDir, f.Name)
+
+		// Zip slip protection: validate resolved path stays within targetDir
+		absTarget, err := filepath.Abs(target)
+		if err != nil {
+			return fmt.Errorf("failed to resolve path: %w", err)
+		}
+		absTargetDir, err := filepath.Abs(targetDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve target dir: %w", err)
+		}
+		if !strings.HasPrefix(absTarget, absTargetDir+string(filepath.Separator)) && absTarget != absTargetDir {
+			return fmt.Errorf("zip entry %q attempts path traversal to %q", f.Name, absTarget)
+		}
+
 		if f.FileInfo().IsDir() {
 			os.MkdirAll(target, 0755)
 			continue

@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"sort"
 	"strings"
@@ -310,13 +311,24 @@ func (w *WeComAdapter) uploadMedia(imageURL string) (string, error) {
 	url := fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=%s&type=image", token)
 
 	// Create multipart form
-	// Simplified - in production, use multipart form
-	_ = imageData
-
-	req, err := http.NewRequest("POST", url, nil)
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("media", "image.png")
 	if err != nil {
 		return "", err
 	}
+	if _, err := part.Write(imageData); err != nil {
+		return "", err
+	}
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", url, &buf)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	uploadResp, err := w.client.Do(req)
 	if err != nil {

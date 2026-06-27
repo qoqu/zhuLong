@@ -636,7 +636,7 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 		for _, f := range assess.Findings {
 			s.Messages = append(s.Messages, MessageDTO{
 				ID:      fmt.Sprintf("f%d", time.Now().UnixNano()),
-				Role:    "system",
+				Role:    "tool",
 				Content: "💡 " + f,
 				Time:    time.Now(),
 			})

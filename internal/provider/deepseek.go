@@ -12,18 +12,22 @@ import (
 
 // DeepSeekProvider implements the LLM provider for DeepSeek
 type DeepSeekProvider struct {
-	apiKey  string
-	baseURL string
-	model   string
-	client  *http.Client
+	apiKey      string
+	baseURL     string
+	model       string
+	temperature float64
+	maxTokens   int
+	client      *http.Client
 }
 
 // Config contains DeepSeek provider configuration
 type Config struct {
-	APIKey  string
-	BaseURL string
-	Model   string
-	Timeout time.Duration
+	APIKey      string
+	BaseURL     string
+	Model       string
+	Timeout     time.Duration
+	Temperature float64
+	MaxTokens   int
 }
 
 // DefaultConfig returns default DeepSeek provider configuration
@@ -42,9 +46,11 @@ func NewDeepSeekProvider(config *Config) *DeepSeekProvider {
 	}
 
 	return &DeepSeekProvider{
-		apiKey:  config.APIKey,
-		baseURL: config.BaseURL,
-		model:   config.Model,
+		apiKey:      config.APIKey,
+		baseURL:     config.BaseURL,
+		model:       config.Model,
+		temperature: config.Temperature,
+		maxTokens:   config.MaxTokens,
 		client: &http.Client{
 			Timeout: config.Timeout,
 		},
@@ -85,10 +91,17 @@ type ChatResponse struct {
 // Chat sends a chat completion request to DeepSeek
 func (p *DeepSeekProvider) Chat(ctx context.Context, messages []Message) (string, error) {
 	// Build request
+	temp := p.temperature
+	if temp == 0 {
+		temp = 0.7 // default
+	}
 	req := ChatRequest{
 		Model:       p.model,
 		Messages:    messages,
-		Temperature: 0.7,
+		Temperature: temp,
+	}
+	if p.maxTokens > 0 {
+		req.MaxTokens = p.maxTokens
 	}
 
 	// Marshal request

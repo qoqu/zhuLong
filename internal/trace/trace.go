@@ -146,14 +146,18 @@ func (l *Logger) Save() error {
 	filename := fmt.Sprintf("%s_%s.%s", l.sessionID, time.Now().Format("20060102_150405"), l.config.Format)
 	path := filepath.Join(l.config.OutputDir, filename)
 
-	// Marshal entries
-	data, err := json.MarshalIndent(l.entries, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal entries: %w", err)
+	// Write entries in JSONL format (one JSON object per line)
+	var buf []byte
+	for _, entry := range l.entries {
+		line, err := json.Marshal(entry)
+		if err != nil {
+			return fmt.Errorf("failed to marshal entry: %w", err)
+		}
+		buf = append(buf, line...)
+		buf = append(buf, '\n')
 	}
 
-	// Write to file
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, buf, 0644); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 

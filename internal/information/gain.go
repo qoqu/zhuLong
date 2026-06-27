@@ -34,8 +34,8 @@ func (ig *InformationGain) EstimateGain(toolName string) float64 {
 	results := ig.toolHistory[toolName]
 
 	if len(results) == 0 {
-		// New tool, high expected gain
-		return 0.8
+		// New tool, maximum expected gain
+		return 1.0
 	}
 
 	// Existing tool, diminishing returns

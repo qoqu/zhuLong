@@ -231,16 +231,16 @@ func TestNewEdgeOfChaos(t *testing.T) {
 func TestEdgeOfChaos_CalculateBalance(t *testing.T) {
 	eoc := NewEdgeOfChaos(0.7, 1.5)
 
-	// High success rate should increase exploration
+	// High success rate → more exploitation (lower balance)
 	balance := eoc.CalculateBalance(0.9)
-	if balance <= 0.5 {
-		t.Errorf("Balance with high success = %v, should be > 0.5", balance)
+	if balance >= 0.5 {
+		t.Errorf("Balance with high success = %v, should be < 0.5 (more exploitation)", balance)
 	}
 
-	// Low success rate should decrease exploration
+	// Low success rate → more exploration (higher balance)
 	balance = eoc.CalculateBalance(0.3)
-	if balance >= 0.5 {
-		t.Errorf("Balance with low success = %v, should be < 0.5", balance)
+	if balance <= 0.5 {
+		t.Errorf("Balance with low success = %v, should be > 0.5 (more exploration)", balance)
 	}
 }
 

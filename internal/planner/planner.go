@@ -161,17 +161,18 @@ func (p *LLMPlanner) Replan(ctx context.Context, goal string, currentPlan *Plan,
 	return plan, nil
 }
 
-// buildPlanPrompt builds the prompt for planning
-func (p *LLMPlanner) buildPlanPrompt(goal string, memory MemoryReader) []Message {
+// buildPlannerSystemPrompt builds the unified system prompt for both Plan and Replan.
+// CRITICAL: This must be identical for Plan() and Replan() to maintain prefix-cache hits.
+func buildPlannerSystemPrompt() string {
 	platform := "linux"
 	if runtime.GOOS == "windows" {
 		platform = "windows"
 	}
 
-	systemPrompt := `You are a task planner. Your job is to break down a user's goal into clear, executable steps.
+	return `You are a task planner for Zhulong (烛龙), an autonomous agent.
 
 ## Platform: ` + platform + `
-IMPORTANT: You are running on ` + platform + `. Use platform-appropriate commands:
+Use platform-appropriate commands:
 - Windows: dir, type, findstr, powershell, etc.
 - Linux/macOS: ls, cat, grep, find, etc.
 
@@ -182,7 +183,7 @@ This is a Wails desktop application, NOT a traditional web app.
 - Communication: Wails RPC (window.go.main.App.Method()), NOT HTTP REST
 
 ## Language: Chinese (中文)
-All responses and descriptions must be in Chinese (中文). Use Chinese for step descriptions, rationale, and all output text.
+All responses and descriptions must be in Chinese (中文).
 
 ## Output Format
 Return a JSON object with the following structure:
@@ -234,10 +235,12 @@ Return a JSON object with the following structure:
 - write_file: Write file contents (requires: path, content)
 - search_file: Search for files (requires: pattern; optional: path)
 - execute_command: Execute shell command (requires: command)
-- web_search: Search the web (requires: query)
+- web_search: Search the web (requires: query)`
+}
 
-## Language: Chinese (中文)
-All responses and descriptions must be in Chinese (中文).`
+// buildPlanPrompt builds the complete prompt for planning
+func (p *LLMPlanner) buildPlanPrompt(goal string, memory MemoryReader) []Message {
+	systemPrompt := buildPlannerSystemPrompt()
 
 	// 动态上下文放到 user message，不破坏 system prompt 缓存
 	userPrompt := fmt.Sprintf("## Current Context\n%s\n\n## Goal\n%s\n\nPlease create a plan to achieve this goal.",
@@ -250,41 +253,17 @@ All responses and descriptions must be in Chinese (中文).`
 }
 
 // buildReplanPrompt builds the prompt for replanning
+// CRITICAL: Uses the SAME system prompt as buildPlanPrompt to maintain prefix-cache hits
 func (p *LLMPlanner) buildReplanPrompt(goal string, currentPlan *Plan, memory MemoryReader) []Message {
-	platform := "linux"
-	if runtime.GOOS == "windows" {
-		platform = "windows"
-	}
+	// 使用与 buildPlanPrompt 完全相同的 system prompt（缓存铁律）
+	systemPrompt := buildPlannerSystemPrompt() + `
 
-	systemPrompt := `You are a task re-planner. Based on execution history and reflection, adjust the current plan.
-
-## Platform: ` + platform + `
-IMPORTANT: You are running on ` + platform + `. Use platform-appropriate commands:
-- Windows: dir, type, findstr, powershell, etc.
-- Linux/macOS: ls, cat, grep, find, etc.
-
-## Language: Chinese (中文)
-All responses and descriptions must be in Chinese (中文).
-
-## Output Format
-Return a JSON object with the same structure as the original plan.
-
-## CRITICAL: Tool Call Parameter Rules (same as original plan)
-- **read_file**: MUST include "path" param. Example: {"type":"tool_call","tool":"read_file","params":{"path":"go.mod"}}
-- **search_file**: MUST include "pattern" param. Example: {"type":"tool_call","tool":"search_file","params":{"pattern":"*.go"}}
-- **execute_command**: MUST include "command" param. Example: {"type":"tool_call","tool":"execute_command","params":{"command":"dir"}}
-- **write_file**: MUST include "path" and "content" params.
-- **web_search**: MUST include "query" param.
-
-## Re-planning Principles
+## Re-planning Mode
+You are now re-planning. Adjust the existing plan based on execution history.
 1. Preserve completed successful steps
 2. Fix failed steps with different strategies
 3. Adjust subsequent steps based on new findings
-4. Avoid repeating completed work
-5. Always include ALL required parameters for each tool
-
-## Current Goal
-` + goal
+4. Avoid repeating completed work`
 
 	// Build execution history
 	history := "## Execution History\n\n"
@@ -297,7 +276,9 @@ Return a JSON object with the same structure as the original plan.
 	}
 
 	currentPlanJSON, _ := json.MarshalIndent(currentPlan, "", "  ")
-	userPrompt := fmt.Sprintf("## Current Plan\n%s\n\n%s\n\nPlease adjust the plan based on the execution history.", string(currentPlanJSON), history)
+	// goal 放到 user message，不破坏 system prompt 缓存
+	userPrompt := fmt.Sprintf("## Goal\n%s\n\n## Current Plan\n%s\n\n%s\n\nPlease adjust the plan based on the execution history.",
+		goal, string(currentPlanJSON), history)
 
 	return []Message{
 		{Role: "system", Content: systemPrompt},

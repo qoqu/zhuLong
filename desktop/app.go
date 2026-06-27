@@ -1045,7 +1045,7 @@ func (a *App) RespondApproval(id string, approved bool) {
 		}
 		s.Messages = append(s.Messages, MessageDTO{
 			ID: fmt.Sprintf("m%d", time.Now().UnixNano()),
-			Role: "system",
+			Role: "tool",
 			Content: "用户拒绝了操作：" + s.Approval.Tool,
 			Time: time.Now(),
 		})

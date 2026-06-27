@@ -72,9 +72,15 @@ func TestSSRFProtector(t *testing.T) {
 
 func TestSSRFProtector_SafeURL(t *testing.T) {
 	p := NewSSRFProtector()
+	// Public URLs should be allowed
 	r := p.CheckURL("https://api.github.com")
-	if r.Passed {
-		t.Error("expected HTTP URL to be blocked by default")
+	if !r.Passed {
+		t.Error("expected public HTTP URL to be allowed")
+	}
+	// Private IPs should be blocked
+	r2 := p.CheckURL("http://192.168.1.1/admin")
+	if r2.Passed {
+		t.Error("expected private IP URL to be blocked")
 	}
 }
 

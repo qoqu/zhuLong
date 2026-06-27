@@ -5,6 +5,7 @@ package hook
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -13,10 +14,14 @@ import (
 type HookPhase string
 
 const (
-	PhasePreTool   HookPhase = "pre_tool"   // 工具执行前：安全拦截
-	PhasePostTool  HookPhase = "post_tool"  // 工具执行后：审查反馈
-	PhaseSession   HookPhase = "session"    // 会话阶段：感知注入
-	PhaseCompact   HookPhase = "compact"    // 压缩前：状态保存
+	PhasePreTool    HookPhase = "pre_tool"    // 工具执行前：安全拦截
+	PhasePostTool   HookPhase = "post_tool"   // 工具执行后：审查反馈
+	PhaseSession    HookPhase = "session"     // 会话阶段：感知注入
+	PhaseCompact    HookPhase = "compact"     // 压缩前：状态保存
+	PhasePrePlan    HookPhase = "pre_plan"    // 规划前
+	PhasePostPlan   HookPhase = "post_plan"   // 规划后
+	PhasePreReflect HookPhase = "pre_reflect" // 反思前
+	PhasePostReflect HookPhase = "post_reflect" // 反思后
 )
 
 // HookFunc 钩子函数
@@ -56,12 +61,20 @@ func (e *HookEngine) Register(hook Hook) {
 
 // Execute 执行指定阶段的所有钩子
 func (e *HookEngine) Execute(ctx context.Context, phase HookPhase, params map[string]interface{}) ([]HookResult, error) {
+	// Filter hooks for this phase and sort by priority
+	var phaseHooks []Hook
+	for _, hook := range e.hooks {
+		if hook.Phase == phase {
+			phaseHooks = append(phaseHooks, hook)
+		}
+	}
+	sort.Slice(phaseHooks, func(i, j int) bool {
+		return phaseHooks[i].Priority < phaseHooks[j].Priority
+	})
+
 	var results []HookResult
 
-	for _, hook := range e.hooks {
-		if hook.Phase != phase {
-			continue
-		}
+	for _, hook := range phaseHooks {
 
 		result, err := hook.Fn(ctx, params)
 		if err != nil {

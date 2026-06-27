@@ -56,6 +56,14 @@ func (ap *AlternativePlanner) generateAlternativeForStep(plan *Plan, stepIndex i
 	altStep.ID = fmt.Sprintf("%s-alt", step.ID)
 	altStep.Description = fmt.Sprintf("Alternative: %s", step.Description)
 
+	// Deep copy the Params map to avoid shared references
+	if step.Action.Params != nil {
+		altStep.Action.Params = make(map[string]interface{}, len(step.Action.Params))
+		for k, v := range step.Action.Params {
+			altStep.Action.Params[k] = v
+		}
+	}
+
 	// Try different tool or approach
 	if step.Action.Type == "tool_call" {
 		altStep.Action = ap.suggestAlternativeTool(step.Action)

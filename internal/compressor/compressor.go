@@ -151,10 +151,10 @@ func (c *SimpleCompressor) AssembleContext(
 	messages = append(messages, systemMsg)
 	usedTokens += systemMsg.Tokens
 
-	// 2. Skeleton (low-frequency refresh)
+	// 2. Skeleton (low-frequency refresh) - 放在 user role，不破坏 system prefix
 	if skeleton != "" {
 		skeletonMsg := Message{
-			Role:    "system",
+			Role:    "user",
 			Content: fmt.Sprintf("## Project Skeleton\n\n%s", skeleton),
 			Tokens:  c.tokenCounter.Count(skeleton),
 		}
@@ -162,10 +162,10 @@ func (c *SimpleCompressor) AssembleContext(
 		usedTokens += skeletonMsg.Tokens
 	}
 
-	// 3. Session summary (stable zone)
+	// 3. Session summary (stable zone) - 放在 user role，不破坏 system prefix
 	if sessionSummary != "" {
 		summaryMsg := Message{
-			Role:    "system",
+			Role:    "user",
 			Content: sessionSummary,
 			Tokens:  c.tokenCounter.Count(sessionSummary),
 		}

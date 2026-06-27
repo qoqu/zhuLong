@@ -82,7 +82,7 @@ func (dc *DensityCalculator) OptimizeDensity(messages []Message, maxTokens int) 
 		case "assistant":
 			density = 0.6
 		case "tool":
-			density = 0.4
+			density = 0.5
 		}
 		scored[i] = scoredMessage{
 			message: msg,

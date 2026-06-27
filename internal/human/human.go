@@ -89,6 +89,14 @@ func (m *Manager) ShouldPause(event string, data interface{}) bool {
 			if event == "cost_exceed" {
 				return true
 			}
+		case BreakpointCustom:
+			if data != nil {
+				if cond, ok := data.(map[string]interface{}); ok {
+					if match, ok := cond["match"].(bool); ok && match {
+						return true
+					}
+				}
+			}
 		}
 	}
 

@@ -95,10 +95,7 @@ func (sp *SlavingPrinciple) assessRelevance(action *Action) float64 {
 		score = 1.0
 	}
 
-	// Minimum relevance for any action
-	if score < 0.5 {
-		score = 0.5
-	}
+	// Minimum relevance for any action - no artificial floor so the 0.3 rejection threshold works
 
 	return score
 }

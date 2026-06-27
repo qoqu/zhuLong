@@ -69,8 +69,18 @@ func (d *Dashboard) Start() error {
 		Handler: mux,
 	}
 
-	go d.server.ListenAndServe()
-	return nil
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.server.ListenAndServe()
+	}()
+
+	// Check immediately if the server failed to start
+	select {
+	case err := <-errCh:
+		return fmt.Errorf("dashboard server failed to start: %w", err)
+	default:
+		return nil
+	}
 }
 
 // Stop 停止Dashboard

@@ -3,7 +3,6 @@ package security
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -111,17 +110,70 @@ func NewSSRFProtector() *SSRFProtector {
 	}
 }
 
-// CheckURL 检查URL
+// CheckURL 检查URL - only block private/internal IPs, allow public URLs
 func (p *SSRFProtector) CheckURL(url string) *CheckResult {
-	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return &CheckResult{Passed: true, Layer: LayerSSRF}
+	}
+
+	// Extract host from URL
+	host := url
+	host = strings.TrimPrefix(host, "http://")
+	host = strings.TrimPrefix(host, "https://")
+	// Remove path, port, query
+	if idx := strings.IndexAny(host, "/:?#@"); idx != -1 {
+		host = host[:idx]
+	}
+
+	// Block localhost and known internal hostnames
+	lowerHost := strings.ToLower(host)
+	if lowerHost == "localhost" || lowerHost == "0.0.0.0" || lowerHost == "[::1]" || lowerHost == "::1" {
 		return &CheckResult{
 			Passed:  false,
 			Layer:   LayerSSRF,
-			Message: "SSRF protection: HTTP/HTTPS blocked by default",
-			Risk:    "medium",
+			Message: fmt.Sprintf("SSRF protection: blocked internal host %s", host),
+			Risk:    "high",
 		}
 	}
+
+	// Parse IP and check against private ranges
+	parts := strings.Split(host, ".")
+	if len(parts) == 4 {
+		a := parseInt(parts[0])
+		b := parseInt(parts[1])
+		if a == 127 {
+			return &CheckResult{Passed: false, Layer: LayerSSRF, Message: fmt.Sprintf("SSRF protection: loopback IP %s", host), Risk: "high"}
+		}
+		if a == 10 {
+			return &CheckResult{Passed: false, Layer: LayerSSRF, Message: fmt.Sprintf("SSRF protection: private IP %s", host), Risk: "high"}
+		}
+		if a == 172 && b >= 16 && b <= 31 {
+			return &CheckResult{Passed: false, Layer: LayerSSRF, Message: fmt.Sprintf("SSRF protection: private IP %s", host), Risk: "high"}
+		}
+		if a == 192 && b == 168 {
+			return &CheckResult{Passed: false, Layer: LayerSSRF, Message: fmt.Sprintf("SSRF protection: private IP %s", host), Risk: "high"}
+		}
+		if a == 169 && b == 254 {
+			return &CheckResult{Passed: false, Layer: LayerSSRF, Message: fmt.Sprintf("SSRF protection: link-local IP %s", host), Risk: "high"}
+		}
+		if a == 0 {
+			return &CheckResult{Passed: false, Layer: LayerSSRF, Message: fmt.Sprintf("SSRF protection: zero-net IP %s", host), Risk: "high"}
+		}
+	}
+
 	return &CheckResult{Passed: true, Layer: LayerSSRF}
+}
+
+// parseInt parses a decimal string to int, returning 0 on failure
+func parseInt(s string) int {
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
 }
 
 // ========== 3. 凭据过滤 ==========
@@ -183,14 +235,20 @@ func (v *FileMutationValidator) Validate(path, content string) *CheckResult {
 		}
 	}
 
-	// 检查已存在的文件
-	if info, err := os.Stat(path); err == nil {
-		if info.Size() > 0 {
+	// 检查尝试写入敏感系统文件（仅阻止关键系统文件，不阻止所有已存在的文件）
+	sensitiveSystemFiles := []string{
+		"/etc/passwd", "/etc/shadow", "/etc/sudoers", "/etc/hosts",
+		"/boot.ini", "/boot/grub", "/etc/fstab", "/etc/crontab",
+		"/etc/resolv.conf", "/etc/ssh/", "/root/",
+	}
+	absPath := strings.ToLower(path)
+	for _, sf := range sensitiveSystemFiles {
+		if strings.HasPrefix(absPath, sf) || strings.Contains(absPath, sf) {
 			return &CheckResult{
 				Passed:  false,
 				Layer:   LayerFileMutation,
-				Message: fmt.Sprintf("file %s already exists with size %d", path, info.Size()),
-				Risk:    "medium",
+				Message: fmt.Sprintf("blocked write to sensitive system file: %s", path),
+				Risk:    "critical",
 			}
 		}
 	}

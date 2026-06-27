@@ -30,11 +30,11 @@ func NewEdgeOfChaos(baseTemperature, maxTemperature float64) *EdgeOfChaos {
 // CalculateBalance calculates the optimal balance based on recent success
 func (eoc *EdgeOfChaos) CalculateBalance(recentSuccessRate float64) float64 {
 	if recentSuccessRate > 0.8 {
-		// High success: increase exploration
-		eoc.balance = 0.6
-	} else if recentSuccessRate < 0.4 {
-		// Low success: increase exploitation
+		// High success: increase exploitation (lower exploration balance)
 		eoc.balance = 0.3
+	} else if recentSuccessRate < 0.4 {
+		// Low success: increase exploration (higher exploration balance)
+		eoc.balance = 0.6
 	} else {
 		// Medium success: maintain balance
 		eoc.balance = 0.5

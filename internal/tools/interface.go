@@ -138,7 +138,10 @@ func (t *SearchFileTool) Call(ctx context.Context, params map[string]interface{}
 		return "", fmt.Errorf("missing parameter: pattern")
 	}
 
-	dir, _ := params["dir"].(string)
+	dir, _ := params["path"].(string)
+	if dir == "" {
+		dir, _ = params["dir"].(string)
+	}
 	if dir == "" {
 		dir = "."
 	}
