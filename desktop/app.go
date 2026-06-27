@@ -13,7 +13,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -25,7 +27,7 @@ import (
 	"github.com/qoqu/zhuLong/internal/environment"
 	"github.com/qoqu/zhuLong/internal/mcp"
 	"github.com/qoqu/zhuLong/internal/plugins"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // AppConfig 应用配置（第四步：可被前端修改）
@@ -590,9 +592,9 @@ func (a *App) handleEnvChange(c environment.Change) {
 
 	// 3) 推送事件给前端
 	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "changes:update", dto)
+		wailsRuntime.EventsEmit(a.ctx, "changes:update", dto)
 		if s, ok := a.sessions[a.activeID]; ok {
-			runtime.EventsEmit(a.ctx, "session:update", s)
+			wailsRuntime.EventsEmit(a.ctx, "session:update", s)
 		}
 	}
 }
@@ -749,7 +751,7 @@ func (a *App) NewSession(projectID string) *SessionState {
 	}
 	a.activeID = id
 	a.emitGlobals()
-	runtime.EventsEmit(a.ctx, "session:created", st)
+	wailsRuntime.EventsEmit(a.ctx, "session:created", st)
 	return st
 }
 
@@ -785,7 +787,7 @@ func (a *App) DeleteSession(id string) {
 	}
 	a.emitGlobals()
 	a.saveActiveIDs()
-	runtime.EventsEmit(a.ctx, "session:deleted", id)
+	wailsRuntime.EventsEmit(a.ctx, "session:deleted", id)
 }
 
 // RenameSession updates the title of a session.
@@ -1036,7 +1038,11 @@ func (a *App) RespondApproval(id string, approved bool) {
 	}
 	if !approved {
 		s.Status = "reflecting"
-		s.Plan[2].Status = "failed"
+		if len(s.Plan) > 2 {
+			s.Plan[2].Status = "failed"
+		} else if len(s.Plan) > 0 {
+			s.Plan[len(s.Plan)-1].Status = "failed"
+		}
 		s.Messages = append(s.Messages, MessageDTO{
 			ID: fmt.Sprintf("m%d", time.Now().UnixNano()),
 			Role: "system",
@@ -1669,10 +1675,20 @@ func (a *App) handleBotMessage(event *bot.MessageEvent) {
 			ProjectID: "default",
 		}
 		session = &SessionState{
-			Info: info,
-			Messages: []MessageDTO{},
-			Logs: []LogDTO{},
-			Plan: []PlanStepDTO{},
+			Info:          info,
+			Status:        "idle",
+			Mode:          "auto",
+			Temperature:   "auto",
+			Model:         a.modelFor("auto"),
+			Messages:      []MessageDTO{},
+			Logs:          []LogDTO{},
+			Plan:          []PlanStepDTO{},
+			Stats:         a.zeroStats(),
+			MemoryState:   a.initMemoryState(),
+			LearningState: a.initLearningState(),
+			ModuleState:   a.initModuleState(),
+			Created:       time.Now(),
+			Updated:       time.Now(),
 		}
 		a.sessions[sessionID] = session
 	}
@@ -1878,7 +1894,11 @@ func (a *App) GetEnvVar(name string) string {
 
 // OpenInExplorer opens a folder in the system file explorer
 func (a *App) OpenInExplorer(path string) {
-	runtime.BrowserOpenURL(a.ctx, path)
+	// Use platform-specific command to open file explorer
+	// On Windows: explorer.exe, On macOS: open, On Linux: xdg-open
+	if err := openFileExplorer(path); err != nil {
+		log.Printf("[open] failed to open %s: %v", path, err)
+	}
 }
 
 // GetGlobalPath returns the filesystem path for a global workspace
@@ -1924,7 +1944,7 @@ func (a *App) appendLog(s *SessionState, phase, event, detail string) {
 func (a *App) zeroStats() RuntimeStatsDTO {
 	return RuntimeStatsDTO{
 		TotalLimit:    1_000_000,
-		CacheHitRatio: 0.8,
+		CacheHitRatio: 0,
 		Balance:       "¥73.23",
 		Model:         a.modelFor(a.activeAge),
 		CacheHit:      "未命中",
@@ -1999,7 +2019,7 @@ func (a *App) emitSession(s *SessionState) {
 	if !hasWailsEvents(a.ctx) {
 		return
 	}
-	runtime.EventsEmit(a.ctx, "session:update", s)
+	wailsRuntime.EventsEmit(a.ctx, "session:update", s)
 	// 同步持久化，直接保存 s 而非重新从 a.sessions[id] 读取
 	if s != nil {
 		a.saveSession(s)
@@ -2013,7 +2033,7 @@ func (a *App) emitGlobals() {
 	if !hasWailsEvents(a.ctx) {
 		return
 	}
-	runtime.EventsEmit(a.ctx, "globals:update", a.globals)
+	wailsRuntime.EventsEmit(a.ctx, "globals:update", a.globals)
 	a.saveState()
 }
 
@@ -2194,6 +2214,20 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// openFileExplorer opens a folder in the system file explorer
+func openFileExplorer(path string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer.exe", path)
+	case "darwin":
+		cmd = exec.Command("open", path)
+	default: // linux
+		cmd = exec.Command("xdg-open", path)
+	}
+	return cmd.Start()
 }
 
 // === Stats ===

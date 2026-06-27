@@ -133,6 +133,7 @@ function App() {
   const [activeGlobalId, setActiveGlobalId] = useState<string>('')  // New: current workspace
   const [activeProjectId, setActiveProjectId] = useState<string>('') // New: current project
   const [activeSessionId, setActiveSessionId] = useState<string>('')
+  const activeSessionIdRef = useRef<string>('')
 
   // Modal states for creating Global/Project
   const [showCreateGlobalModal, setShowCreateGlobalModal] = useState(false)
@@ -257,11 +258,16 @@ function App() {
       .catch(() => {})
   }, [])
 
+  // Keep ref in sync with state
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId
+  }, [activeSessionId])
+
   // ===== Subscribe to backend events =====
   useEffect(() => {
     if (!wails) return
     const offSession = wails.EventsOn('session:update', (s: SessionState) => {
-      if (!s || s.info?.id !== activeSessionId) return
+      if (!s || s.info?.id !== activeSessionIdRef.current) return
       applySession(s)
     })
     const offCreated = wails.EventsOn('session:created', (s: SessionState) => {
@@ -270,11 +276,14 @@ function App() {
       applySession(s)
     })
     const offDeleted = wails.EventsOn('session:deleted', (id: string) => {
-      if (id === activeSessionId) {
+      if (id === activeSessionIdRef.current) {
         // Switch to first remaining session in the same project
-        const project = globals[0]?.projects?.find((p) => p.id === activeProjectId)
-        const first = project?.sessions?.find((x) => x.id !== id)
-        if (first) setActiveSessionId(first.id)
+        setGlobals((currentGlobals) => {
+          const project = currentGlobals[0]?.projects?.find((p) => p.id === activeProjectId)
+          const first = project?.sessions?.find((x) => x.id !== id)
+          if (first) setActiveSessionId(first.id)
+          return currentGlobals
+        })
       }
     })
     const offGlobals = wails.EventsOn('globals:update', (g: GlobalInfo[]) => {
@@ -287,7 +296,7 @@ function App() {
       offGlobals()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionId, activeProjectId, globals])
+  }, [activeProjectId])
 
   // ===== When active session changes, pull its state =====
   useEffect(() => {

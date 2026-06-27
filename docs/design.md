@@ -323,6 +323,8 @@ type Compressor interface {
 }
 ```
 
+> ⚠️ 实现说明：`internal/controller/loop.go` 已废弃，循环逻辑由 `pkg/agent.go` 的 `Agent.Run()` 驱动。`controller` 包仅保留 `state.go` 中的 FSM 状态枚举和 Session 管理。
+
 #### 3.1.8 其他 P0 模块
 
 - **Checkpoint**：检查点持久化 + 恢复
@@ -948,6 +950,7 @@ zhulong/
 │   ├── blueprint/                  # 自动化蓝图目录
 │   ├── board/                      # 无限画布
 │   ├── bot/                        # Bot 渠道系统（7 个平台适配器）
+│   │   ├── base.go                 # 适配器基类（公共逻辑）
 │   │   ├── types.go                # 统一消息格式
 │   │   ├── manager.go              # 适配器管理
 │   │   ├── registry.go             # 适配器注册中心
@@ -1037,7 +1040,6 @@ zhulong/
 ├── examples/                       # 示例
 │
 ├── go.mod
-├── go.sum
 ├── Makefile
 └── README.md
 ```
@@ -1409,7 +1411,7 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]inte
 │  │                         ▼                                    │  │
 │  │  ┌──────────────────────────────────────────────────────┐  │  │
 │  │  │              Wails Bindings                          │  │  │
-│  │  │  - 30+ 个绑定方法                                     │  │  │
+│  │  │  - 45+ 个绑定方法                                     │  │  │
 │  │  │  - 实时事件推送                                       │  │  │
 │  │  │  - 错误处理                                           │  │  │
 │  │  └──────────────────────────────────────────────────────┘  │  │
@@ -1423,7 +1425,7 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]inte
 │  │  │  - Bot 渠道系统                                       │  │  │
 │  │  │  - MCP 客户端                                         │  │  │
 │  │  │  - Config 系统                                        │  │  │
-│  │  │  - 30+ 个模块实例                                     │  │  │
+│  │  │  - 55 个模块实例                                     │  │  │
 │  │  └──────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘

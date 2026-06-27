@@ -159,6 +159,9 @@ func (r *LLMReflector) Reflect(ctx context.Context, goal string, plan *Plan, mem
 func (r *LLMReflector) buildPrompt(goal string, plan *Plan, memory MemoryReader) []Message {
 	systemPrompt := `You are a task reflector. Evaluate the current execution progress and decide the next action.
 
+## Language: Chinese (中文)
+All responses must be in Chinese (中文). Include Chinese in reason, findings, and suggestions fields.
+
 ## Output Format
 Return a JSON object with the following structure:
 {

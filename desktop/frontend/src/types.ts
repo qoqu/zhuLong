@@ -225,23 +225,77 @@ declare global {
     go?: {
       main: {
         App: {
+          // Agent & Session management
           ListAgents(): Promise<AgentInfo[]>
-          ListGlobals(): Promise<GlobalInfo[]>    // 新：列出所有工作空间
-          CreateGlobal(name: string): Promise<GlobalInfo>  // 新：创建工作空间
-          CreateProject(globalId: string, name: string): Promise<ProjectInfo>  // 新：在工作空间下创建工作区
+          ListGlobals(): Promise<GlobalInfo[]>
+          CreateGlobal(name: string): Promise<GlobalInfo>
+          CreateProject(globalId: string, name: string): Promise<ProjectInfo>
           SetActiveAgent(id: string): Promise<void>
           SetActiveSession(id: string): Promise<SessionState | null>
           GetSession(id: string): Promise<SessionState | null>
-          NewSession(projectId: string): Promise<SessionState>  // 改：需要指定工作区
+          NewSession(projectId: string): Promise<SessionState>
           DeleteSession(id: string): Promise<void>
           RenameSession(id: string, title: string): Promise<void>
+
+          // Execution control
           SendMessage(sessionID: string, text: string): Promise<void>
           Stop(): Promise<void>
           Reset(): Promise<void>
           SetExecutionMode(mode: string): Promise<void>
+          SetTemperature(temp: string): Promise<void>
           SetModel(model: string): Promise<void>
           RespondApproval(id: string, approved: boolean): Promise<void>
+
+          // File tree
           ListWorkspaceTree(root: string, maxDepth: number): Promise<TreeNode>
+
+          // Configuration
+          GetConfig(): Promise<any>
+          SetConfigField(field: string, value: any): Promise<void>
+          GetConfigField(field: string): Promise<any>
+          SetMonitorPath(path: string): Promise<void>
+          SetBackupMode(mode: string, onFail: boolean): Promise<void>
+          SetDashboardPort(port: number): Promise<void>
+          SetPluginsPath(path: string): Promise<void>
+
+          // Dashboard
+          StartDashboard(): Promise<void>
+          StopDashboard(): Promise<void>
+
+          // Backup
+          TriggerBackup(): Promise<void>
+
+          // Memory
+          ListMemory(): Promise<MemoryView>
+          GetMemoryStoreDir(): Promise<string>
+          Remember(name: string, title: string, description: string, memType: string, body: string): Promise<MemoryFact>
+          Forget(name: string): Promise<void>
+          RestoreMemory(name: string): Promise<void>
+          DeleteMemory(name: string): Promise<void>
+          SaveDoc(path: string, scope: string, body: string): Promise<MemoryDoc>
+          DeleteDoc(path: string): Promise<void>
+
+          // MCP
+          MCPConnectServer(name: string, transport: string, command: string, args: string[], url: string): Promise<void>
+          MCPDisconnectServer(name: string): Promise<void>
+          MCPListTools(): Promise<Record<string, any[]>>
+          MCPCallTool(name: string, args: Record<string, any>): Promise<any>
+          MCPIsConnected(name: string): Promise<boolean>
+
+          // Bot
+          BotConnect(name: string, platform: string, token: string, appID: string, appSecret: string, webhookURL: string): Promise<void>
+          BotDisconnect(name: string): Promise<void>
+          BotSend(adapterName: string, chatID: string, text: string): Promise<any>
+          BotIsConnected(name: string): Promise<boolean>
+          BotListAdapters(): Promise<any[]>
+          BotRemoveAdapter(name: string): Promise<void>
+
+          // Utilities
+          CheckEnvVar(name: string): Promise<boolean>
+          GetEnvVar(name: string): Promise<string>
+          OpenInExplorer(path: string): Promise<void>
+          GetGlobalPath(globalId: string): Promise<string>
+          GetProjectPath(globalId: string, projectId: string): Promise<string>
         }
       }
     }
@@ -255,4 +309,33 @@ export interface TreeNode {
   isDir: boolean
   children?: TreeNode[]
   size?: number
+}
+
+// Memory types
+export interface MemoryFact {
+  name: string
+  title?: string
+  description: string
+  type: string // user | feedback | project | reference
+  body: string
+  createdAt: string
+}
+
+export interface MemoryDoc {
+  path: string
+  scope: string // user | project | local
+  body: string
+  updatedAt: string
+}
+
+export interface MemoryArchive extends MemoryFact {
+  archivedAt: string
+}
+
+export interface MemoryView {
+  facts: MemoryFact[]
+  archives: MemoryArchive[]
+  docs: MemoryDoc[]
+  storeDir: string
+  available: boolean
 }

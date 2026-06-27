@@ -215,11 +215,11 @@ func (t *ExecuteCommandTool) Call(ctx context.Context, params map[string]interfa
 	if runtime.GOOS == "windows" {
 		// Windows: 自动转换常见 Unix 命令为 Windows 等价命令
 		command = convertUnixToWindows(command)
-		// 先 chcp 65001 切换到 UTF-8 代码页，再执行用户命令
-		fullCmd := fmt.Sprintf("chcp 65001 >nul 2>&1 & %s", command)
-		cmd := exec.CommandContext(ctx, "cmd", "/c", fullCmd)
+		// 使用 PowerShell 执行，原生支持 UTF-8
+		psCmd := fmt.Sprintf("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; %s", command)
+		cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", psCmd)
 		output, err := cmd.CombinedOutput()
-		result := string(output)
+		result := strings.TrimSpace(string(output))
 		if err != nil && result == "" {
 			return result, fmt.Errorf("command failed: %w", err)
 		}
@@ -239,6 +239,25 @@ func (t *ExecuteCommandTool) Call(ctx context.Context, params map[string]interfa
 // convertUnixToWindows 将常见 Unix 命令转换为 Windows 等价命令
 func convertUnixToWindows(cmd string) string {
 	cmd = strings.TrimSpace(cmd)
+
+	// 处理纯命令名（无参数）的情况（PowerShell 语法）
+	singleCmds := map[string]string{
+		"ls":      "Get-ChildItem -Name",
+		"dir":     "Get-ChildItem -Name",
+		"cat":     "Write-Host 'Please provide file path'",
+		"head":    "Write-Host 'Please provide file path'",
+		"tail":    "Write-Host 'Please provide file path'",
+		"grep":    "Write-Host 'Please provide search pattern'",
+		"find":    "Write-Host 'Please provide search target'",
+		"wc":      "Write-Host 'Please provide file path'",
+		"pwd":     "Get-Location",
+		"whoami":  "$env:USERNAME",
+		"date":    "Get-Date -Format 'yyyy-MM-dd HH:mm:ss'",
+		"echo":    "Write-Host",
+	}
+	if replacement, ok := singleCmds[cmd]; ok {
+		return replacement
+	}
 
 	// grep pattern file → findstr /i "pattern" file
 	if strings.HasPrefix(cmd, "grep ") {
@@ -278,7 +297,7 @@ func convertUnixToWindows(cmd string) string {
 		}
 	}
 
-	// head -n N file → powershell -Command "Get-Content file -Head N"
+	// head -n N file 或 head -N file → Get-Content file -Head N
 	if strings.HasPrefix(cmd, "head ") {
 		parts := strings.Fields(cmd)
 		n := "10"
@@ -287,16 +306,19 @@ func convertUnixToWindows(cmd string) string {
 			if parts[i] == "-n" && i+1 < len(parts) {
 				n = parts[i+1]
 				i++
+			} else if strings.HasPrefix(parts[i], "-") && len(parts[i]) > 1 {
+				// 处理 -10 格式（无 -n 前缀）
+				n = parts[i][1:]
 			} else if !strings.HasPrefix(parts[i], "-") {
 				file = parts[i]
 			}
 		}
 		if file != "" {
-			return fmt.Sprintf("powershell -Command \"Get-Content '%s' -Head %s\"", file, n)
+			return fmt.Sprintf("Get-Content '%s' -Head %s", file, n)
 		}
 	}
 
-	// tail -n N file → powershell -Command "Get-Content file -Tail N"
+	// tail -n N file → Get-Content file -Tail N
 	if strings.HasPrefix(cmd, "tail ") {
 		parts := strings.Fields(cmd)
 		n := "10"
@@ -310,7 +332,7 @@ func convertUnixToWindows(cmd string) string {
 			}
 		}
 		if file != "" {
-			return fmt.Sprintf("powershell -Command \"Get-Content '%s' -Tail %s\"", file, n)
+			return fmt.Sprintf("Get-Content '%s' -Tail %s", file, n)
 		}
 	}
 
@@ -325,7 +347,7 @@ func convertUnixToWindows(cmd string) string {
 		return "type " + file
 	}
 
-	// wc -l file → powershell -Command "(Get-Content file).Count"
+	// wc -l file → (Get-Content file).Count
 	if strings.HasPrefix(cmd, "wc ") {
 		parts := strings.Fields(cmd)
 		file := ""
@@ -335,13 +357,37 @@ func convertUnixToWindows(cmd string) string {
 			}
 		}
 		if file != "" {
-			return fmt.Sprintf("powershell -Command \"(Get-Content '%s').Count\"", file)
+			return fmt.Sprintf("(Get-Content '%s').Count", file)
 		}
 	}
 
 	// find file → where file
 	if strings.HasPrefix(cmd, "find ") {
 		return "where " + strings.TrimPrefix(cmd, "find ")
+	}
+
+	// curl url → Invoke-WebRequest
+	if strings.HasPrefix(cmd, "curl ") {
+		url := strings.TrimPrefix(cmd, "curl ")
+		url = strings.Trim(url, "\"'")
+		return fmt.Sprintf("(Invoke-WebRequest -Uri '%s').Content", url)
+	}
+
+	// echo text → Write-Output
+	if strings.HasPrefix(cmd, "echo ") {
+		text := strings.TrimPrefix(cmd, "echo ")
+		return fmt.Sprintf("Write-Host '%s'", text)
+	}
+
+	// Windows 上遇到 bash 语法时，返回 ASCII 提示信息
+	if runtime.GOOS == "windows" {
+		// 只检测明确的 bash 语法结构，避免误判
+		if strings.Contains(cmd, "for ") && strings.Contains(cmd, "; do ") {
+			return fmt.Sprintf("echo [ERROR] bash syntax detected. Use Windows commands instead. Command: %s", cmd)
+		}
+		if strings.HasPrefix(cmd, "for ") && strings.Contains(cmd, " in ") && strings.Contains(cmd, "; do") {
+			return fmt.Sprintf("echo [ERROR] bash syntax detected. Use Windows commands instead. Command: %s", cmd)
+		}
 	}
 
 	return cmd

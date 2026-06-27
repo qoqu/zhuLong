@@ -237,8 +237,8 @@ function BackupControl({ language }: { language: Language }) {
 
   useEffect(() => {
     saveJSON('zhulong-backup-mode', mode)
-    if (backend) try { backend.SetBackupMode(mode) } catch {}
-  }, [mode])
+    if (backend) try { backend.SetBackupMode(mode, onFail) } catch {}
+  }, [mode, onFail])
   useEffect(() => { saveJSON('zhulong-backup-onfail', onFail) }, [onFail])
 
   const handleBackup = async () => {

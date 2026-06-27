@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"time"
 )
 
@@ -162,7 +163,26 @@ func (p *LLMPlanner) Replan(ctx context.Context, goal string, currentPlan *Plan,
 
 // buildPlanPrompt builds the prompt for planning
 func (p *LLMPlanner) buildPlanPrompt(goal string, memory MemoryReader) []Message {
+	platform := "linux"
+	if runtime.GOOS == "windows" {
+		platform = "windows"
+	}
+
 	systemPrompt := `You are a task planner. Your job is to break down a user's goal into clear, executable steps.
+
+## Platform: ` + platform + `
+IMPORTANT: You are running on ` + platform + `. Use platform-appropriate commands:
+- Windows: dir, type, findstr, powershell, etc.
+- Linux/macOS: ls, cat, grep, find, etc.
+
+## Project Architecture (CRITICAL)
+This is a Wails desktop application, NOT a traditional web app.
+- Frontend: desktop/frontend/src/ (React + TypeScript)
+- Backend: desktop/app.go (Go, Wails RPC bindings)
+- Communication: Wails RPC (window.go.main.App.Method()), NOT HTTP REST
+
+## Language: Chinese (中文)
+All responses and descriptions must be in Chinese (中文). Use Chinese for step descriptions, rationale, and all output text.
 
 ## Output Format
 Return a JSON object with the following structure:
@@ -216,10 +236,12 @@ Return a JSON object with the following structure:
 - execute_command: Execute shell command (requires: command)
 - web_search: Search the web (requires: query)
 
-## Current Context
-` + memory.GetSessionSummary()
+## Language: Chinese (中文)
+All responses and descriptions must be in Chinese (中文).`
 
-	userPrompt := fmt.Sprintf("Goal: %s\n\nPlease create a plan to achieve this goal.", goal)
+	// 动态上下文放到 user message，不破坏 system prompt 缓存
+	userPrompt := fmt.Sprintf("## Current Context\n%s\n\n## Goal\n%s\n\nPlease create a plan to achieve this goal.",
+		memory.GetSessionSummary(), goal)
 
 	return []Message{
 		{Role: "system", Content: systemPrompt},
@@ -229,7 +251,20 @@ Return a JSON object with the following structure:
 
 // buildReplanPrompt builds the prompt for replanning
 func (p *LLMPlanner) buildReplanPrompt(goal string, currentPlan *Plan, memory MemoryReader) []Message {
+	platform := "linux"
+	if runtime.GOOS == "windows" {
+		platform = "windows"
+	}
+
 	systemPrompt := `You are a task re-planner. Based on execution history and reflection, adjust the current plan.
+
+## Platform: ` + platform + `
+IMPORTANT: You are running on ` + platform + `. Use platform-appropriate commands:
+- Windows: dir, type, findstr, powershell, etc.
+- Linux/macOS: ls, cat, grep, find, etc.
+
+## Language: Chinese (中文)
+All responses and descriptions must be in Chinese (中文).
 
 ## Output Format
 Return a JSON object with the same structure as the original plan.
@@ -237,7 +272,7 @@ Return a JSON object with the same structure as the original plan.
 ## CRITICAL: Tool Call Parameter Rules (same as original plan)
 - **read_file**: MUST include "path" param. Example: {"type":"tool_call","tool":"read_file","params":{"path":"go.mod"}}
 - **search_file**: MUST include "pattern" param. Example: {"type":"tool_call","tool":"search_file","params":{"pattern":"*.go"}}
-- **execute_command**: MUST include "command" param. Example: {"type":"tool_call","tool":"execute_command","params":{"command":"ls -la"}}
+- **execute_command**: MUST include "command" param. Example: {"type":"tool_call","tool":"execute_command","params":{"command":"dir"}}
 - **write_file**: MUST include "path" and "content" params.
 - **web_search**: MUST include "query" param.
 

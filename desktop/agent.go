@@ -1,16 +1,26 @@
 // Package bridge connects desktop UI to the real agent loop.
 //
+// ⚠️ 设计说明：此文件是 pkg.Agent 的桌面端简化版本。
+// 它不直接调用 pkg.NewAgent()，因为桌面端需要在每个执行步骤中
+// 通过 emitSession() 实时推送状态给前端 UI（模块状态、日志、计划进度等）。
+// pkg.Agent.Run() 只返回最终结果，不支持中间状态推送。
+//
+// 两个入口共享 internal/ 包的核心逻辑（planner/executor/reflector 等），
+// 但循环驱动和状态同步方式不同：
+//   - CLI (pkg/agent.go): 一次性运行，返回结果
+//   - Desktop (此文件): 逐步运行，每步推送 UI 更新
+//
 // Wiring:
 //
 //   SendMessage(goal)
-//     └── runLoop(ctx, s)
-//          ├── HeuristicPlanner.Plan(goal)         → plan
+//     └── RunAgent(ctx, s)
+//          ├── planner.Plan(goal)              → plan
 //          ├── for each step:
 //          │     ├── if ask mode + risky → emit approval modal
-//          │     ├── HeuristicExecutor.Execute(step) → result
-//          │     ├── append to memory
+//          │     ├── executor.Execute(step)    → result
+//          │     ├── update module states
 //          │     └── emit session update
-//          ├── HeuristicReflector.Reflect(plan, results) → assessment
+//          ├── reflector.Reflect(plan, results) → assessment
 //          └── emit final answer
 package main
 
@@ -490,6 +500,14 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 				s.ModuleState.DeepSeek.Details["cacheHitRate"] = hitRate
 				s.ModuleState.DeepSeek.Details["cachedTokens"] = cachedTokens
 				s.ModuleState.DeepSeek.Details["promptTokens"] = promptTokens
+				// 同步到 Stats 供 UI 显示
+				s.Stats.CacheHitRatio = hitRate
+				if cachedTokens > 0 {
+					s.Stats.CacheHit = fmt.Sprintf("命中 %d tokens", cachedTokens)
+				} else {
+					s.Stats.CacheHit = "未命中"
+				}
+				s.Stats.ThisTokens = promptTokens
 			}
 			if s.ModuleState.Checkpoint != nil && (i+1)%3 == 0 {
 				s.ModuleState.Checkpoint.Details["lastCheckpointId"] = fmt.Sprintf("cp-%s-step%d", s.Info.ID, i+1)

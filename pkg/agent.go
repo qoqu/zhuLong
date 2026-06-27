@@ -45,6 +45,7 @@ import (
 	"github.com/qoqu/zhuLong/internal/skills"
 	"github.com/qoqu/zhuLong/internal/skillset"
 	"github.com/qoqu/zhuLong/internal/stability"
+	"github.com/qoqu/zhuLong/internal/state"
 	"github.com/qoqu/zhuLong/internal/stagnation"
 	"github.com/qoqu/zhuLong/internal/synergetics"
 	"github.com/qoqu/zhuLong/internal/terminal"
@@ -123,6 +124,10 @@ type Agent struct {
 	// 缓存优化（DeepSeek prefix-cache 核心）
 	prefixCache *cache.PrefixCache             // 前缀缓存管理（热/温/冷状态）
 
+	// 可选集成模块（默认禁用，通过 Integrations 配置启用）
+	stateStore *state.Store                    // 热/冷状态持久化
+	integrations map[string]bool               // 可选模块开关
+
 	// 运行状态
 	startedAt     time.Time            // 启动时间
 	sessionID     string               // 会话ID
@@ -131,77 +136,6 @@ type Agent struct {
 // Provider is the interface for LLM providers
 type Provider interface {
 	Chat(ctx context.Context, system, user string) (string, error)
-}
-
-// Options contains configuration for the agent
-type Options struct {
-	Goal        string
-	MaxLoops    int
-	MaxTokens   int
-	MaxCost     float64
-	MaxWallTime time.Duration
-	Verbose     bool
-	Model       string
-	DataDir     string
-}
-
-// Option is a function that configures the agent
-type Option func(*Options)
-
-// WithGoal sets the goal for the agent
-func WithGoal(goal string) Option {
-	return func(o *Options) {
-		o.Goal = goal
-	}
-}
-
-// WithMaxLoops sets the maximum number of loops
-func WithMaxLoops(n int) Option {
-	return func(o *Options) {
-		o.MaxLoops = n
-	}
-}
-
-// WithMaxTokens sets the maximum number of tokens
-func WithMaxTokens(n int) Option {
-	return func(o *Options) {
-		o.MaxTokens = n
-	}
-}
-
-// WithMaxCost sets the maximum cost
-func WithMaxCost(cost float64) Option {
-	return func(o *Options) {
-		o.MaxCost = cost
-	}
-}
-
-// WithMaxWallTime sets the maximum wall time
-func WithMaxWallTime(d time.Duration) Option {
-	return func(o *Options) {
-		o.MaxWallTime = d
-	}
-}
-
-// WithVerbose enables verbose output
-func WithVerbose(verbose bool) Option {
-	return func(o *Options) {
-		o.Verbose = verbose
-	}
-}
-
-// WithModel sets the model for the agent
-func WithModel(model string) Option {
-	return func(o *Options) {
-		o.Model = model
-	}
-}
-
-// WithDataDir sets the data directory for the agent
-func WithDataDir(dir string) Option {
-	return func(o *Options) {
-		o.DataDir = dir
-	}
 }
 
 // NewAgent 创建 Agent（一次性完成所有模块的串联初始化）
@@ -493,6 +427,8 @@ func NewAgent(opts ...Option) (*Agent, error) {
 		blueprintCat:       blueprintCatInst,
 		skillsetReg:        skillsetRegInst,
 		prefixCache:        cache.NewPrefixCache(cache.DefaultConfig()),
+		stateStore:         state.New(options.DataDir),
+		integrations:       IntegrationMap(DefaultIntegrations()),
 		startedAt:          time.Now(),
 		sessionID:          sessionID,
 	}, nil
@@ -546,6 +482,16 @@ func (a *Agent) Run() (*AgentResult, error) {
 	}
 	defer a.envMonitor.Stop()
 
+	// === 可选集成：状态持久化 ===
+	if a.integrations["state"] {
+		if hot := a.stateStore.GetHot(); hot != nil {
+			logger.Log("state", "loaded", map[string]string{"phase": hot.Phase, "mode": hot.Mode})
+		}
+		defer a.stateStore.UpdateHot(func(h *state.HotState) {
+			h.SessionChanges++
+		})
+	}
+
 	// === 检查点恢复 ===
 	// 不依赖 RunMemory.RestoreFrom，checkpoint 只作为日志备份（plan 由 LLM 重新生成）
 	// 实际"恢复"语义: 如果存在 cp-agent-done，说明上次完成了，跳过 plan
@@ -576,7 +522,8 @@ func (a *Agent) Run() (*AgentResult, error) {
 	// skillset.Registry 有预置技能但 agent.go 不注册
 	// 注: skillsetReg 可用于注册预置技能到 skillPipeline
 
-	// === System Prompt 构造（注入冻结快照，遵循缓存铁律） ===
+	// === System Prompt 构造（缓存铁律：system prompt 必须完全静态）===
+	// 动态内容（memory/skills/plugins/blueprints）放到 user message 中
 	systemPrompt := `You are Zhulong (烛龙), an autonomous agent powered by DeepSeek.
 
 ## 核心行为规则
@@ -596,57 +543,45 @@ func (a *Agent) Run() (*AgentResult, error) {
 ## 回复格式
 - 直接用自然语言回复，不要包裹在命令中
 - 不要使用 echo、powershell 等命令来输出文字
-- 中文回复时直接写中文，不要通过命令行输出`
+- 中文回复时直接写中文，不要通过命令行输出
 
-	// 1. 注入 MEMORY.md + USER.md（会话开始读一次，循环中不变）
+## Security
+Commands are filtered through a 7-layer security engine. Dangerous commands (rm -rf /, fork bombs) are hard-blocked.`
+
+	// === 动态上下文（放到 user message，不破坏 system prompt 缓存）===
+	var dynamicContext string
+
+	// 1. 注入 MEMORY.md + USER.md
 	agentNote, userProfile := a.memoryStore.GetSnapshot()
 	if agentNote != "" {
-		systemPrompt += "\n\n## Agent Notes\n" + agentNote
+		dynamicContext += "\n## Agent Notes\n" + agentNote
 	}
 	if userProfile != "" {
-		systemPrompt += "\n\n## User Profile\n" + userProfile
+		dynamicContext += "\n## User Profile\n" + userProfile
 	}
 
-	// 2. 注入技能清单（Tier 1 元数据）
+	// 2. 注入技能清单
 	skillList := a.skillPipeline.GetSkillList()
 	if skillList != "" {
-		systemPrompt += "\n" + skillList
+		dynamicContext += "\n" + skillList
 	}
 
-	// 3. 注入安全策略
-	systemPrompt += "\n\n## Security\nCommands are filtered through a 7-layer security engine. Dangerous commands (rm -rf /, fork bombs) are hard-blocked."
-
-	// === P3 串 1: i18n（多语言切换 system prompt 顶部）===
-	// 关键修复: 之前 i18n.Bundle 注入但 system prompt 一直是英文
-	// 现在: 顶部加 i18n.T("agent.greeting") 根据当前 lang 切换
-	welcome := a.i18nBundle.T("agent.greeting", i18n.LangZH)
-	systemPrompt = welcome + "\n" + systemPrompt
-
-	// === P3 串 2: 多模型池（备用 provider 注入）===
-	// a.provider 是单例，DeepSeek 失败时无降级路径
-	// 注: modelPool 可用于 provider fallback（当前实现：单 provider 模式）
-	if a.modelPool != nil {
-		// 模型池可用于多 provider 切换（待完善）
-	}
-
-	// === P3 串 3: 插件查询（在 system prompt 暴露插件列表）===
-	// 把插件元数据注入 system prompt（让 LLM 知道有哪些能力）
+	// 3. 注入插件列表
 	if plugins := a.pluginMgr.List(); len(plugins) > 0 {
 		pluginList := "\n## Available Plugins\n"
 		for _, p := range plugins {
-			pluginList += fmt.Sprintf("- %s (v%s): type=%s status=%s\n", p.Name, p.Version, p.Type, p.Status)
+			pluginList += fmt.Sprintf("- %s (v%s)\n", p.Name, p.Version)
 		}
-		systemPrompt += pluginList
+		dynamicContext += pluginList
 	}
 
-	// === P4 串 1: 蓝图目录注入（system prompt 最后注入，遵循缓存铁律只追加）===
-	// 系统提示词末尾注入自动化蓝图表（仅元数据，不破坏 prefix 缓存）
+	// 4. 注入蓝图列表
 	if blueprints := a.blueprintCat.List(); len(blueprints) > 0 {
-		bpLine := "\n## Automation Blueprints\n以下自动化模板可供定期执行：\n"
+		bpLine := "\n## Automation Blueprints\n"
 		for _, bp := range blueprints {
 			bpLine += fmt.Sprintf("- %s: %s\n", bp.Title, bp.Description)
 		}
-		systemPrompt += bpLine
+		dynamicContext += bpLine
 	}
 
 	// === 三个核心组件 ===
@@ -1204,6 +1139,15 @@ executeLoop:
 	// 关键修复: 之前 evolution/quality 在 agent 完成后没被调用
 	// 现在: 记录会话快照到后台审查器，按 workflow 模式决定是否跑 quality 扫描
 	go a.postRunEvolution(ctx, plan, stepResults, successCount, totalTokens)
+
+	// === 可选集成：状态持久化 ===
+	if a.integrations["state"] {
+		_ = a.stateStore.AppendCold(state.ColdLog{
+			Type:    "agent_run",
+			Summary: fmt.Sprintf("goal=%s status=%s tokens=%d", a.goal, status, totalTokens),
+			Score:   float64(successCount) / float64(totalTokens),
+		})
+	}
 
 	return &AgentResult{
 		Status:     status,
