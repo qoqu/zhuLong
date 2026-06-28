@@ -110,8 +110,15 @@ func (m *Manager) Restore(snapshot *Snapshot, targetDir string) error {
 		if err != nil {
 			return err
 		}
-		data, _ := io.ReadAll(rc)
-		os.WriteFile(target, data, 0644)
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		if err := os.WriteFile(target, data, 0644); err != nil {
+			rc.Close()
+			return err
+		}
 		rc.Close()
 	}
 	return nil

@@ -23,6 +23,7 @@ import (
 
 	"github.com/qoqu/zhuLong/internal/backup"
 	"github.com/qoqu/zhuLong/internal/bot"
+	"github.com/qoqu/zhuLong/internal/cache"
 	"github.com/qoqu/zhuLong/internal/dashboard"
 	"github.com/qoqu/zhuLong/internal/environment"
 	"github.com/qoqu/zhuLong/internal/mcp"
@@ -142,6 +143,10 @@ type App struct {
 	envRunning   bool
 	envChangeBuf []ChangeDTO
 	envChangeLock sync.Mutex
+
+	// Cache optimization (DeepSeek prefix-cache)
+	prefixCache     *cache.PrefixCache
+	cacheMaintenance *cache.CacheMaintenance
 }
 
 // AgentInfo describes an agent identity shown in the top tab bar.
@@ -263,6 +268,10 @@ type RuntimeStatsDTO struct {
 	BudgetUsed     int  `json:"budgetUsed,omitempty"`
 	BudgetLimit    int  `json:"budgetLimit,omitempty"`
 	BudgetWarning  bool `json:"budgetWarning,omitempty"`
+	// Cache diagnostics fields (DeepSeek-Reasonix level)
+	CachePrefixChanged bool `json:"cachePrefixChanged"`
+	CacheHitTokens     int  `json:"cacheHitTokens"`
+	CacheMissTokens    int  `json:"cacheMissTokens"`
 }
 
 // ChangeDTO is a file-system change event from the EnvironmentMonitor.
@@ -461,19 +470,8 @@ func (a *App) seedDefaults() {
 	a.agents = []AgentInfo{
 		{ID: "auto", Name: "默认 Agent", Model: "deepseek-v4-flash", Yolo: true},
 	}
-	a.globals = []GlobalInfo{
-		{
-			ID:   "global-1",
-			Name: "Default Workspace",
-			Projects: []ProjectInfo{
-				{
-					ID:       "project-1",
-					Name:     "My Project",
-					Sessions: []SessionInfo{},
-				},
-			},
-		},
-	}
+	// 首次进入无默认工作空间，用户需自行创建
+	a.globals = []GlobalInfo{}
 	a.activeID = ""
 	a.activeAge = "auto"
 }
@@ -502,6 +500,11 @@ func (a *App) startup(ctx context.Context) {
 	a.loadActiveIDs()
 	a.markWailsReady()
 	a.initEnvironmentMonitor()
+
+	// Initialize prefix cache and maintenance
+	a.prefixCache = cache.NewPrefixCache(cache.DefaultConfig())
+	a.cacheMaintenance = cache.NewCacheMaintenance(a.prefixCache, cache.DefaultMaintenanceConfig(), nil)
+	a.cacheMaintenance.Start()
 	// Initialize MCP manager
 	a.mcpMgr = mcp.NewManager()
 	// Initialize Bot manager
@@ -617,9 +620,15 @@ func (a *App) CreateGlobal(name string) (*GlobalInfo, error) {
 		return nil, fmt.Errorf("global name cannot be empty")
 	}
 
+	id := fmt.Sprintf("g%d", time.Now().UnixMilli())
+	// 默认路径：~/.zhulong/workspaces/<id>
+	path := filepath.Join(zhulongDir(), "workspaces", id)
+	os.MkdirAll(path, 0755)
+
 	global := GlobalInfo{
-		ID:       fmt.Sprintf("g%d", time.Now().UnixMilli()),
+		ID:       id,
 		Name:     name,
+		Path:     path,
 		Projects: []ProjectInfo{},
 	}
 	a.globals = append(a.globals, global)
@@ -639,8 +648,13 @@ func (a *App) CreateProject(globalID, name string) (*ProjectInfo, error) {
 
 	for i := range a.globals {
 		if a.globals[i].ID == globalID {
+			id := fmt.Sprintf("p%d", time.Now().UnixMilli())
+			// 创建项目目录：~/.zhulong/workspaces/<globalID>/<projectID>
+			projectPath := filepath.Join(zhulongDir(), "workspaces", globalID, id)
+			os.MkdirAll(projectPath, 0755)
+
 			project := ProjectInfo{
-				ID:       fmt.Sprintf("p%d", time.Now().UnixMilli()),
+				ID:       id,
 				Name:     name,
 				Sessions: []SessionInfo{},
 			}
@@ -658,6 +672,81 @@ func (a *App) SetActiveAgent(id string) {
 	a.activeAge = id
 	a.mu.Unlock()
 	go a.saveActiveIDs()
+}
+
+// RenameGlobal renames a workspace and its folder on disk.
+func (a *App) RenameGlobal(id string, name string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("name cannot be empty")
+	}
+
+	for i := range a.globals {
+		if a.globals[i].ID == id {
+			oldPath := a.globals[i].Path
+			a.globals[i].Name = name
+
+			// 重命名文件夹
+			if oldPath != "" {
+				newPath := filepath.Join(filepath.Dir(oldPath), name)
+				if oldPath != newPath {
+					if err := os.Rename(oldPath, newPath); err == nil {
+						a.globals[i].Path = newPath
+					}
+				}
+			}
+			a.emitGlobals()
+			a.saveState()
+			return nil
+		}
+	}
+	return fmt.Errorf("workspace %q not found", id)
+}
+
+// RenameProject renames a project and its folder on disk.
+func (a *App) RenameProject(globalID, projectID, name string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("name cannot be empty")
+	}
+
+	for i := range a.globals {
+		if a.globals[i].ID == globalID {
+			// 获取工作空间的实际路径
+			wsPath := a.globals[i].Path
+			if wsPath == "" {
+				wsPath = filepath.Join(zhulongDir(), "workspaces", a.globals[i].ID)
+			}
+
+			for j := range a.globals[i].Projects {
+				if a.globals[i].Projects[j].ID == projectID {
+					oldProjectPath := filepath.Join(wsPath, a.globals[i].Projects[j].ID)
+					a.globals[i].Projects[j].Name = name
+
+					// 重命名文件夹
+					if _, err := os.Stat(oldProjectPath); err == nil {
+						newProjectPath := filepath.Join(wsPath, name)
+						if oldProjectPath != newProjectPath {
+							if renameErr := os.Rename(oldProjectPath, newProjectPath); renameErr != nil {
+								// 文件夹重命名失败，只更新名字
+							}
+						}
+					}
+
+					a.emitGlobals()
+					a.saveState()
+					return nil
+				}
+			}
+		}
+	}
+	return fmt.Errorf("project %q not found", projectID)
 }
 
 // SetActiveSession switches the active session in the sidebar.
@@ -788,6 +877,246 @@ func (a *App) DeleteSession(id string) {
 	a.emitGlobals()
 	a.saveActiveIDs()
 	wailsRuntime.EventsEmit(a.ctx, "session:deleted", id)
+}
+
+// recycleBinDir returns ~/.zhulong/recycle-bin (creates it if missing).
+func recycleBinDir() string {
+	dir := filepath.Join(zhulongDir(), "recycle-bin")
+	os.MkdirAll(dir, 0755)
+	return dir
+}
+
+// moveDirToRecycleBin moves a directory to the recycle bin with a timestamp suffix.
+func moveDirToRecycleBin(src, name string) (string, error) {
+	if src == "" {
+		return "", fmt.Errorf("source path is empty")
+	}
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return "", nil // 目录不存在，跳过
+	}
+	dest := filepath.Join(recycleBinDir(), fmt.Sprintf("%s_%d", name, time.Now().UnixMilli()))
+	if err := os.Rename(src, dest); err != nil {
+		return "", err
+	}
+	return dest, nil
+}
+
+// moveDirFromRecycleBin restores a directory from the recycle bin.
+func moveDirFromRecycleBin(recyclePath, originalPath string) error {
+	if recyclePath == "" || originalPath == "" {
+		return fmt.Errorf("path is empty")
+	}
+	if _, err := os.Stat(recyclePath); os.IsNotExist(err) {
+		return fmt.Errorf("recycle bin item not found: %s", recyclePath)
+	}
+	os.MkdirAll(filepath.Dir(originalPath), 0755)
+	return os.Rename(recyclePath, originalPath)
+}
+
+// deleteDirRecursively permanently deletes a directory.
+func deleteDirRecursively(dir string) error {
+	if dir == "" {
+		return nil
+	}
+	return os.RemoveAll(dir)
+}
+
+// DeletedItem represents an item in the recycle bin.
+type DeletedItem struct {
+	ID          string    `json:"id"`
+	Type        string    `json:"type"` // "global" | "project" | "session"
+	Name        string    `json:"name"`
+	Path        string    `json:"path"`
+	GlobalID    string    `json:"globalId,omitempty"`
+	ProjectID   string    `json:"projectId,omitempty"`
+	OriginalPath string   `json:"originalPath"`
+	DeletedAt   time.Time `json:"deletedAt"`
+}
+
+// DeleteGlobal deletes a workspace: moves folder to recycle bin, removes from globals tree.
+func (a *App) DeleteGlobal(id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	var globalPath string
+	for i := range a.globals {
+		if a.globals[i].ID == id {
+			globalPath = a.globals[i].Path
+			// 从树中移除
+			a.globals = append(a.globals[:i], a.globals[i+1:]...)
+			break
+		}
+	}
+	if globalPath == "" {
+		return fmt.Errorf("workspace %q not found", id)
+	}
+
+	// 移动到回收站
+	itemPath, err := moveDirToRecycleBin(globalPath, "global-"+id)
+	if err != nil {
+		return err
+	}
+
+	// 写入回收站记录
+	a.saveRecycleBinRecord(DeletedItem{
+		ID:           id,
+		Type:         "global",
+		Name:         filepath.Base(globalPath),
+		Path:         itemPath,
+		OriginalPath: globalPath,
+		DeletedAt:    time.Now(),
+	})
+
+	a.emitGlobals()
+	a.saveState()
+	return nil
+}
+
+// DeleteProject deletes a project: moves folder to recycle bin, removes from project list.
+func (a *App) DeleteProject(globalID, projectID string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	var projectPath string
+	var projectName string
+	for i := range a.globals {
+		if a.globals[i].ID == globalID {
+			for j := range a.globals[i].Projects {
+				if a.globals[i].Projects[j].ID == projectID {
+					projectName = a.globals[i].Projects[j].Name
+					projectPath = filepath.Join(zhulongDir(), "workspaces", globalID, projectID)
+					// 从树中移除
+					a.globals[i].Projects = append(a.globals[i].Projects[:j], a.globals[i].Projects[j+1:]...)
+					break
+				}
+			}
+			break
+		}
+	}
+	if projectPath == "" {
+		return fmt.Errorf("project %q not found", projectID)
+	}
+
+	// 移动到回收站
+	itemPath, err := moveDirToRecycleBin(projectPath, "project-"+projectID)
+	if err != nil {
+		return err
+	}
+
+	// 写入回收站记录
+	a.saveRecycleBinRecord(DeletedItem{
+		ID:           projectID,
+		Type:         "project",
+		Name:         projectName,
+		Path:         itemPath,
+		GlobalID:     globalID,
+		OriginalPath: projectPath,
+		DeletedAt:    time.Now(),
+	})
+
+	a.emitGlobals()
+	a.saveState()
+	return nil
+}
+
+// saveRecycleBinRecord appends a record to the recycle bin index.
+func (a *App) saveRecycleBinRecord(item DeletedItem) {
+	index := a.loadRecycleBinIndex()
+	index = append(index, item)
+	data, _ := json.MarshalIndent(index, "", "  ")
+	_ = os.WriteFile(filepath.Join(recycleBinDir(), "index.json"), data, 0644)
+}
+
+// loadRecycleBinIndex reads the recycle bin index.
+func (a *App) loadRecycleBinIndex() []DeletedItem {
+	var index []DeletedItem
+	data, err := os.ReadFile(filepath.Join(recycleBinDir(), "index.json"))
+	if err != nil {
+		return index
+	}
+	_ = json.Unmarshal(data, &index)
+	return index
+}
+
+// EmptyRecycleBin permanently deletes all items in the recycle bin.
+func (a *App) EmptyRecycleBin() error {
+	dir := recycleBinDir()
+	// 读取 index 获取要删除的记录
+	index := a.loadRecycleBinIndex()
+
+	// 删除所有子目录
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.Name() == "index.json" {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+	}
+
+	// 清空 index
+	_ = os.WriteFile(filepath.Join(dir, "index.json"), []byte("[]"), 0644)
+	_ = index // 避免未使用警告
+	return nil
+}
+
+// RestoreFromRecycleBin restores an item from the recycle bin.
+func (a *App) RestoreFromRecycleBin(itemID, itemType string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	index := a.loadRecycleBinIndex()
+	var found *DeletedItem
+	var foundIdx int
+	for i, item := range index {
+		if item.ID == itemID && item.Type == itemType {
+			found = &item
+			foundIdx = i
+			break
+		}
+	}
+	if found == nil {
+		return fmt.Errorf("recycle bin item %q not found", itemID)
+	}
+
+	// 恢复文件夹
+	if err := moveDirFromRecycleBin(found.Path, found.OriginalPath); err != nil {
+		return err
+	}
+
+	// 恢复到 globals 树
+	if itemType == "global" {
+		newGlobal := GlobalInfo{
+			ID:       found.ID,
+			Name:     found.Name,
+			Path:     found.OriginalPath,
+			Projects: []ProjectInfo{},
+		}
+		a.globals = append(a.globals, newGlobal)
+	} else if itemType == "project" {
+		for i := range a.globals {
+			if a.globals[i].ID == found.GlobalID {
+				newProject := ProjectInfo{
+					ID:       found.ID,
+					Name:     found.Name,
+					Sessions: []SessionInfo{},
+				}
+				a.globals[i].Projects = append(a.globals[i].Projects, newProject)
+				break
+			}
+		}
+	}
+
+	// 从 index 中移除
+	index = append(index[:foundIdx], index[foundIdx+1:]...)
+	data, _ := json.MarshalIndent(index, "", "  ")
+	_ = os.WriteFile(filepath.Join(recycleBinDir(), "index.json"), data, 0644)
+
+	a.emitGlobals()
+	a.saveState()
+	return nil
 }
 
 // RenameSession updates the title of a session.
@@ -1215,6 +1544,10 @@ func (a *App) emitSessionForActive() {
 // shutdown is called by Wails when the app is about to exit.
 // 确保所有会话状态都落盘。
 func (a *App) shutdown(ctx context.Context) {
+	// Stop cache maintenance
+	if a.cacheMaintenance != nil {
+		a.cacheMaintenance.Stop()
+	}
 	a.mu.Lock()
 	sessions := make([]*SessionState, 0, len(a.sessions))
 	for _, s := range a.sessions {
@@ -1918,9 +2251,14 @@ func (a *App) GetGlobalPath(globalID string) string {
 func (a *App) GetProjectPath(globalID, projectID string) string {
 	for _, g := range a.globals {
 		if g.ID == globalID {
+			// 使用工作空间的实际路径
+			wsPath := g.Path
+			if wsPath == "" {
+				wsPath = filepath.Join(zhulongDir(), "workspaces", g.ID)
+			}
 			for _, p := range g.Projects {
 				if p.ID == projectID {
-					return filepath.Join(zhulongDir(), "workspaces", g.ID, p.ID)
+					return filepath.Join(wsPath, p.Name)
 				}
 			}
 		}

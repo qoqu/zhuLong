@@ -91,10 +91,14 @@ func (dp *DualProvider) Execute(ctx context.Context, system, user string) (strin
 	dp.mu.RLock()
 	defer dp.mu.RUnlock()
 
-	return dp.executor.Chat(ctx, []Message{
+	result, err := dp.executor.Chat(ctx, []Message{
 		{Role: "system", Content: system},
 		{Role: "user", Content: user},
 	})
+	if err != nil {
+		return "", err
+	}
+	return result.Content, nil
 }
 
 // Plan plans a task using the planner model
@@ -102,10 +106,14 @@ func (dp *DualProvider) Plan(ctx context.Context, system, user string) (string, 
 	dp.mu.RLock()
 	defer dp.mu.RUnlock()
 
-	return dp.planner.Chat(ctx, []Message{
+	result, err := dp.planner.Chat(ctx, []Message{
 		{Role: "system", Content: system},
 		{Role: "user", Content: user},
 	})
+	if err != nil {
+		return "", err
+	}
+	return result.Content, nil
 }
 
 // isPlanningPrompt checks if the system prompt is for planning

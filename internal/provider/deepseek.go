@@ -88,12 +88,19 @@ type ChatResponse struct {
 	} `json:"usage"`
 }
 
+// ChatResult 包含 LLM 响应内容和 usage 信息
+type ChatResult struct {
+	Content      string
+	PromptTokens int
+	CachedTokens int
+}
+
 // Chat sends a chat completion request to DeepSeek
-func (p *DeepSeekProvider) Chat(ctx context.Context, messages []Message) (string, error) {
+func (p *DeepSeekProvider) Chat(ctx context.Context, messages []Message) (*ChatResult, error) {
 	// Build request
 	temp := p.temperature
-	if temp == 0 {
-		temp = 0.7 // default
+	if temp < 0 {
+		temp = 0.7 // default when negative (unconfigured)
 	}
 	req := ChatRequest{
 		Model:       p.model,
@@ -107,13 +114,13 @@ func (p *DeepSeekProvider) Chat(ctx context.Context, messages []Message) (string
 	// Marshal request
 	reqBody, err := json.Marshal(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/v1/chat/completions", bytes.NewReader(reqBody))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set headers
@@ -123,31 +130,35 @@ func (p *DeepSeekProvider) Chat(ctx context.Context, messages []Message) (string
 	// Send request
 	httpResp, err := p.client.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer httpResp.Body.Close()
 
 	// Read response
 	respBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
+		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	// Check status code
 	if httpResp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API error: %s - %s", httpResp.Status, string(respBody))
+		return nil, fmt.Errorf("API error: %s - %s", httpResp.Status, string(respBody))
 	}
 
 	// Parse response
 	var resp ChatResponse
 	if err := json.Unmarshal(respBody, &resp); err != nil {
-		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	// Check if we have choices
 	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("no choices in response")
+		return nil, fmt.Errorf("no choices in response")
 	}
 
-	return resp.Choices[0].Message.Content, nil
+	return &ChatResult{
+		Content:      resp.Choices[0].Message.Content,
+		PromptTokens: resp.Usage.PromptTokens,
+		CachedTokens: resp.Usage.PromptTokensDetails.CachedTokens,
+	}, nil
 }

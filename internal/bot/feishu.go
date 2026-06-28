@@ -21,7 +21,7 @@ type FeishuAdapter struct {
 	client    *http.Client
 	server    *http.Server
 	stopCh    chan struct{}
-	mu        sync.Mutex
+	mu        sync.RWMutex
 }
 
 // NewFeishuAdapter creates a new Feishu adapter.
@@ -85,8 +85,11 @@ func (f *FeishuAdapter) Send(chatID string, text string) (*SendResult, error) {
 		return nil, err
 	}
 
+	f.mu.RLock()
+	token := f.token
+	f.mu.RUnlock()
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+f.token)
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := f.client.Do(req)
 	if err != nil {
@@ -141,8 +144,11 @@ func (f *FeishuAdapter) SendImage(chatID string, imageURL string, caption string
 		return nil, err
 	}
 
+	f.mu.RLock()
+	token := f.token
+	f.mu.RUnlock()
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+f.token)
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := f.client.Do(req)
 	if err != nil {
@@ -180,7 +186,10 @@ func (f *FeishuAdapter) GetChatInfo(chatID string) (*ChatInfo, error) {
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+f.token)
+	f.mu.RLock()
+	token := f.token
+	f.mu.RUnlock()
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := f.client.Do(req)
 	if err != nil {
@@ -523,6 +532,8 @@ func (f *FeishuAdapter) tokenRefreshLoop() {
 }
 
 // uploadImage uploads an image to Feishu and returns the image_key.
+// NOTE: This downloads an arbitrary URL without SSRF protection.
+// Adding SSRF checks would require injecting the security engine into the adapter.
 func (f *FeishuAdapter) uploadImage(imageURL string) (string, error) {
 	// Download image
 	resp, err := f.client.Get(imageURL)

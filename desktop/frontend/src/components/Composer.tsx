@@ -1,4 +1,3 @@
-import { useRef } from 'react'
 import type { ExecutionMode, Language, AgentStatus } from '../types'
 import { useT } from '../i18n'
 
@@ -19,6 +18,7 @@ interface ComposerProps {
   waitingHuman: boolean
 }
 
+// TODO: Model list is hardcoded; ideally providers should be passed as props from the backend.
 const models = [
   'deepseek-v4-flash',
   'deepseek-v4-pro',
@@ -34,7 +34,6 @@ const temperatures = [
 
 export function Composer(props: ComposerProps) {
   const t = useT(props.language)
-  const ref = useRef<HTMLTextAreaElement>(null)
   const isRunning =
     props.status !== 'idle' && props.status !== 'done' && props.status !== 'error'
   const placeholder = props.waitingHuman ? t.inputPlaceholderWaiting : t.placeholder
@@ -48,7 +47,6 @@ export function Composer(props: ComposerProps) {
     <div className="composer">
       <div className="composer__row">
         <textarea
-          ref={ref}
           className="composer__textarea"
           placeholder={placeholder}
           value={props.value}

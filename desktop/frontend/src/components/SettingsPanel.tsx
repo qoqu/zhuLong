@@ -2844,7 +2844,7 @@ function UpdatesSettings({ language }: { language: Language }) {
 
 // ════════════════════════════════════════
 
-/** 简单的双语辅助函数 */
+/** 简单的双语辅助函数 — NOTE: also defined in HistoryPage.tsx; consider extracting to a shared utility. */
 function isZnZz(isZh: boolean, zn: string, en: string): string {
   return isZh ? zn : en
 }

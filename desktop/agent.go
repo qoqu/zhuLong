@@ -129,9 +129,19 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 	provider := newProvider(s.Model)
 	toolsReg := executor.NewToolRegistry()
 	toolsReg.Register(&pkg.AdapterReadFile{})
+	toolsReg.Register(&pkg.AdapterReadFileRange{})
 	toolsReg.Register(&pkg.AdapterWriteFile{})
+	toolsReg.Register(&pkg.AdapterEditFile{})
 	toolsReg.Register(&pkg.AdapterSearchFile{})
+	toolsReg.Register(&pkg.AdapterGrepContent{})
 	toolsReg.Register(&pkg.AdapterExecuteCommand{})
+	toolsReg.Register(&pkg.AdapterGit{})
+	toolsReg.Register(&pkg.AdapterParseJSON{})
+	toolsReg.Register(&pkg.AdapterParseYAML{})
+	toolsReg.Register(&pkg.AdapterDiffFiles{})
+	toolsReg.Register(&pkg.AdapterBatchEdit{})
+	toolsReg.Register(&pkg.AdapterHTTPRequest{})
+	toolsReg.Register(&pkg.AdapterMakeDir{})
 	toolsReg.Register(&pkg.AdapterListDir{})
 
 	pl := planner.NewLLMPlanner(&pkg.PlannerProvider{Provider: provider}, planner.DefaultConfig())
@@ -159,6 +169,11 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 		logger.Log("system", "checkpoint_restore", nil)
 	}
 
+	// === 主循环：Plan → Execute → Reflect → (replan or done) ===
+	const maxReplans = 1
+	replanCount := 0
+
+replanableLoop:
 	// === Planning ===
 	s.Status = "planning"
 
@@ -485,8 +500,14 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 			}
 			// DeepSeek: 记录缓存命中数据（真实值从 API 响应获取）
 			if s.ModuleState.DeepSeek != nil && res != nil {
-				cachedTokens := res.CachedTokens
-				promptTokens := res.TokensUsed
+				// 从 provider 读取真实的缓存命中信息
+				var cachedTokens, promptTokens int
+				if dp, ok := provider.(*pkg.DeepSeekProvider); ok {
+					promptTokens, cachedTokens = dp.LastCacheInfo()
+				}
+				if promptTokens == 0 {
+					promptTokens = res.TokensUsed
+				}
 				hitRate := float64(0)
 				if promptTokens > 0 {
 					hitRate = float64(cachedTokens) / float64(promptTokens)
@@ -508,6 +529,14 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 					s.Stats.CacheHit = "未命中"
 				}
 				s.Stats.ThisTokens = promptTokens
+				s.Stats.CacheHitTokens = cachedTokens
+				s.Stats.CacheMissTokens = promptTokens - cachedTokens
+			}
+			// Cache diagnostics: update from prefix cache
+			if a.prefixCache != nil {
+				diag := a.prefixCache.GetDiagnostics(s.Goal)
+				s.Stats.CachePrefixChanged = diag.PrefixChanged
+				a.prefixCache.SetPrefixHash(diag.PrefixHash)
 			}
 			if s.ModuleState.Checkpoint != nil && (i+1)%3 == 0 {
 				s.ModuleState.Checkpoint.Details["lastCheckpointId"] = fmt.Sprintf("cp-%s-step%d", s.Info.ID, i+1)
@@ -643,6 +672,20 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 		}
 	}
 
+	// === 检查是否需要 replan ===
+	if assess != nil && assess.Decision.String() == "replan" && replanCount < maxReplans {
+		replanCount++
+		a.appendLog(s, "refl", fmt.Sprintf("Replanning (第 %d 次/%d)", replanCount, maxReplans), assess.Reason)
+		a.emitSession(s)
+		a.wait(ctx, 300*time.Millisecond)
+		goto replanableLoop
+	}
+
+	// === 强制完成（超过 replan 限制或 Reflector 决定完成）===
+	if assess != nil && assess.Decision.String() == "replan" {
+		a.appendLog(s, "refl", "Replan limit reached, forcing completion", fmt.Sprintf("completed=%d, failed=%d", countCompleted(s.Plan), countFailed(s.Plan)))
+	}
+
 	// === Final answer ===
 	s.Stats.Elapsed = time.Since(mem.Started).Round(time.Millisecond).String()
 	final := "任务完成。"
@@ -692,13 +735,6 @@ func (a *App) RunAgent(ctx context.Context, s *SessionState) {
 				if pruned != nil {
 					s.ModuleState.Compressor.Details["prunedCount"] = len(pruned)
 				}
-			}
-			s.ModuleState.Compressor.Details["lastPruneAt"] = time.Now().Format("15:04:05")
-		}
-		if s.ModuleState.Compressor != nil {
-			usagePct := float64(s.Stats.SessionTokens) / float64(s.Stats.TotalLimit) * 100
-			if usagePct > 50 {
-				s.ModuleState.Compressor.Status = "active"
 			}
 			s.ModuleState.Compressor.Details["lastPruneAt"] = time.Now().Format("15:04:05")
 		}

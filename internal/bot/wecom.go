@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,6 +25,7 @@ type WeComAdapter struct {
 	encodingAESKey string
 	client     *http.Client
 	stopCh     chan struct{}
+	mu         sync.RWMutex
 }
 
 // NewWeComAdapter creates a a new WeCom adapter.
@@ -31,6 +33,7 @@ func NewWeComAdapter(config AdapterConfig) Adapter {
 	return &WeComAdapter{
 		BaseAdapter:    NewBaseAdapter(config),
 		corpID:         config.AppID,
+		agentID:        config.Extra["agentID"],
 		secret:         config.AppSecret,
 		token:          config.Extra["token"],
 		encodingAESKey: config.Extra["encodingAESKey"],
@@ -50,7 +53,9 @@ func (w *WeComAdapter) Connect() error {
 	if err != nil {
 		return fmt.Errorf("failed to get access token: %w", err)
 	}
+	w.mu.Lock()
 	w.token = token
+	w.mu.Unlock()
 
 	// 启动 token 自动刷新
 	go w.refreshTokenLoop()
@@ -242,6 +247,9 @@ func (w *WeComAdapter) HandleWebhook(payload []byte, signature, timestamp, nonce
 }
 
 // getAccessToken gets the WeCom access token.
+// NOTE: Credentials are passed in URL query parameters as required by WeCom API.
+// This is a known security concern (credentials may appear in logs/access history).
+// WeCom API does not support POST body for token retrieval.
 func (w *WeComAdapter) getAccessToken() (string, error) {
 	url := fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=%s&corpsecret=%s", w.corpID, w.secret)
 
@@ -277,13 +285,15 @@ func (w *WeComAdapter) refreshTokenLoop() {
 		default:
 		}
 
-		time.Sleep(7000 * time.Second) // Token valid for ~7200s
+		time.Sleep(6000 * time.Second) // Refresh well before 7200s expiry
 
 		token, err := w.getAccessToken()
 		if err != nil {
 			continue
 		}
+		w.mu.Lock()
 		w.token = token
+		w.mu.Unlock()
 	}
 }
 

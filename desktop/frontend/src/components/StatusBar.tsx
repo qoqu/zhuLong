@@ -65,7 +65,7 @@ export function StatusBar(props: StatusBarProps) {
       <span>{t.thisHit}: <strong>{s.cacheHit}</strong></span>
       <span className="statusbar__sep">·</span>
       <span>{t.avgHit}: <strong>{s.avgHit}</strong></span>
-      {s.budgetUsed !== undefined && s.budgetLimit !== undefined && (
+      {s.budgetUsed !== undefined && s.budgetLimit && s.budgetLimit > 0 && (
         <>
           <span className="statusbar__sep">·</span>
           <span>{t.budget || 'Budget'}: <strong style={{ color: s.budgetWarning ? 'var(--warn)' : 'var(--ok)' }}>{Math.round((s.budgetUsed / s.budgetLimit) * 100)}%</strong></span>

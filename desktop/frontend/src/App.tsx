@@ -8,7 +8,7 @@ import { StatusBar } from './components/StatusBar'
 import { ApprovalModal } from './components/ApprovalModal'
 import { SettingsPanel } from './components/SettingsPanel'
 import { HistoryPage } from './components/HistoryPage'
-import { RecycleBinPage } from './components/RecycleBinPage'
+import { RecycleBinPage, DeletedItem } from './components/RecycleBinPage'
 import { Canvas } from './components/Canvas/Canvas'
 import { exampleGoals } from './data/mock'
 import type {
@@ -145,24 +145,17 @@ function App() {
   const [showHistory, setShowHistory] = useState(false)
   const [showTrash, setShowTrash] = useState(false)
 
-  // Deleted sessions (recycle bin) — persisted in localStorage
+  // Deleted items (recycle bin) — persisted in localStorage
   const TRASH_KEY = 'zhulong-trash-sessions'
 
-  interface TrashEntry {
-    id: string; originalId: string; title: string; globalName: string;
-    projectName: string; globalId: string; projectId: string;
-    dateKey: string; timestamp: number; messageCount: number;
-    toolCount: number; preview: string; deletedAt: string;
-  }
-
-  const [deletedSessions, setDeletedSessions] = useState<TrashEntry[]>(() => {
+  const [deletedSessions, setDeletedSessions] = useState<DeletedItem[]>(() => {
     try {
       const v = localStorage.getItem(TRASH_KEY)
       return v ? JSON.parse(v) : []
     } catch { return [] }
   })
 
-  const saveTrash = (items: TrashEntry[]) => {
+  const saveTrash = (items: DeletedItem[]) => {
     try { localStorage.setItem(TRASH_KEY, JSON.stringify(items)) } catch {}
   }
 
@@ -442,13 +435,58 @@ function App() {
   }, [model])
 
   const handleNewSession = useCallback(async (projectId?: string) => {
-    const targetProjectId = projectId || activeProjectId || globals[0]?.projects[0]?.id || ''
+    let targetProjectId = projectId || activeProjectId || globals[0]?.projects[0]?.id || ''
+
+    // 自动创建：如果没有工作空间和项目，依次创建
+    if (!targetProjectId && backend) {
+      try {
+        // 1. 创建工作空间
+        const globalName = resolveLanguage(language) === 'zh' ? '新的工作空间' : 'New Workspace'
+        await backend.CreateGlobal(globalName)
+
+        // 2. 重新加载 globals 获取新数据
+        const updatedGlobals = await backend.ListGlobals()
+        setGlobals(updatedGlobals)
+
+        // 3. 获取最新创建的工作空间和项目
+        const latestGlobal = updatedGlobals[updatedGlobals.length - 1]
+        if (latestGlobal && latestGlobal.projects.length === 0) {
+          const projectName = resolveLanguage(language) === 'zh' ? '新的工作区' : 'New Project'
+          await backend.CreateProject(latestGlobal.id, projectName)
+          // 重新加载
+          const g2 = await backend.ListGlobals()
+          setGlobals(g2)
+          const latest = g2[g2.length - 1]
+          targetProjectId = latest?.projects[0]?.id || ''
+        } else if (latestGlobal) {
+          targetProjectId = latestGlobal.projects[0]?.id || ''
+        }
+      } catch (e) { console.error('Auto-create failed:', e) }
+    }
+
+    // 浏览器模式：本地创建
+    if (!targetProjectId && !backend) {
+      const globalId = 'g-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString())
+      const pid = 'p-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString())
+      const globalName = resolveLanguage(language) === 'zh' ? '新的工作空间' : 'New Workspace'
+      const projectName = resolveLanguage(language) === 'zh' ? '新的工作区' : 'New Project'
+      setGlobals([{
+        id: globalId,
+        name: globalName,
+        projects: [{
+          id: pid,
+          name: projectName,
+          sessions: [],
+        }],
+      }])
+      setActiveGlobalId(globalId)
+      targetProjectId = pid
+    }
+
     if (!targetProjectId) return
     if (backend) {
       try {
         const result = await backend.NewSession(targetProjectId) as any
-        // Go struct fields are serialized via json tags → lowercase in JS
-        // result.info.id (not result.Info.ID!)
         const newId = result?.info?.id
         if (newId) setActiveSessionId(newId)
         setMessages([])
@@ -456,7 +494,7 @@ function App() {
         setPlan([])
         setStatus('idle')
         return
-      } catch {}
+      } catch (e) { console.error('NewSession failed:', e) }
     }
     // Browser fallback
     const id = 's-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2))
@@ -481,19 +519,19 @@ function App() {
     setLogs([])
     setPlan([])
     setStatus('idle')
-  }, [activeProjectId, activeAgentId, backend])
+  }, [activeProjectId, activeAgentId, backend, globals, language])
 
   const handleDeleteSession = useCallback(
     async (id: string) => {
-      // ── Before deleting, save session info to recycle bin (trash) ──
+      // ── Before deleting, save session info to recycle bin ──
       const found = findSessionById(globals, id)
       if (found) {
         const now = new Date()
         const dateKey = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}`
-        const trashEntry = {
-          id: `trash-${id}`,
-          originalId: id,
-          title: found.session.title,
+        const trashEntry: DeletedItem = {
+          id: id,
+          type: 'session',
+          name: found.session.title || '新会话',
           globalName: found.globalName,
           projectName: found.projectName,
           globalId: found.globalId,
@@ -519,16 +557,14 @@ function App() {
           return
         } catch {}
       }
-      // Browser fallback: remove from globals tree
-      setGlobals((gs) => {
-        const updated = [...gs]
-        for (const g of updated) {
-          for (let i = 0; i < g.projects.length; i++) {
-            g.projects[i].sessions = g.projects[i].sessions.filter((s) => s.id !== id)
-          }
-        }
-        return updated
-      })
+      // Browser fallback: remove from globals tree (deep copy for React immutability)
+      setGlobals((gs) => gs.map(g => ({
+        ...g,
+        projects: g.projects.map(p => ({
+          ...p,
+          sessions: p.sessions.filter((s) => s.id !== id)
+        }))
+      })))
       if (id === activeSessionId) {
         // Switch to first remaining session in same project
         const project = findProjectById(globals, activeProjectId)
@@ -552,59 +588,70 @@ function App() {
     const next = window.prompt(resolveLanguage(language) === 'zh' ? `重命名「${curTitle}」：` : `Rename "${curTitle}":`, curTitle)
     if (next && next.trim()) {
       if (backend) backend.RenameSession(id, next.trim())
-      // Update in globals tree
-      setGlobals((gs) => {
-        const updated = [...gs]
-        for (const g of updated) {
-          for (const p of g.projects) {
-            for (let i = 0; i < p.sessions.length; i++) {
-              if (p.sessions[i].id === id) {
-                p.sessions[i].title = next.trim()
-                p.sessions[i].preview = next.trim()
-                break
-              }
-            }
-          }
-        }
-        return updated
-      })
+      // Update in globals tree (deep copy for React immutability)
+      setGlobals((gs) => gs.map(g => ({
+        ...g,
+        projects: g.projects.map(p => ({
+          ...p,
+          sessions: p.sessions.map(s =>
+            s.id === id ? { ...s, title: next.trim(), preview: next.trim() } : s
+          )
+        }))
+      })))
     }
   }, [language, globals])
 
-  const handleRestoreSession = useCallback((trashId: string) => {
-    // Find trash entry
-    const entry = deletedSessions.find(t => t.id === trashId)
-    if (!entry || !entry.originalId) return
+  const handleRestoreItem = useCallback(async (item: DeletedItem) => {
+    // 调用后端恢复
+    if (backend) {
+      try {
+        await backend.RestoreFromRecycleBin(item.id, item.type)
+        // 后端会更新 globals 树，重新加载
+        const g = await backend.ListGlobals()
+        setGlobals(g)
+        return
+      } catch {}
+    }
 
-    // Remove from trash
+    // 浏览器模式恢复
     setDeletedSessions(prev => {
-      const next = prev.filter(t => t.id !== trashId)
+      const next = prev.filter(t => t.id !== item.id)
       saveTrash(next)
       return next
     })
 
-    // Re-add session to its original project in globals tree
-    setGlobals(gs => gs.map(g =>
-      g.id === entry.globalId ? {
-        ...g,
-        projects: g.projects.map(p =>
-          p.id === entry.projectId ? {
-            ...p,
-            sessions: [{
-              id: entry.originalId,
-              title: entry.title,
-              agentId: 'auto',
-              projectId: entry.projectId,
-              messageCount: entry.messageCount,
-              toolCount: entry.toolCount,
-              updatedAt: entry.deletedAt,
-              preview: entry.preview,
-            }, ...p.sessions],
-          } : p
-        ),
-      } : g
-    ))
-  }, [deletedSessions])
+    if (item.type === 'session') {
+      setGlobals(gs => gs.map(g =>
+        g.id === item.globalId ? {
+          ...g,
+          projects: g.projects.map(p =>
+            p.id === item.projectId ? {
+              ...p,
+              sessions: [{
+                id: item.id,
+                title: item.name,
+                agentId: 'auto',
+                projectId: item.projectId,
+                messageCount: item.messageCount || 0,
+                toolCount: item.toolCount || 0,
+                updatedAt: item.deletedAt,
+                preview: item.preview || '',
+              }, ...p.sessions],
+            } : p
+          )
+        } : g
+      ))
+    } else if (item.type === 'project') {
+      setGlobals(gs => gs.map(g =>
+        g.id === item.globalId ? {
+          ...g,
+          projects: [...g.projects, { id: item.id, name: item.name, sessions: [] }]
+        } : g
+      ))
+    } else if (item.type === 'global') {
+      setGlobals(gs => [...gs, { id: item.id, name: item.name, projects: [] }])
+    }
+  }, [backend, deletedSessions])
 
   const handleCreateGlobal = useCallback(() => {
     setNewGlobalName(resolveLanguage(language) === 'zh' ? '新的工作空间' : 'New Workspace')
@@ -660,6 +707,84 @@ function App() {
       setActiveProjectId(id)
     }
   }, [newProjectName, createProjectTargetGlobalId, language])
+
+  // ── 删除工作空间 ──
+  const handleDeleteGlobal = useCallback(async (globalId: string) => {
+    const ws = globals.find(g => g.id === globalId)
+    const name = ws?.name || globalId
+    const isZh = resolveLanguage(language) === 'zh'
+    const msg = isZh ? `确定要删除工作空间「${name}」吗？所有项目和对话将移入回收站。` : `Delete workspace "${name}"? All projects and sessions will be moved to recycle bin.`
+    if (!window.confirm(msg)) return
+
+    // 添加到回收站
+    const now = new Date()
+    const trashEntry: DeletedItem = {
+      id: globalId,
+      type: 'global',
+      name: name,
+      dateKey: `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}`,
+      timestamp: now.getTime(),
+      deletedAt: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+    }
+    setDeletedSessions(prev => {
+      const next = [trashEntry, ...prev]
+      saveTrash(next)
+      return next
+    })
+
+    if (backend) {
+      try {
+        await backend.DeleteGlobal(globalId)
+        const g = await backend.ListGlobals()
+        setGlobals(g)
+        return
+      } catch {}
+    }
+    // 浏览器模式
+    setGlobals(gs => gs.filter(g => g.id !== globalId))
+  }, [globals, language, backend])
+
+  // ── 删除项目 ──
+  const handleDeleteProject = useCallback(async (globalId: string, projectId: string) => {
+    const ws = globals.find(g => g.id === globalId)
+    const proj = ws?.projects.find(p => p.id === projectId)
+    const name = proj?.name || projectId
+    const isZh = resolveLanguage(language) === 'zh'
+    const msg = isZh ? `确定要删除项目「${name}」吗？所有对话将移入回收站。` : `Delete project "${name}"? All sessions will be moved to recycle bin.`
+    if (!window.confirm(msg)) return
+
+    // 添加到回收站
+    const now = new Date()
+    const trashEntry: DeletedItem = {
+      id: projectId,
+      type: 'project',
+      name: name,
+      globalId: globalId,
+      globalName: ws?.name || '',
+      dateKey: `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()}`,
+      timestamp: now.getTime(),
+      deletedAt: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+    }
+    setDeletedSessions(prev => {
+      const next = [trashEntry, ...prev]
+      saveTrash(next)
+      return next
+    })
+
+    if (backend) {
+      try {
+        await backend.DeleteProject(globalId, projectId)
+        const g = await backend.ListGlobals()
+        setGlobals(g)
+        return
+      } catch {}
+    }
+    // 浏览器模式
+    setGlobals(gs => gs.map(g => ({
+      ...g,
+      projects: g.projects.filter(p => p.id !== projectId)
+    })))
+  }, [globals, language, backend])
 
   const handleSelectAgent = useCallback(
     async (id: string) => {
@@ -732,6 +857,8 @@ function App() {
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
         onRenameSession={handleRenameSession}
+        onDeleteGlobal={handleDeleteGlobal}
+        onDeleteProject={handleDeleteProject}
         onCreateGlobal={handleCreateGlobal}
         onCreateProject={handleCreateProject}
         onOpenHistory={() => setShowHistory(true)}
@@ -1012,7 +1139,7 @@ function App() {
           globals={globals}
           deletedSessions={deletedSessions}
           onClose={() => setShowTrash(false)}
-          onRestore={(trashId) => handleRestoreSession(trashId)}
+          onRestore={handleRestoreItem}
         />
       )}
     </div>

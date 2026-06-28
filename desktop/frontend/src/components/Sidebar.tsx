@@ -37,6 +37,8 @@ interface SidebarProps {
   onNewSession: (projectId?: string) => void
   onDeleteSession: (id: string) => void
   onRenameSession: (id: string) => void
+  onDeleteGlobal: (id: string) => void
+  onDeleteProject: (globalId: string, projectId: string) => void
   onCreateGlobal: () => void
   onCreateProject: (globalId: string) => void
   onOpenHistory?: () => void
@@ -168,6 +170,12 @@ function ContextMenu({
             <span className="context-menu__icon">📋</span>
             <span>{isZh ? '复制路径' : 'Copy Path'}</span>
           </button>
+
+          {/* Delete */}
+          <button className="context-menu__item context-menu__item--danger" onClick={() => { onMoveToTrash(); onClose() }}>
+            <span className="context-menu__icon">🗑</span>
+            <span>{isZh ? '删除' : 'Delete'}</span>
+          </button>
         </>
       )}
     </div>
@@ -236,11 +244,29 @@ export function Sidebar(props: SidebarProps) {
 
   const handleWorkspaceAction = async (action: string, workspaceId: string) => {
     switch (action) {
+      case 'rename': {
+        const ws = props.globals.find(g => g.id === workspaceId)
+        const currentName = ws?.name || ''
+        const newName = prompt(isZh ? '请输入新的工作空间名称' : 'Enter new workspace name', currentName)
+        if (newName && newName !== currentName) {
+          try {
+            const backend = (window as any).go?.main?.App
+            if (backend?.RenameGlobal) {
+              await backend.RenameGlobal(workspaceId, newName)
+            }
+          } catch (e) { console.error('Failed to rename workspace:', e) }
+        }
+        break
+      }
+      case 'delete': {
+        props.onDeleteGlobal(workspaceId)
+        break
+      }
       case 'newSession':
         // Find first project under this workspace and create session there
-        const ws = props.globals.find(g => g.id === workspaceId)
-        if (ws && ws.projects.length > 0) {
-          props.onNewSession(ws.projects[0].id)
+        const wsTarget = props.globals.find(g => g.id === workspaceId)
+        if (wsTarget && wsTarget.projects.length > 0) {
+          props.onNewSession(wsTarget.projects[0].id)
         }
         break
       case 'showInExplorer':
@@ -268,6 +294,25 @@ export function Sidebar(props: SidebarProps) {
 
   const handleProjectAction = async (action: string, projectId: string, globalId: string) => {
     switch (action) {
+      case 'rename': {
+        const g = props.globals.find(gl => gl.id === globalId)
+        const proj = g?.projects.find(p => p.id === projectId)
+        const currentName = proj?.name || ''
+        const newName = prompt(isZh ? '请输入新的项目名称' : 'Enter new project name', currentName)
+        if (newName && newName !== currentName) {
+          try {
+            const backend = (window as any).go?.main?.App
+            if (backend?.RenameProject) {
+              await backend.RenameProject(globalId, projectId, newName)
+            }
+          } catch (e) { console.error('Failed to rename project:', e) }
+        }
+        break
+      }
+      case 'delete': {
+        props.onDeleteProject(globalId, projectId)
+        break
+      }
       case 'newSession':
         props.onNewSession(projectId)
         break
@@ -552,6 +597,8 @@ export function Sidebar(props: SidebarProps) {
           onMoveToTrash={() => {
             const t = ctxMenu.target!
             if (t.type === 'session') handleSessionAction('trash', t.id)
+            else if (t.type === 'workspace') handleWorkspaceAction('delete', t.id)
+            else if (t.type === 'project') handleProjectAction('delete', t.id, t.globalId)
           }}
           onChangeColor={(colorKey) => {
             const t = ctxMenu.target!

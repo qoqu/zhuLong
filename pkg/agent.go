@@ -527,26 +527,39 @@ func (a *Agent) Run() (*AgentResult, error) {
 	systemPrompt := `You are Zhulong (烛龙), an autonomous agent powered by DeepSeek.
 
 ## 核心行为规则
-1. **对话类问题直接回答**：问候、自我介绍、闲聊、解释概念、回答问题 —— 直接用文字回复，不要使用任何工具。
-2. **任务类问题使用工具**：读写文件、执行命令、搜索信息、分析代码 —— 使用对应工具完成。
-3. **判断标准**：如果用户的问题可以用你的知识直接回答，就直接回答，不要调用 execute_command。
+1. **对话类问题直接回答**：问候、闲聊、解释概念 —— 直接用文字回复，不要使用工具。
+2. **任务类问题使用工具**：读写文件、执行命令、搜索信息、分析代码 —— 使用工具完成。
+3. **判断标准**：如果可以用知识直接回答，就直接回答。
+4. **错误恢复**：工具执行失败时，分析错误原因，尝试不同的方法，不要轻易放弃。
+5. **完成优先**：部分成功也比无限重试好。如果目标已基本达成，输出结果。
 
-## 可用工具
-- read_file: 读取文件内容
-- write_file: 写入文件
-- search_file: 搜索文件
-- execute_command: 执行系统命令（仅在需要时使用）
-- web_search: 搜索网络信息
-- memory_note: 保存记忆笔记
-- memory_profile: 保存用户偏好
+## 可用工具（16个）
+- list_dir: {"path": "dir"} — 列出目录，了解项目结构
+- read_file: {"path": "file"} — 读取文件
+- read_file_range: {"path": "file", "start": 1, "limit": 100} — 读取指定行
+- write_file: {"path": "file", "content": "text"} — 写入文件
+- edit_file: {"path": "file", "old_string": "a", "new_string": "b", "replace_all": false} — 精确编辑
+- search_file: {"pattern": "*.go"} — 按文件名搜索
+- grep_content: {"keyword": "text", "path": "dir", "pattern": "*.go"} — 按内容搜索（支持正则）
+- git: {"args": "diff --stat"} — Git 操作
+- parse_json: {"path": "file.json", "query": "key.subkey"} — 解析 JSON
+- parse_yaml: {"path": "file.yaml", "query": "key"} — 解析 YAML
+- diff_files: {"file1": "a", "file2": "b"} — 对比文件
+- batch_edit: {"edits": [{"path":"f","old_string":"a","new_string":"b"}]} — 批量编辑
+- http_request: {"url": "https://...", "method": "GET"} — HTTP 请求
+- make_dir: {"path": "dir"} — 创建目录
+- execute_command: {"command": "dir"} — 执行命令
+- web_search: {"query": "text"} — 搜索网络
 
-## 回复格式
+## 回复规则
 - 直接用自然语言回复，不要包裹在命令中
-- 不要使用 echo、powershell 等命令来输出文字
-- 中文回复时直接写中文，不要通过命令行输出
+- 不要使用 echo/powershell 等命令输出文字
+- 中文回复直接写中文
+- 修改代码优先用 edit_file，不要用 write_file 重写整个文件
+- 搜索代码内容用 grep_content，不要用 execute_command 调用 grep
 
 ## Security
-Commands are filtered through a 7-layer security engine. Dangerous commands (rm -rf /, fork bombs) are hard-blocked.`
+Commands are filtered through a 7-layer security engine.`
 
 	// === 动态上下文（放到 user message，不破坏 system prompt 缓存）===
 	var dynamicContext string
@@ -582,6 +595,21 @@ Commands are filtered through a 7-layer security engine. Dangerous commands (rm 
 			bpLine += fmt.Sprintf("- %s: %s\n", bp.Title, bp.Description)
 		}
 		dynamicContext += bpLine
+	}
+
+	// 5. 生成骨架（SkeletonGenerator）— 为 LLM 提供项目结构概览
+	skeletonGen := compressor.NewSkeletonGenerator(compressor.DefaultSkeletonConfig())
+	skeleton := skeletonGen.GenerateSkeleton(a.goal)
+	if skeleton != "" {
+		dynamicContext += "\n## Project Skeleton\n" + skeleton
+	}
+
+	// === 动态上下文注入到 user message（不破坏 system prompt 缓存）===
+	// 关键修复: 之前 dynamicContext 构建了但从未传给 LLM
+	// 现在: 将动态上下文前置到 goal，作为 user message 的一部分
+	goalWithCtx := a.goal
+	if dynamicContext != "" {
+		goalWithCtx = dynamicContext + "\n\n## Goal\n" + a.goal
 	}
 
 	// === 三个核心组件 ===
@@ -631,6 +659,43 @@ Commands are filtered through a 7-layer security engine. Dangerous commands (rm 
 	}
 	logger.Log("plan", "plan_start", map[string]int{"max_loops": maxLoops})
 
+	// === Compaction trigger: compress old messages if token usage exceeds 80% ===
+	// Simplified version of DeepSeek-Reasonix's compaction strategy
+	totalTokensUsed := 0
+	for _, r := range mem.results {
+		totalTokensUsed += (&compressor.CharCounter{}).Count(r.Output)
+	}
+	tokenLimit := a.options.MaxTokens
+	if tokenLimit <= 0 {
+		tokenLimit = 500000
+	}
+	if float64(totalTokensUsed) > float64(tokenLimit)*0.8 {
+		logger.Log("compaction", "triggered", map[string]interface{}{
+			"tokens_used":  totalTokensUsed,
+			"token_limit":  tokenLimit,
+			"usage_pct":    float64(totalTokensUsed) / float64(tokenLimit) * 100,
+		})
+		// Compress old messages by replacing them with summaries
+		// Keep only the last 3 results, summarize the rest
+		if len(mem.results) > 3 {
+			summary := fmt.Sprintf("[Compacted %d old steps] Goal: %s", len(mem.results)-3, a.goal)
+			newResults := make([]planner.StepResult, 0, 4)
+			newResults = append(newResults, planner.StepResult{
+				StepID:  "compacted-summary",
+				Success: true,
+				Output:  summary,
+			})
+			// Keep last 3 results
+			start := len(mem.results) - 3
+			newResults = append(newResults, mem.results[start:]...)
+			mem.results = newResults
+			logger.Log("compaction", "completed", map[string]int{
+				"results_before": len(mem.results) + 3,
+				"results_after":  len(mem.results),
+			})
+		}
+	}
+
 	if !a.circuitBreaker.Allow() {
 		a.fsm.UpdateState(controller.StateError)
 		logger.Log("plan", "breaker_open", nil)
@@ -668,11 +733,38 @@ Commands are filtered through a 7-layer security engine. Dangerous commands (rm 
 
 	// 上下文压缩：Plan 前对历史消息 Prune（保证 cache 命中）
 	// 关键修复: 之前 compressor 包有 4 个文件但 agent.go 不调
-	// 现在: 把 mem 的 stepResults 转成 compressor.Message，调用 Prune
+	// 现在: 使用 NewPruner 的确定性策略（Reasonix style）替代 SimpleCompressor.Prune
 	history := a.buildHistoryMessages(mem)
-	prunedHistory := a.compressor.Prune(history, a.fsm.LoopCount)
+	prunableMsgs := make([]compressor.PrunableMessage, len(history))
+	for i, m := range history {
+		prunableMsgs[i] = compressor.PrunableMessage{
+			ID:          fmt.Sprintf("msg-%d", i),
+			Role:        m.Role,
+			Content:     m.Content,
+			ToolName:    m.ToolName,
+			LoopNumber:  m.LoopNumber,
+			Tokens:      m.Tokens,
+			Prunable:    m.Prunable,
+			Hash:        compressor.ComputeHash(m.Content),
+			CreatedAt:   time.Now(),
+		}
+	}
+	pruner := compressor.NewPruner(compressor.DefaultPruningConfig())
+	pruneResult := pruner.Prune(prunableMsgs, a.fsm.LoopCount)
+	// 将 PruningResult.KeptMessages 转回 []compressor.Message
+	prunedHistory := make([]compressor.Message, 0, len(pruneResult.KeptMessages))
+	for _, km := range pruneResult.KeptMessages {
+		prunedHistory = append(prunedHistory, compressor.Message{
+			Role:       km.Role,
+			Content:    km.Content,
+			ToolName:   km.ToolName,
+			LoopNumber: km.LoopNumber,
+			Tokens:     km.Tokens,
+			Prunable:   km.Prunable,
+		})
+	}
 	logger.Log("compress", "prune_done", map[string]int{
-		"before": len(history), "after": len(prunedHistory),
+		"before": len(history), "after": len(prunedHistory), "tokens_saved": pruneResult.TokensSaved,
 	})
 
 	// === P1 串 2: 振荡检测（控制论）===
@@ -695,7 +787,7 @@ Commands are filtered through a 7-layer security engine. Dangerous commands (rm 
 		logger.Log("stability", "diverging", nil)
 	}
 
-	plan, err := pl.Plan(ctx, a.goal, mem.AsPlannerReader())
+	plan, err := pl.Plan(ctx, goalWithCtx, mem.AsPlannerReader())
 	if err != nil || plan == nil {
 		a.circuitBreaker.Failure()
 		// === P2 串 1: 备选路径规划（一般系统论）===
@@ -772,10 +864,12 @@ Commands are filtered through a 7-layer security engine. Dangerous commands (rm 
 	})
 
 	// === 执行循环 ===
-	// 关键修复: 加 executeLoop 标签，让 Replan 可以跳回来
+	// 关键修复: 用 for 循环替代 goto executeLoop，让 Replan 可以跳回来
 	// 每次重规划最多执行 1 次（maxReplans=1），避免无限重规划
-executeLoop:
 	var stepResults []StepResult
+replanableLoop:
+	for {
+	stepResults = nil
 	for i, step := range plan.Steps {
 		if err := ctx.Err(); err != nil {
 			a.fsm.UpdateState(controller.StateCancelled)
@@ -1042,7 +1136,7 @@ executeLoop:
 	}
 
 	reflectPlan := PlanToReflect(plan)
-	assess, err := rf.Reflect(ctx, a.goal, reflectPlan, mem.AsReflectorReader())
+	assess, err := rf.Reflect(ctx, goalWithCtx, reflectPlan, mem.AsReflectorReader())
 	if err != nil || assess == nil {
 		logger.LogWithLoop(len(plan.Steps), "refl", "reflect_fail", map[string]string{"error": ErrString(err)})
 	} else {
@@ -1063,7 +1157,7 @@ executeLoop:
 			// 关键修复: 如果 reflector 说 replan，且还有剩余预算，尝试调用 planner.Replan
 			// Replan 只在非热修复模式下触发（hotfix 应停止而非循环）
 			if a.wfMode.Config().Mode != workflow.ModeHotfix && !a.budget.IsExceeded() {
-				newPlan, replanErr := pl.Replan(ctx, a.goal, &planner.Plan{
+				newPlan, replanErr := pl.Replan(ctx, goalWithCtx, &planner.Plan{
 					ID:    plan.ID,
 					Steps: plan.Steps,
 				}, mem.AsPlannerReader())
@@ -1072,11 +1166,13 @@ executeLoop:
 					stepResults = nil // 清空旧结果，重新执行
 					a.fsm.UpdateState(controller.StateExecuting)
 					logger.Log("repl", "replan_ok", map[string]int{"steps": len(newPlan.Steps)})
-					// 跳回执行循环（用 goto 或外层 for）
-					goto executeLoop
+					// 跳回执行循环（用 labeled continue 替代 goto）
+					continue replanableLoop
 				}
 			}
 		}
+	}
+	break replanableLoop
 	}
 
 	// === 统计 ===
@@ -1176,6 +1272,35 @@ func (a *Agent) buildHistoryMessages(mem *RunMemory) []compressor.Message {
 	return msgs
 }
 
+// buildTurnContext assembles the per-turn context with proper zones:
+// - System prompt (fixed prefix) - NOT included, passed separately
+// - Memory updates as <memory-update> tags (dynamic zone)
+// - Goal block (dynamic zone)
+// - User input (always last)
+// This replaces directly concatenating goalWithCtx for better cache behavior.
+func (a *Agent) buildTurnContext(userInput string, mem *RunMemory) string {
+	var ctx string
+
+	// Dynamic zone: memory updates wrapped in tags
+	agentNote, userProfile := a.memoryStore.GetSnapshot()
+	if agentNote != "" || userProfile != "" {
+		ctx += "<memory-update>\n"
+		if agentNote != "" {
+			ctx += "## Agent Notes\n" + agentNote + "\n"
+		}
+		if userProfile != "" {
+			ctx += "## User Profile\n" + userProfile + "\n"
+		}
+		ctx += "</memory-update>\n\n"
+	}
+
+	// Dynamic zone: goal block
+	ctx += "## Goal\n" + userInput
+
+	// User input always last (ensures cache-friendly ordering)
+	return ctx
+}
+
 // postRunEvolution 会话结束后的主动层工作
 // 关键修复: 之前 evolution/quality 模块建好了但无人调用
 // 现在: 记录会话 → 触发启发式审查 → 按 workflow 模式决定是否跑 quality 扫描 → 守卫者定期清理
@@ -1234,16 +1359,16 @@ func (a *Agent) postRunEvolution(ctx context.Context, plan *planner.Plan, result
 		// 保存 Session Memory
 		sm := memory.NewSessionMemory(a.goal)
 		sm.TokensUsed = totalTokens
-		successCount := 0
+		sessionSuccessCount := 0
 		for _, r := range results {
 			if r.Success {
-				successCount++
+				sessionSuccessCount++
 			}
 		}
 		sm.LoopSummaries = append(sm.LoopSummaries, memory.LoopSummary{
 			LoopNumber: len(results),
 			PlanBrief:  TruncateStr(a.goal, 100),
-			StepsDone:  successCount,
+			StepsDone:  sessionSuccessCount,
 			TokensUsed: totalTokens,
 		})
 		memStore.SaveSessionMemory(a.sessionID, sm)
@@ -1400,7 +1525,9 @@ func (h *HeuristicProvider) reflectJSON(goal string) string {
 
 // DeepSeekProvider wraps the real provider.DeepSeekProvider into our Provider interface
 type DeepSeekProvider struct {
-	provider *provider.DeepSeekProvider
+	provider       *provider.DeepSeekProvider
+	lastPromptTokens int
+	lastCachedTokens int
 }
 
 // NewDeepSeekProvider creates a new DeepSeek provider
@@ -1415,14 +1542,22 @@ func NewDeepSeekProvider(apiKey, model string) *DeepSeekProvider {
 }
 
 func (d *DeepSeekProvider) Chat(ctx context.Context, system, user string) (string, error) {
-	resp, err := d.provider.Chat(ctx, []provider.Message{
+	result, err := d.provider.Chat(ctx, []provider.Message{
 		{Role: "system", Content: system},
 		{Role: "user", Content: user},
 	})
 	if err != nil {
 		return "", err
 	}
-	return resp, nil
+	// 存储最新的 usage 信息，供桌面端读取
+	d.lastPromptTokens = result.PromptTokens
+	d.lastCachedTokens = result.CachedTokens
+	return result.Content, nil
+}
+
+// LastCacheInfo 返回最近一次 Chat 调用的缓存命中信息
+func (d *DeepSeekProvider) LastCacheInfo() (promptTokens, cachedTokens int) {
+	return d.lastPromptTokens, d.lastCachedTokens
 }
 
 // PlannerProvider bridges Provider → planner.LLMProvider
@@ -1691,6 +1826,156 @@ func (a *AdapterSearchFile) Description() string { return "Search for files matc
 // Call executes the tool
 func (a *AdapterSearchFile) Call(ctx context.Context, params map[string]interface{}) (string, error) {
 	t := &tools.SearchFileTool{}
+	return t.Call(ctx, params)
+}
+
+// AdapterGrepContent adapts the internal grep_content tool
+type AdapterGrepContent struct{}
+
+// Name returns the tool name
+func (a *AdapterGrepContent) Name() string { return "grep_content" }
+
+// Description returns the tool description
+func (a *AdapterGrepContent) Description() string { return "Search for text content within files" }
+
+// Call executes the tool
+func (a *AdapterGrepContent) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	t := &tools.GrepContentTool{}
+	return t.Call(ctx, params)
+}
+
+// AdapterEditFile adapts the internal edit_file tool
+type AdapterEditFile struct{}
+
+// Name returns the tool name
+func (a *AdapterEditFile) Name() string { return "edit_file" }
+
+// Description returns the tool description
+func (a *AdapterEditFile) Description() string { return "Edit a file by replacing old_string with new_string" }
+
+// Call executes the tool
+func (a *AdapterEditFile) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	t := &tools.EditFileTool{}
+	return t.Call(ctx, params)
+}
+
+// AdapterGit adapts the internal git tool
+type AdapterGit struct{}
+
+// Name returns the tool name
+func (a *AdapterGit) Name() string { return "git" }
+
+// Description returns the tool description
+func (a *AdapterGit) Description() string { return "Execute git commands (diff, log, status, blame, show)" }
+
+// Call executes the tool
+func (a *AdapterGit) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	t := &tools.GitTool{}
+	return t.Call(ctx, params)
+}
+
+// AdapterParseJSON adapts the internal parse_json tool
+type AdapterParseJSON struct{}
+
+// Name returns the tool name
+func (a *AdapterParseJSON) Name() string { return "parse_json" }
+
+// Description returns the tool description
+func (a *AdapterParseJSON) Description() string { return "Extract values from JSON files" }
+
+// Call executes the tool
+func (a *AdapterParseJSON) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	t := &tools.ParseJSONTool{}
+	return t.Call(ctx, params)
+}
+
+// AdapterDiffFiles adapts the internal diff_files tool
+type AdapterDiffFiles struct{}
+
+// Name returns the tool name
+func (a *AdapterDiffFiles) Name() string { return "diff_files" }
+
+// Description returns the tool description
+func (a *AdapterDiffFiles) Description() string { return "Compare two files and show differences" }
+
+// Call executes the tool
+func (a *AdapterDiffFiles) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	t := &tools.DiffFilesTool{}
+	return t.Call(ctx, params)
+}
+
+// AdapterBatchEdit adapts the internal batch_edit tool
+type AdapterBatchEdit struct{}
+
+// Name returns the tool name
+func (a *AdapterBatchEdit) Name() string { return "batch_edit" }
+
+// Description returns the tool description
+func (a *AdapterBatchEdit) Description() string { return "Edit multiple files at once" }
+
+// Call executes the tool
+func (a *AdapterBatchEdit) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	t := &tools.BatchEditTool{}
+	return t.Call(ctx, params)
+}
+
+// AdapterHTTPRequest adapts the internal http_request tool
+type AdapterHTTPRequest struct{}
+
+// Name returns the tool name
+func (a *AdapterHTTPRequest) Name() string { return "http_request" }
+
+// Description returns the tool description
+func (a *AdapterHTTPRequest) Description() string { return "Make HTTP requests (GET/POST/PUT/DELETE)" }
+
+// Call executes the tool
+func (a *AdapterHTTPRequest) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	t := &tools.HTTPRequestTool{}
+	return t.Call(ctx, params)
+}
+
+// AdapterMakeDir adapts the internal make_dir tool
+type AdapterMakeDir struct{}
+
+// Name returns the tool name
+func (a *AdapterMakeDir) Name() string { return "make_dir" }
+
+// Description returns the tool description
+func (a *AdapterMakeDir) Description() string { return "Create directories recursively" }
+
+// Call executes the tool
+func (a *AdapterMakeDir) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	t := &tools.MakeDirTool{}
+	return t.Call(ctx, params)
+}
+
+// AdapterParseYAML adapts the internal parse_yaml tool
+type AdapterParseYAML struct{}
+
+// Name returns the tool name
+func (a *AdapterParseYAML) Name() string { return "parse_yaml" }
+
+// Description returns the tool description
+func (a *AdapterParseYAML) Description() string { return "Extract values from YAML files" }
+
+// Call executes the tool
+func (a *AdapterParseYAML) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	t := &tools.ParseYAMLTool{}
+	return t.Call(ctx, params)
+}
+
+// AdapterReadFileRange adapts the internal read_file_range tool
+type AdapterReadFileRange struct{}
+
+// Name returns the tool name
+func (a *AdapterReadFileRange) Name() string { return "read_file_range" }
+
+// Description returns the tool description
+func (a *AdapterReadFileRange) Description() string { return "Read specific line range from a file" }
+
+// Call executes the tool
+func (a *AdapterReadFileRange) Call(ctx context.Context, params map[string]interface{}) (string, error) {
+	t := &tools.ReadFileRangeTool{}
 	return t.Call(ctx, params)
 }
 

@@ -236,6 +236,12 @@ declare global {
           NewSession(projectId: string): Promise<SessionState>
           DeleteSession(id: string): Promise<void>
           RenameSession(id: string, title: string): Promise<void>
+          RenameGlobal(id: string, name: string): Promise<void>
+          RenameProject(globalId: string, projectId: string, name: string): Promise<void>
+          DeleteGlobal(id: string): Promise<void>
+          DeleteProject(globalId: string, projectId: string): Promise<void>
+          EmptyRecycleBin(): Promise<void>
+          RestoreFromRecycleBin(itemId: string, itemType: string): Promise<void>
 
           // Execution control
           SendMessage(sessionID: string, text: string): Promise<void>

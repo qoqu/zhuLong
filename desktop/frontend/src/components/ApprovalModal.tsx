@@ -78,7 +78,7 @@ export function ApprovalModal(props: ApprovalModalProps) {
           <button className="modal__btn modal__btn--secondary" onClick={props.onAlwaysAllow}>
             {t.alwaysAllow}
           </button>
-          <button className="modal__btn modal__btn--primary" onClick={props.onApprove} autoFocus>
+          <button className="modal__btn modal__btn--primary" onClick={props.onApprove}>
             {t.approve}
           </button>
         </div>

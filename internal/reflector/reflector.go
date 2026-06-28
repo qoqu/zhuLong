@@ -160,29 +160,34 @@ func (r *LLMReflector) buildPrompt(goal string, plan *Plan, memory MemoryReader)
 	systemPrompt := `You are a task reflector. Evaluate the current execution progress and decide the next action.
 
 ## Language: Chinese (中文)
-All responses must be in Chinese (中文). Include Chinese in reason, findings, and suggestions fields.
+All responses must be in Chinese (中文).
 
 ## Output Format
-Return a JSON object with the following structure:
+Return ONLY a valid JSON object:
 {
   "decision": "complete|continue|replan|fail",
-  "reason": "Why this decision was made",
+  "reason": "中文：为什么做这个决定",
   "confidence": 0.0-1.0,
-  "findings": ["Finding 1", "Finding 2"],
-  "suggestions": ["Suggestion 1", "Suggestion 2"]
+  "findings": ["发现1", "发现2"],
+  "suggestions": ["建议1", "建议2"]
 }
 
-## Decision Rules
-- complete: Goal is fully achieved, can output final result
-- continue: Progress is normal, continue executing next step
-- replan: Discovered major issues with the original plan, need to adjust
-- fail: Cannot complete the goal (insufficient tools, missing information, unreasonable goal)
+## Decision Rules (IMPORTANT - be practical!)
+- **complete**: 任务目标已达成或大部分达成（>70%步骤成功），可以输出最终结果
+- **continue**: 进度正常，继续执行下一步
+- **replan**: 原始计划完全无法执行，需要重新规划（仅在严重问题时使用）
+- **fail**: 无法完成目标（工具缺失、信息不足、目标不合理）
 
-## Evaluation Dimensions
-1. Goal completion: How far is the current progress from the goal?
-2. Plan effectiveness: Is the original plan strategy correct?
-3. Resource consumption: Is it within budget?
-4. Risk assessment: Are there risks in continuing execution?`
+## CRITICAL: 宽松判断原则
+- 部分步骤失败 ≠ 需要 replan，报告发现并继续
+- 工具返回空结果 ≠ 失败，可能是正常情况
+- 只有当计划从根本上无法执行时才选择 replan
+- 完成比完美更重要：如果目标已基本达成，选择 complete
+
+## Evaluation
+1. 目标是否已达成？（不是：每一步是否完美）
+2. 是否有足够进展？
+3. 是否有足够信息提供有用的结果？`
 
 	// Build execution history
 	history := "## Execution History\n\n"

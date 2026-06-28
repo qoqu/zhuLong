@@ -10,6 +10,7 @@
 package cache
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -116,11 +117,34 @@ type CacheStats struct {
 	AvgHitTime time.Duration
 }
 
+// CacheDiagnostics contains detailed cache diagnostics for the current prefix
+type CacheDiagnostics struct {
+	// PrefixHash is the hash of the current prefix
+	PrefixHash string
+
+	// PrefixChanged indicates whether prefix changed since last turn
+	PrefixChanged bool
+
+	// HitRate is the actual hit rate from missCount/totalAccess
+	HitRate float64
+
+	// HotEntries is the count of hot cache entries
+	HotEntries int
+
+	// WarmEntries is the count of warm cache entries
+	WarmEntries int
+
+	// ColdEntries is the count of cold cache entries
+	ColdEntries int
+}
+
 // PrefixCache manages prefix cache optimization
 type PrefixCache struct {
-	config  *CacheConfig
-	entries map[string]*CacheEntry
-	mu      sync.RWMutex
+	config         *CacheConfig
+	entries        map[string]*CacheEntry
+	mu             sync.RWMutex
+	missCount      int    // total cache misses (incremented on Get miss)
+	lastPrefixHash string // hash of the previous prefix for change detection
 }
 
 // NewPrefixCache creates a new prefix cache
@@ -137,15 +161,16 @@ func NewPrefixCache(config *CacheConfig) *PrefixCache {
 
 // Get gets a cache entry by key
 func (pc *PrefixCache) Get(key string) (*CacheEntry, bool) {
-	pc.mu.RLock()
-	defer pc.mu.RUnlock()
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
 
 	entry, exists := pc.entries[key]
 	if !exists {
+		pc.missCount++
 		return nil, false
 	}
 
-	// Update access time
+	// Update access time (write operation requires full Lock)
 	entry.LastAccessedAt = time.Now()
 	entry.HitCount++
 
@@ -268,12 +293,70 @@ func (pc *PrefixCache) GetStats() CacheStats {
 		totalMisses += entry.MissCount
 	}
 
-	total := totalHits + totalMisses
+	total := totalHits + pc.missCount
 	if total > 0 {
 		stats.HitRate = float64(totalHits) / float64(total)
 	}
 
 	return stats
+}
+
+// GetDiagnostics returns detailed cache diagnostics for the current prefix
+func (pc *PrefixCache) GetDiagnostics(prefix string) CacheDiagnostics {
+	pc.mu.RLock()
+	defer pc.mu.RUnlock()
+
+	diag := CacheDiagnostics{}
+
+	// Compute current prefix hash (simple FNV-1a)
+	diag.PrefixHash = computePrefixHash(prefix)
+
+	// Detect if prefix changed since last turn
+	diag.PrefixChanged = diag.PrefixHash != pc.lastPrefixHash
+
+	// Calculate hit rate from missCount/totalAccess
+	totalAccess := 0
+	totalHits := 0
+	for _, entry := range pc.entries {
+		totalAccess += entry.HitCount + entry.MissCount
+		totalHits += entry.HitCount
+	}
+	totalAccess += pc.missCount
+	if totalAccess > 0 {
+		diag.HitRate = float64(totalHits) / float64(totalAccess)
+	}
+
+	// Count entries by state
+	for _, entry := range pc.entries {
+		state := pc.getState(entry)
+		switch state {
+		case CacheStateHot:
+			diag.HotEntries++
+		case CacheStateWarm:
+			diag.WarmEntries++
+		case CacheStateCold:
+			diag.ColdEntries++
+		}
+	}
+
+	return diag
+}
+
+// SetPrefixHash updates the last known prefix hash (call after a successful prefix set)
+func (pc *PrefixCache) SetPrefixHash(hash string) {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	pc.lastPrefixHash = hash
+}
+
+// computePrefixHash computes a simple FNV-1a hash of the prefix
+func computePrefixHash(s string) string {
+	h := uint64(14695981039346656037)
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
+		h *= 1099511628211
+	}
+	return fmt.Sprintf("%016x", h)
 }
 
 // ListKeys returns all cache keys

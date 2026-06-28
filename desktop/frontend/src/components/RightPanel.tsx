@@ -585,6 +585,9 @@ function ModuleItem(props: {
   language: Language
 }) {
   const mod = props.module
+  // Go 后端序列化为 { status, details: { fsmState, ... } }，需要从 details 读取
+  const details = mod.details || {}
+  const isZh = resolveLanguage(props.language) === 'zh'
   return (
     <div className="module-item">
       <div className="module-item__header">
@@ -594,17 +597,17 @@ function ModuleItem(props: {
         </span>
       </div>
       <div className="module-item__details">
-        {mod.fsmState && <span>{resolveLanguage(props.language) === 'zh' ? 'FSM' : 'FSM'}: {mod.fsmState}</span>}
-        {mod.lastPlan && <span>{resolveLanguage(props.language) === 'zh' ? '最后规划' : 'Last Plan'}: {mod.lastPlan}</span>}
-        {mod.toolsLoaded !== undefined && <span>{resolveLanguage(props.language) === 'zh' ? '工具' : 'Tools'}: {mod.toolsLoaded}</span>}
-        {mod.lastReflection && <span>{resolveLanguage(props.language) === 'zh' ? '最后反省' : 'Last Reflection'}: {mod.lastReflection}</span>}
-        {mod.compactionEnabled !== undefined && <span>{resolveLanguage(props.language) === 'zh' ? '压缩' : 'Compaction'}: {mod.compactionEnabled ? (resolveLanguage(props.language) === 'zh' ? '开启' : 'On') : (resolveLanguage(props.language) === 'zh' ? '关闭' : 'Off')}</span>}
-        {mod.compressThreshold !== undefined && <span>{resolveLanguage(props.language) === 'zh' ? '压缩阈值' : 'Compress Threshold'}: {mod.compressThreshold}%</span>}
-        {mod.warningLevel && <span>{resolveLanguage(props.language) === 'zh' ? '警告级别' : 'Warning Level'}: {mod.warningLevel}</span>}
-        {mod.traceEnabled !== undefined && <span>{resolveLanguage(props.language) === 'zh' ? 'Trace' : 'Trace'}: {mod.traceEnabled ? (resolveLanguage(props.language) === 'zh' ? '开启' : 'On') : (resolveLanguage(props.language) === 'zh' ? '关闭' : 'Off')}</span>}
-        {mod.approvalPending !== undefined && <span>{resolveLanguage(props.language) === 'zh' ? '审批待定' : 'Approval Pending'}: {mod.approvalPending ? (resolveLanguage(props.language) === 'zh' ? '是' : 'Yes') : (resolveLanguage(props.language) === 'zh' ? '否' : 'No')}</span>}
-        {mod.mcpConnected !== undefined && <span>MCP: {mod.mcpConnected ? (resolveLanguage(props.language) === 'zh' ? '已连接' : 'Connected') : (resolveLanguage(props.language) === 'zh' ? '未连接' : 'Disconnected')}</span>}
-        {mod.cacheHitRate !== undefined && <span>{resolveLanguage(props.language) === 'zh' ? '缓存命中率' : 'Cache Hit Rate'}: {(mod.cacheHitRate * 100).toFixed(1)}%</span>}
+        {details.fsmState && <span>FSM: {details.fsmState}</span>}
+        {details.lastPlan && <span>{isZh ? '最后规划' : 'Last Plan'}: {details.lastPlan}</span>}
+        {details.toolsLoaded !== undefined && <span>{isZh ? '工具' : 'Tools'}: {details.toolsLoaded}</span>}
+        {details.lastReflection && <span>{isZh ? '最后反省' : 'Last Reflection'}: {details.lastReflection}</span>}
+        {details.compactionEnabled !== undefined && <span>{isZh ? '压缩' : 'Compaction'}: {details.compactionEnabled ? (isZh ? '开启' : 'On') : (isZh ? '关闭' : 'Off')}</span>}
+        {details.compressThreshold !== undefined && <span>{isZh ? '压缩阈值' : 'Compress Threshold'}: {details.compressThreshold}%</span>}
+        {details.warningLevel && <span>{isZh ? '警告级别' : 'Warning Level'}: {details.warningLevel}</span>}
+        {details.traceEnabled !== undefined && <span>Trace: {details.traceEnabled ? (isZh ? '开启' : 'On') : (isZh ? '关闭' : 'Off')}</span>}
+        {details.approvalPending !== undefined && <span>{isZh ? '审批待定' : 'Approval Pending'}: {details.approvalPending ? (isZh ? '是' : 'Yes') : (isZh ? '否' : 'No')}</span>}
+        {details.mcpConnected !== undefined && <span>MCP: {details.mcpConnected ? (isZh ? '已连接' : 'Connected') : (isZh ? '未连接' : 'Disconnected')}</span>}
+        {details.cacheHitRate !== undefined && <span>{isZh ? '缓存命中率' : 'Cache Hit Rate'}: {(details.cacheHitRate * 100).toFixed(1)}%</span>}
       </div>
     </div>
   )

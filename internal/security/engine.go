@@ -74,7 +74,7 @@ func (s *InputSanitizer) ValidatePath(path string) *CheckResult {
 
 	for _, allowed := range s.allowedDirs {
 		allowedAbs, _ := filepath.Abs(allowed)
-		if strings.HasPrefix(abs, allowedAbs) {
+		if strings.HasPrefix(abs, allowedAbs+string(filepath.Separator)) || abs == allowedAbs {
 			return &CheckResult{Passed: true, Layer: LayerInput}
 		}
 	}

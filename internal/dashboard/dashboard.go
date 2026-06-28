@@ -113,13 +113,15 @@ func (d *Dashboard) AddFS(fsys fs.FS, prefix string) {
 
 func (d *Dashboard) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "running",
 		"uptime":  time.Since(d.started).Round(time.Second).String(),
 		"port":    d.config.Port,
 		"name":    "Zhulong Dashboard",
 		"version": "0.4.0",
-	})
+	}); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 func (d *Dashboard) handleModules(w http.ResponseWriter, r *http.Request) {
@@ -127,18 +129,24 @@ func (d *Dashboard) handleModules(w http.ResponseWriter, r *http.Request) {
 	defer d.mu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
 	if d.modules == nil {
-		json.NewEncoder(w).Encode([]ModuleInfo{})
+		if err := json.NewEncoder(w).Encode([]ModuleInfo{}); err != nil {
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 		return
 	}
-	json.NewEncoder(w).Encode(d.modules)
+	if err := json.NewEncoder(w).Encode(d.modules); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 func (d *Dashboard) handleConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"port":    d.config.Port,
 		"dataDir": d.config.DataDir,
-	})
+	}); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 // SessionStateProvider 提供 session 状态
@@ -154,16 +162,27 @@ func (d *Dashboard) SetSessionProvider(p SessionStateProvider) {
 func (d *Dashboard) handleSessions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if sessionProvider != nil {
-		json.NewEncoder(w).Encode(sessionProvider())
+		if err := json.NewEncoder(w).Encode(sessionProvider()); err != nil {
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 		return
 	}
-	json.NewEncoder(w).Encode([]interface{}{})
+	if err := json.NewEncoder(w).Encode([]interface{}{}); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 // handleStop 远程停止 Dashboard
 func (d *Dashboard) handleStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "stopping"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "stopping"}); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		_ = d.Stop()
