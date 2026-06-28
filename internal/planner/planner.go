@@ -184,6 +184,13 @@ This is a Wails desktop application, NOT a traditional web app.
 ## Language: Chinese (中文)
 All responses and descriptions must be in Chinese (中文).
 
+## CRITICAL: 工作流程规则
+1. **永远不要猜测文件路径** — 第一步必须用 list_dir 找到真实路径
+2. **搜索内容用 grep_content** — 不要用 execute_command 调用 grep/findstr
+3. **错误恢复** — 命令失败时分析原因，换方法重试，不要放弃
+4. **工具组合** — 先 list_dir 了解结构，再 grep_content 搜索，最后 read_file 读取
+5. **不要用占位符路径** — 如 "path/to/file.go"，必须用 list_dir 找到的真实路径
+
 ## Output Format
 Return ONLY a valid JSON object, no markdown fences:
 {

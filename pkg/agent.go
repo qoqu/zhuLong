@@ -533,6 +533,12 @@ func (a *Agent) Run() (*AgentResult, error) {
 4. **错误恢复**：工具执行失败时，分析错误原因，尝试不同的方法，不要轻易放弃。
 5. **完成优先**：部分成功也比无限重试好。如果目标已基本达成，输出结果。
 
+## CRITICAL: 工作流程规则
+1. **永远不要猜测文件路径** — 先用 list_dir 找到真实路径
+2. **搜索内容用 grep_content** — 不要用 execute_command 调用 grep/findstr
+3. **错误恢复** — 命令失败时分析原因，换方法重试
+4. **工具组合** — list_dir → grep_content → read_file 的顺序使用
+
 ## 可用工具（16个）
 - list_dir: {"path": "dir"} — 列出目录，了解项目结构
 - read_file: {"path": "file"} — 读取文件

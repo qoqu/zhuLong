@@ -20,50 +20,55 @@ export function Transcript(props: TranscriptProps) {
   }, [props.messages, props.logs])
 
   return (
-    <div className="transcript" ref={ref}>
-      {/* Inline plan summary at top - collapsible */}
-      {props.plan.length > 0 && (
-        <details className="plan-card" open>
-          <summary className="plan-card__title">
-            {resolveLanguage(props.language) === 'zh' ? '计划' : 'Plan'} ({props.plan.length})
-            <span className="plan-card__status" data-status={props.status}>
-              {props.status}
-            </span>
-          </summary>
-          <div className="plan-card__body">
-            {props.plan.map((p) => (
-              <div key={p.id} className={`plan-card__step plan-card__step--${p.status}`}>
-                <span className="plan-card__icon">
-                  {p.status === 'completed' ? '✓' : p.status === 'running' ? '◉' : p.status === 'failed' ? '✕' : '○'}
-                </span>
-                <span className="plan-card__desc">{p.description}</span>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
+    <div className="transcript-layout">
+      {/* Sticky header: plan + logs */}
+      <div className="transcript__sticky">
+        {/* Plan summary - collapsible */}
+        {props.plan.length > 0 && (
+          <details className="plan-card" open>
+            <summary className="plan-card__title">
+              {resolveLanguage(props.language) === 'zh' ? '计划' : 'Plan'} ({props.plan.length})
+              <span className="plan-card__status" data-status={props.status}>
+                {props.status}
+              </span>
+            </summary>
+            <div className="plan-card__body">
+              {props.plan.map((p) => (
+                <div key={p.id} className={`plan-card__step plan-card__step--${p.status}`}>
+                  <span className="plan-card__icon">
+                    {p.status === 'completed' ? '✓' : p.status === 'running' ? '◉' : p.status === 'failed' ? '✕' : '○'}
+                  </span>
+                  <span className="plan-card__desc">{p.description}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
-      {/* Recent logs - collapsible */}
-      {props.logs.length > 0 && (
-        <details className="log-card" open>
-          <summary className="log-card__title">
-            {resolveLanguage(props.language) === 'zh' ? '日志' : 'Logs'} ({props.logs.length})
-          </summary>
-          <div className="log-card__body">
-            {props.logs.slice(-12).map((l) => (
-              <div key={l.id} className="log-card__entry">
-                <span className="log-card__time">{new Date(l.time).toLocaleTimeString()}</span>
-                <span className={`log-card__phase log-card__phase--${l.phase}`}>{l.phase}</span>
-                <span className="log-card__event">{l.event}</span>
-                {l.detail && <span className="log-card__detail">{l.detail}</span>}
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
+        {/* Logs - collapsible */}
+        {props.logs.length > 0 && (
+          <details className="log-card">
+            <summary className="log-card__title">
+              {resolveLanguage(props.language) === 'zh' ? '日志' : 'Logs'} ({props.logs.length})
+            </summary>
+            <div className="log-card__body">
+              {props.logs.slice(-12).map((l) => (
+                <div key={l.id} className="log-card__entry">
+                  <span className="log-card__time">{new Date(l.time).toLocaleTimeString()}</span>
+                  <span className={`log-card__phase log-card__phase--${l.phase}`}>{l.phase}</span>
+                  <span className="log-card__event">{l.event}</span>
+                  {l.detail && <span className="log-card__detail">{l.detail}</span>}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
 
-      {/* Messages - group consecutive tool messages */}
-      {renderMessages(props.messages, props.language)}
+      {/* Scrollable messages */}
+      <div className="transcript" ref={ref}>
+        {renderMessages(props.messages, props.language)}
+      </div>
     </div>
   )
 }

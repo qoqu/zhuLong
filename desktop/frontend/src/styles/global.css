@@ -837,6 +837,19 @@ select {
 }
 
 /* ========== Transcript - Apple Design ========== */
+.transcript-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.transcript__sticky {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
 .transcript {
   display: flex;
   flex-direction: column;
@@ -1205,9 +1218,9 @@ select {
 
 .composer__textarea {
   flex: 1;
-  resize: none;
+  resize: vertical;
   min-height: 36px;
-  max-height: 200px;
+  max-height: 400px;
   padding: var(--space-2) 0;
   font-size: var(--text-md);
   line-height: 1.5;
@@ -1216,6 +1229,7 @@ select {
   color: var(--fg);
   border: none;
   outline: none;
+  overflow-y: auto;
 }
 
 .composer__textarea::placeholder {

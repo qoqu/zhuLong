@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react'
 import type { ExecutionMode, Language, AgentStatus } from '../types'
 import { useT } from '../i18n'
 
@@ -37,6 +38,19 @@ export function Composer(props: ComposerProps) {
   const isRunning =
     props.status !== 'idle' && props.status !== 'done' && props.status !== 'error'
   const placeholder = props.waitingHuman ? t.inputPlaceholderWaiting : t.placeholder
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // 自动调整高度
+  const adjustHeight = () => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 400) + 'px'
+  }
+
+  useEffect(() => {
+    adjustHeight()
+  }, [props.value])
 
   const handleSend = () => {
     if (!props.value.trim()) return
@@ -47,10 +61,14 @@ export function Composer(props: ComposerProps) {
     <div className="composer">
       <div className="composer__row">
         <textarea
+          ref={textareaRef}
           className="composer__textarea"
           placeholder={placeholder}
           value={props.value}
-          onChange={(e) => props.onChange(e.target.value)}
+          onChange={(e) => {
+            props.onChange(e.target.value)
+            adjustHeight()
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
